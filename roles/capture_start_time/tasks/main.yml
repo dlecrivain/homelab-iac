@@ -5,3 +5,4 @@
   delegate_to: localhost
   delegate_facts: true
   run_once: true
+  when: hostvars['localhost'].run_start_epoch is not defined

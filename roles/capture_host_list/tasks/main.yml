@@ -5,3 +5,4 @@
   delegate_to: localhost
   delegate_facts: true
   run_once: true
+  when: hostvars['localhost'].target_host_list is not defined
