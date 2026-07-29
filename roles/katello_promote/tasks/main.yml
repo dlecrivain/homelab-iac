@@ -1,19 +1,6 @@
 ---
 - name: Get the latest content view version
-  ansible.builtin.command: >
-    hammer content-view version list
-    --content-view {{ content_view_name }}
-    --organization "{{ katello_organization }}"
-    --per-page 1
-    --fields id
-  register: cv_latest_version
-  changed_when: false
-  delegate_to: "{{ lpkat_host }}"
-  become: true
-
-- name: Extract the version ID from command output
-  ansible.builtin.set_fact:
-    cv_version_id: "{{ cv_latest_version.stdout_lines | select('match', '^[0-9]+$') | first }}"
+  ansible.builtin.include_tasks: get_version_id.yml
 
 - name: Promote the latest version to Production
   ansible.builtin.command: >
@@ -33,26 +20,13 @@
   delegate_to: "{{ lpkat_host }}"
   become: true
 
-- name: Get the newly published version ID
-  ansible.builtin.command: >
-    hammer content-view version list
-    --content-view {{ content_view_name }}
-    --organization "{{ katello_organization }}"
-    --per-page 1
-    --fields id
-  register: cv_new_version
-  changed_when: false
-  delegate_to: "{{ lpkat_host }}"
-  become: true
-
-- name: Extract the new version ID from command output
-  ansible.builtin.set_fact:
-    cv_new_version_id: "{{ cv_new_version.stdout_lines | select('match', '^[0-9]+$') | first }}"
+- name: Get the newly published content view version
+  ansible.builtin.include_tasks: get_version_id.yml
 
 - name: Promote the new version to Test only
   ansible.builtin.command: >
     hammer content-view version promote
-    --id {{ cv_new_version_id }}
+    --id {{ cv_version_id }}
     --organization "{{ katello_organization }}"
     --to-lifecycle-environment Test
   delegate_to: "{{ lpkat_host }}"
