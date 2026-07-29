@@ -35,6 +35,15 @@
         name: host_status
       when: podman_units is defined
 
+    - name: Remove the container snapshot now that the host is healthy
+      include_role:
+        name: cleanup_snapshot
+      vars:
+        snapshot_label: ansible_container
+      when:
+        - podman_units is defined
+        - host_overall_status | default('') == 'OK'
+
     - name: Prune old container images
       include_role:
         name: image_retention

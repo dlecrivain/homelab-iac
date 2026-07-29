@@ -52,6 +52,15 @@
         host_update_applied: "{{ (has_updates | default(false) | bool) and not (snapshot_already_exists | default(false)) }}"
         host_update_skipped: "{{ (has_updates | default(false) | bool) and (snapshot_already_exists | default(false)) }}"
 
+    - name: Step 8 - Remove the patching snapshot now that the host is healthy
+      include_role:
+        name: cleanup_snapshot
+      vars:
+        snapshot_label: ansible_patching
+      when:
+        - has_updates | default(false) | bool
+        - host_overall_status == 'OK'
+
 - name: Send aggregated vm-updates report
   hosts: localhost
   gather_facts: false
