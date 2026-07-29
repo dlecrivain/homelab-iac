@@ -1,5 +1,5 @@
 ---
-- name: Steps 1 and 2 - Promote CV_Rocky_10
+- name: Promote CV_Rocky_10
   hosts: "{{ lpkat_host | default('lpkat101') }}"
   gather_facts: false
   vars:
@@ -7,7 +7,7 @@
   roles:
     - katello_promote
 
-- name: Steps 3 to 7 - Check and update all VMs except lpkat101 and semaphore101
+- name: Check and update all VMs except lpkat101 and semaphore101
   hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101') }}"
   gather_facts: true
   serial: 1

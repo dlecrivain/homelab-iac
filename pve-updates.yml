@@ -1,5 +1,5 @@
 ---
-- name: Steps 1 and 2 - Promote CV_Proxmox
+- name: Promote CV_Proxmox
   hosts: "{{ lpkat_host | default('lpkat101') }}"
   gather_facts: false
   vars:

@@ -9,7 +9,7 @@ This repository automates the full patch-management lifecycle for a set of Rocky
 1. **Promote content views** in Katello (Production, then publish + Test)
 2. **Check for OS updates**, snapshot the VM if any are available, apply them, reboot, and verify the service is healthy again
 3. **Check for new container images**, snapshot the VM, pull and redeploy only the containers whose image actually changed, verify health, and prune old images
-4. **Clean up** the safety snapshots on their own independent schedule
+4. **Clean up** the safety snapshot as soon as the post-update health check passes; a snapshot left behind after a failed check is swept up later by an independently scheduled cleanup run
 
 All target hosts are discovered automatically from the Proxmox cluster via a dynamic inventory — adding a new VM to Proxmox is enough for it to be picked up (unless explicitly excluded).
 
