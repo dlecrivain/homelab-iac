@@ -35,7 +35,7 @@
         vzdump_vm_name: "{{ inventory_hostname }}"
 
 - name: Rebalance the cluster if any VM was migrated for backup
-  hosts: "{{ vm_backup_node }}"
+  hosts: "{{ vm_backup_node | default('pve1') }}"
   gather_facts: false
   run_once: true
   vars:
