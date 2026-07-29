@@ -1,0 +1,106 @@
+---
+- name: Start the vzdump backup
+  ansible.builtin.command: >
+    vzdump {{ vzdump_vmid }}
+    --mode snapshot
+    --compress zstd
+    --storage {{ vm_backup_storage }}
+    --prune-backups keep-last={{ vm_backup_local_retention }}
+  register: vzdump_start
+  async: 21600
+  poll: 0
+  delegate_to: "{{ vm_backup_node }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+
+- name: Wait for the vzdump backup to complete
+  ansible.builtin.async_status:
+    jid: "{{ vzdump_start.ansible_job_id }}"
+  register: vzdump_job
+  until: vzdump_job.finished
+  retries: 720
+  delay: 30
+  ignore_errors: true
+  delegate_to: "{{ vm_backup_node }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+
+- name: Fail clearly if the vzdump job itself reports an error
+  ansible.builtin.fail:
+    msg: "vzdump of VM {{ vzdump_vmid }} failed: {{ vzdump_job.stderr | default('unknown error') }}"
+  when: vzdump_job.rc is defined and vzdump_job.rc != 0
+
+- name: Find the newest backup archive for this VM
+  ansible.builtin.command: >
+    pvesh get /nodes/{{ vm_backup_node }}/storage/{{ vm_backup_storage }}/content
+    --content backup
+    --output-format json
+  register: backup_content
+  changed_when: false
+  delegate_to: "{{ vm_backup_node }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+
+- name: Store the newest archive's volid
+  ansible.builtin.set_fact:
+    vzdump_latest_volid: >-
+      {{
+        (backup_content.stdout | from_json)
+        | selectattr('vmid', 'equalto', vzdump_vmid | int)
+        | sort(attribute='ctime', reverse=true)
+        | map(attribute='volid')
+        | first
+      }}
+
+- name: Resolve the archive's absolute path
+  ansible.builtin.command: >
+    pvesm path {{ vzdump_latest_volid }}
+  register: vzdump_path_result
+  changed_when: false
+  delegate_to: "{{ vm_backup_node }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+
+- name: Upload the backup archive to pCloud
+  ansible.builtin.command: >
+    rclone copy {{ vzdump_path_result.stdout | trim }} {{ vm_backup_pcloud_base_path }}/{{ vzdump_vm_name }}/
+  changed_when: true
+  delegate_to: "{{ vm_backup_node }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+
+- name: Copy the pCloud retention script
+  ansible.builtin.copy:
+    src: prune_pcloud_backups.py
+    dest: /tmp/prune_pcloud_backups.py
+    mode: '0755'
+  delegate_to: "{{ vm_backup_node }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+
+- name: "Prune old backups on pCloud (keep the newest {{ vm_backup_pcloud_retention }})"
+  ansible.builtin.command: >
+    python3 /tmp/prune_pcloud_backups.py
+    {{ vm_backup_pcloud_base_path }}/{{ vzdump_vm_name }}
+    {{ vm_backup_pcloud_retention }}
+  register: pcloud_prune_result
+  changed_when: "'removed:0' not in pcloud_prune_result.stdout"
+  delegate_to: "{{ vm_backup_node }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+
+- name: Clean up the pCloud retention script
+  ansible.builtin.file:
+    path: /tmp/prune_pcloud_backups.py
+    state: absent
+  delegate_to: "{{ vm_backup_node }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"

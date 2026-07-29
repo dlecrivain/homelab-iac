@@ -12,6 +12,7 @@ This repository automates the full patch-management lifecycle for a homelab runn
 4. **Clean up** the safety snapshot as soon as the post-update health check passes; a snapshot left behind after a failed check is swept up later by an independently scheduled cleanup run
 5. **Patch the Proxmox hosts themselves**: evacuate VMs off a node with memory-aware placement, apply updates, reboot, then rebalance the whole cluster once every node is done
 6. **Retain a bounded history** of content view versions in Katello
+7. **Back up every VM** weekly via `vzdump` (ZSTD) to local Proxmox storage, upload to pCloud, and prune both retentions — migrating a VM to the backup node first if needed, then rebalancing the cluster afterwards
 
 VM target hosts are discovered automatically from the Proxmox cluster via a dynamic inventory — adding a new VM to Proxmox is enough for it to be picked up (unless explicitly excluded). The 3 Proxmox nodes themselves (`pve1`/`pve2`/`pve3`) can't be discovered that way (they're the hypervisors, not VMs), so they're declared as a small static host list via their own `host_vars/pve*.yml`.
 
@@ -26,6 +27,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 | `cv-retention.yml` | Purges old `CV_Rocky_10`/`CV_Proxmox` content view versions beyond `cv_retention_count` |
 | `pve-rebalance-test.yml` | Standalone dry-run harness to compute a `pve_rebalance` plan in isolation, without running a full `pve-updates.yml` cycle |
 | `pcloud-backups.yml` | Runs a single `rclone` backup (source/destination/mode passed as extra vars); scheduled as one independent Semaphore template per backup job, replacing what used to be a system crontab on `smb101` |
+| `vm-backups.yml` | Runs a `vzdump` (ZSTD) of every VM, migrating it to `pve1` first if it isn't already there (the only node with the `Stockage_SSD` backup storage), uploads the archive to pCloud, prunes both retentions, then rebalances the cluster if anything was migrated |
 
 `vm-updates.yml` and `container-updates.yml` already remove their own snapshot as soon as the post-update health check passes — `cleanup-snapshots.yml` is the backstop for the ones deliberately left behind after a failed health check, run on its own independent schedule (as two separate Semaphore templates, one per `snapshot_label` value) since OS patching and container updates don't necessarily run on the same cadence.
 
@@ -37,6 +39,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 - **`cv-retention.yml`** — Purges old content view versions beyond `cv_retention_count`
 - **`pve-rebalance-test.yml`** — Standalone dry-run test harness for the `pve_rebalance` role
 - **`pcloud-backups.yml`** — Runs one `rclone` backup per invocation (source/dest/mode via extra vars); each job gets its own scheduled Semaphore template
+- **`vm-backups.yml`** — Weekly `vzdump` of every VM to `Stockage_SSD` then pCloud, with migration + rebalance as needed
 - **`ansible.cfg`** — Silences interpreter discovery warnings
 - **`requirements.txt`** — Python deps (proxmoxer, requests) for the inventory plugin
 - **`collections/requirements.yml`** — Ansible collections (community.proxmox, ansible.posix, community.general)
@@ -60,6 +63,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
   - `pve_migrate_vm/` — Live-migrate a single VM between Proxmox nodes (residual snapshot cleanup, async wait, health check)
   - `pve_placement/` — Memory-aware placement calculation for evacuating one node
   - `pve_rebalance/` — Cluster-wide rebalance calculation and move execution
+  - `vzdump_backup/` — Run vzdump, locate the resulting archive, upload it to pCloud, prune the pCloud retention
 - **`BACKLOG.md`** — Planned future automation work
 
 ## How it works
@@ -105,6 +109,7 @@ Both `vm-updates.yml` and `container-updates.yml` take a Proxmox snapshot before
   - Python packages: `pip install -r requirements.txt`
 - A Proxmox API token with sufficient privileges to list VMs, create/delete snapshots, and migrate VMs
 - SSH access to all target hosts, and to the Proxmox nodes, using a key stored in Semaphore's Key Store (never committed to this repo)
+- `rclone` installed and configured with a `pcloud:` remote on `smb101` (for `pcloud-backups.yml`) and on `pve1` (for `vm-backups.yml`)
 
 ## Secrets
 
@@ -112,4 +117,4 @@ No credentials are stored in this repository. The Proxmox API token is read via 
 
 ## Roadmap
 
-See [`BACKLOG.md`](./BACKLOG.md) for planned work: a BunkerWeb reverse proxy rollout, and weekly VM backups to pCloud.
+See [`BACKLOG.md`](./BACKLOG.md) for planned work: a BunkerWeb reverse proxy rollout.

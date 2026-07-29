@@ -1,0 +1,50 @@
+---
+- name: Back up every VM to Stockage_SSD then pCloud, rebalancing the cluster afterwards
+  hosts: "{{ target_hosts | default('proxmox_all_qemu') }}"
+  gather_facts: false
+  serial: 1
+  tasks:
+    - name: "Step 1 - Migrate this VM to {{ vm_backup_node }} if it isn't already there"
+      when: proxmox_node != vm_backup_node
+      block:
+        - name: "Migrate VM to {{ vm_backup_node }} for backup"
+          include_role:
+            name: pve_migrate_vm
+          vars:
+            migrate_vmid: "{{ proxmox_vmid }}"
+            migrate_target_node: "{{ vm_backup_node }}"
+            migrate_delegate_to: "{{ proxmox_node }}"
+
+        - name: Check services after migration
+          include_role:
+            name: health_check
+          vars:
+            health_check_fail_on_unhealthy: true
+
+        - name: Record that at least one VM was migrated for backup
+          ansible.builtin.set_fact:
+            any_vm_migrated_for_backup: true
+          delegate_to: localhost
+          delegate_facts: true
+
+    - name: Step 2 - Run the vzdump backup and upload it to pCloud
+      include_role:
+        name: vzdump_backup
+      vars:
+        vzdump_vmid: "{{ proxmox_vmid }}"
+        vzdump_vm_name: "{{ inventory_hostname }}"
+
+- name: Rebalance the cluster if any VM was migrated for backup
+  hosts: "{{ vm_backup_node }}"
+  gather_facts: false
+  run_once: true
+  vars:
+    pve_all_nodes:
+      - pve1
+      - pve2
+      - pve3
+  tasks:
+    - name: Rebalance the whole cluster
+      include_role:
+        name: pve_rebalance
+      when: hostvars['localhost'].any_vm_migrated_for_backup | default(false)
