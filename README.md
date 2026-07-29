@@ -19,16 +19,14 @@ All target hosts are discovered automatically from the Proxmox cluster via a dyn
 |---|---|
 | `vm-updates.yml` | Promotes the `CV_Rocky_10` content view in Katello, then checks/patches/reboots every VM in the cluster (excluding the Foreman and Semaphore hosts themselves) |
 | `container-updates.yml` | Updates Podman/Quadlet-managed containers on hosts that define `podman_units` in their `host_vars` |
-| `cleanup-patching-snapshots.yml` | Removes the `ansible_patching` safety snapshots created by `vm-updates.yml` |
-| `cleanup-container-snapshots.yml` | Removes the `ansible_container` safety snapshots created by `container-updates.yml` |
+| `cleanup-snapshots.yml` | Removes leftover safety snapshots matching `snapshot_label` (default `ansible_patching`); pass `-e snapshot_label=ansible_container` to clean up the container-update ones instead |
 
-Each cleanup playbook is scheduled independently, since OS patching and container updates don't necessarily run on the same cadence.
+`vm-updates.yml` and `container-updates.yml` already remove their own snapshot as soon as the post-update health check passes — `cleanup-snapshots.yml` is the backstop for the ones deliberately left behind after a failed health check, run on its own independent schedule (as two separate Semaphore templates, one per `snapshot_label` value) since OS patching and container updates don't necessarily run on the same cadence.
 
 ## Repository structure
 - **`vm-updates.yml`** — Main OS patching + Katello promotion playbook
 - **`container-updates.yml`** — Podman container update playbook
-- **`cleanup-patching-snapshots.yml`** — Removes `ansible_patching` snapshots
-- **`cleanup-container-snapshots.yml`** — Removes `ansible_container` snapshots
+- **`cleanup-snapshots.yml`** — Removes leftover snapshots for a given `snapshot_label` (parametrized, see [Playbooks](#playbooks))
 - **`ansible.cfg`** — Silences interpreter discovery warnings
 - **`requirements.txt`** — Python deps (proxmoxer, requests) for the inventory plugin
 - **`collections/requirements.yml`** — Ansible collections (community.proxmox, ansible.posix)
