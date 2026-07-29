@@ -13,3 +13,4 @@
       loop: "{{ cv_retention_views | default(['CV_Rocky_10', 'CV_Proxmox']) }}"
       register: purge_result
       changed_when: "'deleted' in (purge_result.stdout | default(''))"
+      failed_when: purge_result.rc not in [0, 128]
