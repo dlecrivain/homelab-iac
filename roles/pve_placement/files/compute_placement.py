@@ -4,7 +4,7 @@ import sys
 
 source_node = sys.argv[1]
 target_nodes = sys.argv[2].split(',')
-SAFETY_THRESHOLD = 0.80  # never push a node above 80% memory usage
+SAFETY_THRESHOLD = float(sys.argv[3])  # never push a node above this fraction of memory usage
 
 def get_node_status(node):
     raw = subprocess.check_output(['pvesh', 'get', f'/nodes/{node}/status', '--output-format', 'json'])

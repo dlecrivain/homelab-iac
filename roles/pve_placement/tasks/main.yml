@@ -10,6 +10,7 @@
     python3 /tmp/compute_placement.py
     {{ inventory_hostname }}
     {{ pve_other_nodes | join(',') }}
+    {{ pve_safety_threshold }}
   register: placement_result
   changed_when: false
 

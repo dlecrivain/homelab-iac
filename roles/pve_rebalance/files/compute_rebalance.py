@@ -3,8 +3,8 @@ import subprocess
 import sys
 
 nodes = sys.argv[1].split(',')
-SAFETY_THRESHOLD = 0.80
-IMPROVEMENT_MARGIN = 0.05  # only move a VM if it meaningfully improves balance
+SAFETY_THRESHOLD = float(sys.argv[2])
+IMPROVEMENT_MARGIN = float(sys.argv[3])  # only move a VM if it meaningfully improves balance
 
 def get_node_status(node):
     raw = subprocess.check_output(['pvesh', 'get', f'/nodes/{node}/status', '--output-format', 'json'])

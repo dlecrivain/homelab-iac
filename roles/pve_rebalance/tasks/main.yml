@@ -11,7 +11,7 @@
 
 - name: Compute the global rebalance plan
   ansible.builtin.command: >
-    python3 /tmp/compute_rebalance.py {{ pve_all_nodes | join(',') }}
+    python3 /tmp/compute_rebalance.py {{ pve_all_nodes | join(',') }} {{ pve_safety_threshold }} {{ pve_rebalance_margin }}
   register: rebalance_result
   changed_when: false
   delegate_to: "{{ proxmox_api_host }}"
