@@ -6,7 +6,7 @@
 
 - name: Format the run duration for display
   ansible.builtin.set_fact:
-    report_duration_display: "{{ (report_duration_seconds | int // 60) }}m {{ (report_duration_seconds | int % 60) }}s"
+    report_duration_display: "{{ (report_duration_seconds | int // 3600) }}h {{ ((report_duration_seconds | int % 3600) // 60) }}m {{ (report_duration_seconds | int % 60) }}s"
   when: run_start_epoch is defined
 
 - name: Build and send the HTML report email
