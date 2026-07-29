@@ -13,70 +13,54 @@
   ansible.builtin.set_fact:
     unit_env: "{{ {'XDG_RUNTIME_DIR': '/run/user/' + unit_uid.stdout, 'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/run/user/' + unit_uid.stdout + '/bus'} if (unit.scope == 'user' and unit.become_user is defined and unit.become_user != ansible_user) else {} }}"
 
-- name: Get current image ID
-  ansible.builtin.command: "podman inspect {{ unit.name }} --format '{{ '{{' }}.Image{{ '}}' }}'"
-  register: image_before
-  changed_when: false
+- name: Manage this unit's image and lifecycle
   become: "{{ unit_become }}"
   become_user: "{{ 'root' if unit.scope == 'root' else (unit.become_user | default(omit)) }}"
   environment: "{{ unit_env }}"
+  block:
+    - name: Get current image ID
+      ansible.builtin.command: "podman inspect {{ unit.name }} --format '{{ '{{' }}.Image{{ '}}' }}'"
+      register: image_before
+      changed_when: false
 
-- name: Get current image version label
-  ansible.builtin.command: >
-    podman inspect {{ unit.name }} --format '{{ '{{' }} index .Config.Labels "org.opencontainers.image.version" {{ '}}' }}'
-  register: version_before
-  changed_when: false
-  become: "{{ unit_become }}"
-  become_user: "{{ 'root' if unit.scope == 'root' else (unit.become_user | default(omit)) }}"
-  environment: "{{ unit_env }}"
+    - name: Get current image version label
+      ansible.builtin.command: >
+        podman inspect {{ unit.name }} --format '{{ '{{' }} index .Config.Labels "org.opencontainers.image.version" {{ '}}' }}'
+      register: version_before
+      changed_when: false
 
-- name: Get image reference used
-  ansible.builtin.command: "podman inspect {{ unit.name }} --format '{{ '{{' }}.ImageName{{ '}}' }}'"
-  register: image_ref
-  changed_when: false
-  become: "{{ unit_become }}"
-  become_user: "{{ 'root' if unit.scope == 'root' else (unit.become_user | default(omit)) }}"
-  environment: "{{ unit_env }}"
+    - name: Get image reference used
+      ansible.builtin.command: "podman inspect {{ unit.name }} --format '{{ '{{' }}.ImageName{{ '}}' }}'"
+      register: image_ref
+      changed_when: false
 
-- name: Pull the latest image
-  ansible.builtin.command: "podman pull {{ image_ref.stdout }}"
-  register: pull_result
-  changed_when: "'Copying blob' in pull_result.stdout or 'Copying config' in pull_result.stdout"
-  become: "{{ unit_become }}"
-  become_user: "{{ 'root' if unit.scope == 'root' else (unit.become_user | default(omit)) }}"
-  environment: "{{ unit_env }}"
+    - name: Pull the latest image
+      ansible.builtin.command: "podman pull {{ image_ref.stdout }}"
+      register: pull_result
+      changed_when: "'Copying blob' in pull_result.stdout or 'Copying config' in pull_result.stdout"
 
-- name: Get image ID after pull
-  ansible.builtin.command: "podman inspect {{ image_ref.stdout }} --format '{{ '{{' }}.Id{{ '}}' }}'"
-  register: image_after
-  changed_when: false
-  become: "{{ unit_become }}"
-  become_user: "{{ 'root' if unit.scope == 'root' else (unit.become_user | default(omit)) }}"
-  environment: "{{ unit_env }}"
+    - name: Get image ID after pull
+      ansible.builtin.command: "podman inspect {{ image_ref.stdout }} --format '{{ '{{' }}.Id{{ '}}' }}'"
+      register: image_after
+      changed_when: false
 
-- name: Get new image version label
-  ansible.builtin.command: >
-    podman inspect {{ image_ref.stdout }} --format '{{ '{{' }} index .Config.Labels "org.opencontainers.image.version" {{ '}}' }}'
-  register: version_after
-  changed_when: false
-  become: "{{ unit_become }}"
-  become_user: "{{ 'root' if unit.scope == 'root' else (unit.become_user | default(omit)) }}"
-  environment: "{{ unit_env }}"
+    - name: Get new image version label
+      ansible.builtin.command: >
+        podman inspect {{ image_ref.stdout }} --format '{{ '{{' }} index .Config.Labels "org.opencontainers.image.version" {{ '}}' }}'
+      register: version_after
+      changed_when: false
 
-- name: Restart unit if image changed
-  ansible.builtin.systemd:
-    name: "{{ (unit.service_name | default(unit.name)) }}.service"
-    state: restarted
-    scope: "{{ 'system' if unit.scope == 'root' else 'user' }}"
-  become: "{{ unit_become }}"
-  become_user: "{{ 'root' if unit.scope == 'root' else (unit.become_user | default(omit)) }}"
-  environment: "{{ unit_env }}"
-  when: image_after.stdout != image_before.stdout
+    - name: Restart unit if image changed
+      ansible.builtin.systemd:
+        name: "{{ (unit.service_name | default(unit.name)) }}.service"
+        state: restarted
+        scope: "{{ 'system' if unit.scope == 'root' else 'user' }}"
+      when: image_after.stdout != image_before.stdout
 
-- name: Wait a moment for the unit to stabilize after restart
-  ansible.builtin.pause:
-    seconds: 5
-  when: image_after.stdout != image_before.stdout
+    - name: Wait a moment for the unit to stabilize after restart
+      ansible.builtin.pause:
+        seconds: 5
+      when: image_after.stdout != image_before.stdout
 
 - name: Record update summary for this unit
   ansible.builtin.set_fact:
