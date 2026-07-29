@@ -63,47 +63,43 @@
       vars:
         report_subject: "[container-updates] {{ 'PROBLEM detected' if any_problem else 'All OK' }}"
         report_body: |
-          <html>
-          <body style="font-family: Arial, sans-serif; color: #222;">
-            <h2 style="color:#2c3e50;">Container updates report</h2>
-            <table style="border-collapse: collapse; width: 100%;">
-              <tr style="background-color:#2c3e50; color:white;">
-                <th style="padding:8px; border:1px solid #ccc; text-align:left;">Host</th>
-                <th style="padding:8px; border:1px solid #ccc; text-align:left;">Container</th>
-                <th style="padding:8px; border:1px solid #ccc; text-align:left;">Status</th>
-                <th style="padding:8px; border:1px solid #ccc; text-align:left;">URL Status</th>
-              </tr>
-              {% for h in hostvars['localhost'].target_host_list %}
-              {% if hostvars[h].host_update_skipped | default(false) %}
-              <tr style="background-color:#fff4e5;">
-                <td style="padding:8px; border:1px solid #ccc;">{{ h }}</td>
-                <td style="padding:8px; border:1px solid #ccc;" colspan="3">Skipped — an "ansible_container" snapshot already existed</td>
-              </tr>
-              {% endif %}
-              {% if hostvars[h].podman_update_summary is defined and not (hostvars[h].host_update_skipped | default(false)) %}
-              {% for c in hostvars[h].podman_update_summary %}
-              {% set running = hostvars[h].health_check_container_results | default([]) | selectattr('name','equalto',c.name) | map(attribute='status') | first | default('Up') %}
-              {% if running != 'Up' %}
-              {% set row_color = '#fdecea' %}
-              {% elif c.updated %}
-              {% set row_color = '#eaf2fd' %}
-              {% else %}
-              {% set row_color = '#eafaf1' %}
-              {% endif %}
-              <tr style="background-color:{{ row_color }};">
-                <td style="padding:8px; border:1px solid #ccc;">{{ h }}</td>
-                <td style="padding:8px; border:1px solid #ccc;">{{ c.name }}</td>
-                <td style="padding:8px; border:1px solid #ccc;">
-                  {{ running }}
-                  {% if c.updated %} — updated {{ c.old_version }} → {{ c.new_version }}{% else %} — unchanged ({{ c.old_version }}){% endif %}
-                </td>
-                <td style="padding:8px; border:1px solid #ccc;">
-                  {{ hostvars[h].health_check_url_status | default('N/A') }}
-                </td>
-              </tr>
-              {% endfor %}
-              {% endif %}
-              {% endfor %}
-            </table>
-          </body>
-          </html>
+          <h2>Container updates report</h2>
+          <table>
+            <tr>
+              <th>Host</th>
+              <th>Container</th>
+              <th>Status</th>
+              <th>URL Status</th>
+            </tr>
+            {% for h in hostvars['localhost'].target_host_list %}
+            {% if hostvars[h].host_update_skipped | default(false) %}
+            <tr class="status-warning">
+              <td>{{ h }}</td>
+              <td colspan="3">Skipped — an "ansible_container" snapshot already existed</td>
+            </tr>
+            {% endif %}
+            {% if hostvars[h].podman_update_summary is defined and not (hostvars[h].host_update_skipped | default(false)) %}
+            {% for c in hostvars[h].podman_update_summary %}
+            {% set running = hostvars[h].health_check_container_results | default([]) | selectattr('name','equalto',c.name) | map(attribute='status') | first | default('Up') %}
+            {% if running != 'Up' %}
+            {% set row_class = 'status-problem' %}
+            {% elif c.updated %}
+            {% set row_class = 'status-info' %}
+            {% else %}
+            {% set row_class = 'status-ok' %}
+            {% endif %}
+            <tr class="{{ row_class }}">
+              <td>{{ h }}</td>
+              <td>{{ c.name }}</td>
+              <td>
+                {{ running }}
+                {% if c.updated %} — updated {{ c.old_version }} → {{ c.new_version }}{% else %} — unchanged ({{ c.old_version }}){% endif %}
+              </td>
+              <td>
+                {{ hostvars[h].health_check_url_status | default('N/A') }}
+              </td>
+            </tr>
+            {% endfor %}
+            {% endif %}
+            {% endfor %}
+          </table>

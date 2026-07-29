@@ -116,64 +116,60 @@
       vars:
         report_subject: "[pve-updates] {{ 'STOPPED - manual intervention needed' if run_was_halted else 'Run completed' }}"
         report_body: |
-          <html>
-          <body style="font-family: Arial, sans-serif; color: #222;">
-            <h2 style="color:#2c3e50;">PVE hosts update report</h2>
-            {% if run_was_halted %}
-            <p style="background-color:#fdecea; padding:10px; border-left:4px solid #c0392b;">
-              <strong>The run was stopped.</strong> A host failed during processing, so no further hosts were touched, as configured. The final cluster rebalance was skipped.
-            </p>
+          <h2>PVE hosts update report</h2>
+          {% if run_was_halted %}
+          <p class="alert-danger">
+            <strong>The run was stopped.</strong> A host failed during processing, so no further hosts were touched, as configured. The final cluster rebalance was skipped.
+          </p>
+          {% endif %}
+          {% if newer_pve_suite_available | default(false) %}
+          <p class="alert-warning">
+            <strong>Note:</strong> A newer Proxmox VE major release appears to be available upstream. This has NOT been applied automatically — review manually if you want to upgrade.
+          </p>
+          {% endif %}
+          <table>
+            <tr>
+              <th>Host</th>
+              <th>Status</th>
+              <th>Version</th>
+              <th>Details</th>
+            </tr>
+            {% for h in hostvars['localhost'].target_host_list %}
+            {% set st = hostvars[h].pve_host_status | default('NOT_PROCESSED') %}
+            {% if st == 'OK' %}
+            {% set row_class = 'status-info' %}
+            {% elif st == 'NO_UPDATE' %}
+            {% set row_class = 'status-ok' %}
+            {% elif st == 'BLOCKED' %}
+            {% set row_class = 'status-problem' %}
+            {% else %}
+            {% set row_class = 'status-neutral' %}
             {% endif %}
-            {% if newer_pve_suite_available | default(false) %}
-            <p style="background-color:#fff4e5; padding:10px; border-left:4px solid #e67e22;">
-              <strong>Note:</strong> A newer Proxmox VE major release appears to be available upstream. This has NOT been applied automatically — review manually if you want to upgrade.
-            </p>
-            {% endif %}
-            <table style="border-collapse: collapse; width: 100%;">
-              <tr style="background-color:#2c3e50; color:white;">
-                <th style="padding:8px; border:1px solid #ccc; text-align:left;">Host</th>
-                <th style="padding:8px; border:1px solid #ccc; text-align:left;">Status</th>
-                <th style="padding:8px; border:1px solid #ccc; text-align:left;">Version</th>
-                <th style="padding:8px; border:1px solid #ccc; text-align:left;">Details</th>
-              </tr>
-              {% for h in hostvars['localhost'].target_host_list %}
-              {% set st = hostvars[h].pve_host_status | default('NOT_PROCESSED') %}
-              {% if st == 'OK' %}
-              {% set row_color = '#eaf2fd' %}
-              {% elif st == 'NO_UPDATE' %}
-              {% set row_color = '#eafaf1' %}
-              {% elif st == 'BLOCKED' %}
-              {% set row_color = '#fdecea' %}
-              {% else %}
-              {% set row_color = '#f5f5f5' %}
-              {% endif %}
-              <tr style="background-color:{{ row_color }};">
-                <td style="padding:8px; border:1px solid #ccc;">{{ h }}</td>
-                <td style="padding:8px; border:1px solid #ccc;">{{ st }}</td>
-                <td style="padding:8px; border:1px solid #ccc;">
-                  {% if hostvars[h].pve_version_before is defined %}
-                  {% if hostvars[h].pve_version_before == hostvars[h].pve_version_after %}
-                  {{ hostvars[h].pve_version_after }} (unchanged)
-                  {% else %}
-                  {{ hostvars[h].pve_version_before }} → {{ hostvars[h].pve_version_after }}
-                  {% endif %}
-                  {% else %}
-                  N/A
-                  {% endif %}
-                </td>
-                <td style="padding:8px; border:1px solid #ccc;">
-                  {% if st == 'BLOCKED' %}
-                  {{ hostvars[h].pve_host_failure_reason | default('Unknown error') }}
-                  {% elif st == 'NOT_PROCESSED' %}
-                  Skipped — run was stopped before reaching this host
-                  {% elif st == 'NO_UPDATE' %}
-                  No updates were available, host left untouched
-                  {% else %}
-                  Evacuated, updated and rebooted successfully
-                  {% endif %}
-                </td>
-              </tr>
-              {% endfor %}
-            </table>
-          </body>
-          </html>
+            <tr class="{{ row_class }}">
+              <td>{{ h }}</td>
+              <td>{{ st }}</td>
+              <td>
+                {% if hostvars[h].pve_version_before is defined %}
+                {% if hostvars[h].pve_version_before == hostvars[h].pve_version_after %}
+                {{ hostvars[h].pve_version_after }} (unchanged)
+                {% else %}
+                {{ hostvars[h].pve_version_before }} → {{ hostvars[h].pve_version_after }}
+                {% endif %}
+                {% else %}
+                N/A
+                {% endif %}
+              </td>
+              <td>
+                {% if st == 'BLOCKED' %}
+                {{ hostvars[h].pve_host_failure_reason | default('Unknown error') }}
+                {% elif st == 'NOT_PROCESSED' %}
+                Skipped — run was stopped before reaching this host
+                {% elif st == 'NO_UPDATE' %}
+                No updates were available, host left untouched
+                {% else %}
+                Evacuated, updated and rebooted successfully
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </table>

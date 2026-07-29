@@ -71,41 +71,37 @@
       vars:
         report_subject: "[vm-updates] Weekly patch report"
         report_body: |
-          <html>
-          <body style="font-family: Arial, sans-serif; color: #222;">
-            <h2 style="color:#2c3e50;">VM updates report</h2>
-            <table style="border-collapse: collapse; width: 100%;">
-              <tr style="background-color:#2c3e50; color:white;">
-                <th style="padding:8px; border:1px solid #ccc; text-align:left;">Host</th>
-                <th style="padding:8px; border:1px solid #ccc; text-align:left;">Update Status</th>
-                <th style="padding:8px; border:1px solid #ccc; text-align:left;">URL Status</th>
-              </tr>
-              {% for h in hostvars['localhost'].target_host_list %}
-              {% if hostvars[h].host_overall_status is defined %}
-              {% if hostvars[h].host_overall_status == 'PROBLEM' %}
-              {% set row_color = '#fdecea' %}
-              {% elif hostvars[h].host_update_skipped | default(false) %}
-              {% set row_color = '#fff4e5' %}
-              {% elif hostvars[h].host_update_applied | default(false) %}
-              {% set row_color = '#eaf2fd' %}
-              {% else %}
-              {% set row_color = '#eafaf1' %}
-              {% endif %}
-              <tr style="background-color:{{ row_color }};">
-                <td style="padding:8px; border:1px solid #ccc;">{{ h }}</td>
-                <td style="padding:8px; border:1px solid #ccc;">
-                  {% if hostvars[h].host_update_skipped | default(false) %}
-                  Skipped — an "ansible_patching" snapshot already existed
-                  {% elif hostvars[h].host_update_applied | default(false) %}
-                  Updated and rebooted
-                  {% else %}
-                  No update needed
-                  {% endif %}
-                </td>
-                <td style="padding:8px; border:1px solid #ccc;">{{ hostvars[h].health_check_url_status | default('N/A') }}</td>
-              </tr>
-              {% endif %}
-              {% endfor %}
-            </table>
-          </body>
-          </html>
+          <h2>VM updates report</h2>
+          <table>
+            <tr>
+              <th>Host</th>
+              <th>Update Status</th>
+              <th>URL Status</th>
+            </tr>
+            {% for h in hostvars['localhost'].target_host_list %}
+            {% if hostvars[h].host_overall_status is defined %}
+            {% if hostvars[h].host_overall_status == 'PROBLEM' %}
+            {% set row_class = 'status-problem' %}
+            {% elif hostvars[h].host_update_skipped | default(false) %}
+            {% set row_class = 'status-warning' %}
+            {% elif hostvars[h].host_update_applied | default(false) %}
+            {% set row_class = 'status-info' %}
+            {% else %}
+            {% set row_class = 'status-ok' %}
+            {% endif %}
+            <tr class="{{ row_class }}">
+              <td>{{ h }}</td>
+              <td>
+                {% if hostvars[h].host_update_skipped | default(false) %}
+                Skipped — an "ansible_patching" snapshot already existed
+                {% elif hostvars[h].host_update_applied | default(false) %}
+                Updated and rebooted
+                {% else %}
+                No update needed
+                {% endif %}
+              </td>
+              <td>{{ hostvars[h].health_check_url_status | default('N/A') }}</td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+          </table>
