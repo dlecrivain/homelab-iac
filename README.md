@@ -1,17 +1,19 @@
 # automatic_updates
 
-Ansible automation for patching and maintaining a homelab infrastructure running on Proxmox VE, Foreman/Katello, and Podman. Orchestrated via [SemaphoreUI](https://semaphoreui.com), with a fully dynamic Proxmox inventory (no static host lists to maintain).
+Ansible automation for patching and maintaining a homelab infrastructure running on Proxmox VE, Foreman/Katello, and Podman. Orchestrated via [SemaphoreUI](https://semaphoreui.com), with a fully dynamic Proxmox inventory for VMs (no static host lists to maintain there).
 
 ## Overview
 
-This repository automates the full patch-management lifecycle for a set of Rocky Linux 10 VMs managed by Foreman/Katello, running services deployed via rootless/root Podman with [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html):
+This repository automates the full patch-management lifecycle for a homelab running Rocky Linux 10 VMs (managed by Foreman/Katello, services deployed via rootless/root Podman with [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)) and a 3-node Proxmox VE cluster:
 
-1. **Promote content views** in Katello (Production, then publish + Test)
-2. **Check for OS updates**, snapshot the VM if any are available, apply them, reboot, and verify the service is healthy again
+1. **Promote content views** in Katello (Production, then publish + Test) — `CV_Rocky_10` for the VMs, `CV_Proxmox` for the hypervisors
+2. **Check for OS updates** on each VM, snapshot it if any are available, apply them, reboot, and verify the service is healthy again
 3. **Check for new container images**, snapshot the VM, pull and redeploy only the containers whose image actually changed, verify health, and prune old images
 4. **Clean up** the safety snapshot as soon as the post-update health check passes; a snapshot left behind after a failed check is swept up later by an independently scheduled cleanup run
+5. **Patch the Proxmox hosts themselves**: evacuate VMs off a node with memory-aware placement, apply updates, reboot, then rebalance the whole cluster once every node is done
+6. **Retain a bounded history** of content view versions in Katello
 
-All target hosts are discovered automatically from the Proxmox cluster via a dynamic inventory — adding a new VM to Proxmox is enough for it to be picked up (unless explicitly excluded).
+VM target hosts are discovered automatically from the Proxmox cluster via a dynamic inventory — adding a new VM to Proxmox is enough for it to be picked up (unless explicitly excluded). The 3 Proxmox nodes themselves (`pve1`/`pve2`/`pve3`) can't be discovered that way (they're the hypervisors, not VMs), so they're declared as a small static host list via their own `host_vars/pve*.yml`.
 
 ## Playbooks
 
@@ -20,19 +22,25 @@ All target hosts are discovered automatically from the Proxmox cluster via a dyn
 | `vm-updates.yml` | Promotes the `CV_Rocky_10` content view in Katello, then checks/patches/reboots every VM in the cluster (excluding the Foreman and Semaphore hosts themselves) |
 | `container-updates.yml` | Updates Podman/Quadlet-managed containers on hosts that define `podman_units` in their `host_vars` |
 | `cleanup-snapshots.yml` | Removes leftover safety snapshots matching `snapshot_label` (default `ansible_patching`); pass `-e snapshot_label=ansible_container` to clean up the container-update ones instead |
+| `pve-updates.yml` | Promotes the `CV_Proxmox` content view, then evacuates/patches/reboots each of the 3 Proxmox nodes in turn (halting the whole run on the first failure), and rebalances VMs across the cluster once every node is updated |
+| `cv-retention.yml` | Purges old `CV_Rocky_10`/`CV_Proxmox` content view versions beyond `cv_retention_count` |
+| `pve-rebalance-test.yml` | Standalone dry-run harness to compute a `pve_rebalance` plan in isolation, without running a full `pve-updates.yml` cycle |
 
 `vm-updates.yml` and `container-updates.yml` already remove their own snapshot as soon as the post-update health check passes — `cleanup-snapshots.yml` is the backstop for the ones deliberately left behind after a failed health check, run on its own independent schedule (as two separate Semaphore templates, one per `snapshot_label` value) since OS patching and container updates don't necessarily run on the same cadence.
 
 ## Repository structure
-- **`vm-updates.yml`** — Main OS patching + Katello promotion playbook
+- **`vm-updates.yml`** — Main OS patching + Katello promotion playbook (VMs)
 - **`container-updates.yml`** — Podman container update playbook
 - **`cleanup-snapshots.yml`** — Removes leftover snapshots for a given `snapshot_label` (parametrized, see [Playbooks](#playbooks))
+- **`pve-updates.yml`** — Proxmox host patching: `CV_Proxmox` promotion, per-node evacuate/patch/reboot, cluster rebalance
+- **`cv-retention.yml`** — Purges old content view versions beyond `cv_retention_count`
+- **`pve-rebalance-test.yml`** — Standalone dry-run test harness for the `pve_rebalance` role
 - **`ansible.cfg`** — Silences interpreter discovery warnings
 - **`requirements.txt`** — Python deps (proxmoxer, requests) for the inventory plugin
-- **`collections/requirements.yml`** — Ansible collections (community.proxmox, ansible.posix)
-- **`inventory/proxmox.yml`** — Dynamic Proxmox inventory (API token via env var)
-- **`group_vars/all.yml`** — Shared variables (Proxmox API host, Katello org, etc.)
-- **`host_vars/`** — Per-host variables: health checks, podman_units, etc.
+- **`collections/requirements.yml`** — Ansible collections (community.proxmox, ansible.posix, community.general)
+- **`inventory/proxmox.yml`** — Dynamic Proxmox inventory for VMs (API token via env var)
+- **`group_vars/all.yml`** — Shared variables (Proxmox API host, Katello org, SMTP, retention/rebalance tuning, etc.)
+- **`host_vars/`** — Per-VM variables (health checks, `podman_units`) and per-Proxmox-node connection details (`pve1`/`pve2`/`pve3`)
 - **`roles/`**
   - `katello_promote/` — Content view promote/publish via hammer
   - `check_updates/` — dnf/apt update check
@@ -43,13 +51,20 @@ All target hosts are discovered automatically from the Proxmox cluster via a dyn
   - `cleanup_snapshot/` — Remove a named Proxmox snapshot
   - `podman_update/` — Pull + conditionally restart a Quadlet unit
   - `image_retention/` — Prune old container images, keep the 2 most recent
+  - `capture_host_list/` — Snapshot the play's host list onto localhost, for the final report
+  - `host_status/` — Derive a host's overall OK/PROBLEM status from its health check results
+  - `send_report/` — Shared HTML email skeleton + CSS; sends the per-playbook report body
+  - `pve_evacuate_host/` — Compute placement, then live-migrate every VM off a Proxmox node
+  - `pve_migrate_vm/` — Live-migrate a single VM between Proxmox nodes (residual snapshot cleanup, async wait, health check)
+  - `pve_placement/` — Memory-aware placement calculation for evacuating one node
+  - `pve_rebalance/` — Cluster-wide rebalance calculation and move execution
 - **`BACKLOG.md`** — Planned future automation work
 
 ## How it works
 
 ### Dynamic inventory
 
-`inventory/proxmox.yml` uses the `community.proxmox.proxmox` plugin, authenticating with a Proxmox API token (never stored in this repo — see [Secrets](#secrets)). VMs are grouped automatically (`proxmox_all_qemu`, per-node groups, etc.), and each VM's node/vmid are exposed as host facts, which the `proxmox_snapshot` and `cleanup_*` roles use to target the right cluster node via `pvesh`.
+`inventory/proxmox.yml` uses the `community.proxmox.proxmox` plugin, authenticating with a Proxmox API token (never stored in this repo — see [Secrets](#secrets)). VMs are grouped automatically (`proxmox_all_qemu`, per-node groups, etc.), and each VM's node/vmid are exposed as host facts, which the `proxmox_snapshot` and `cleanup_snapshot` roles use to target the right cluster node via `pvesh`. The 3 Proxmox nodes themselves aren't part of this dynamic inventory (they're hypervisors, not VMs) — they're a small static host list, each with its own `host_vars/pve{1,2,3}.yml`.
 
 ### Per-host configuration
 
@@ -73,14 +88,16 @@ This makes the playbooks fully generic: no host-specific logic lives in the role
 
 ### Safety snapshots
 
-Both `vm-updates.yml` and `container-updates.yml` take a Proxmox snapshot before making any change (`ansible_patching` and `ansible_container` respectively), using ZFS copy-on-write storage so the cost is negligible until the underlying data actually changes. If anything fails mid-update, the `rescue` block logs which snapshot to roll back to.
+Both `vm-updates.yml` and `container-updates.yml` take a Proxmox snapshot before making any change (`ansible_patching` and `ansible_container` respectively), using ZFS copy-on-write storage so the cost is negligible until the underlying data actually changes. The snapshot is removed automatically as soon as the post-update health check passes; if the health check fails, the snapshot is left in place for a manual rollback decision, and `cleanup-snapshots.yml` won't touch it until you've dealt with it.
+
+`pve-updates.yml` takes a different safety approach, since it patches the hypervisors themselves rather than a single VM: if a node fails mid-run, a `rescue` block marks it `BLOCKED` and halts the entire run (`meta: end_play`) so no further node is touched, and the final cluster rebalance is skipped.
 
 ## Requirements
 
 - SemaphoreUI (or plain `ansible-playbook`) with the following installed:
   - Collections: `ansible-galaxy collection install -r collections/requirements.yml`
   - Python packages: `pip install -r requirements.txt`
-- A Proxmox API token with sufficient privileges to list VMs, create/delete snapshots, and (for the future PVE update playbook) migrate VMs
+- A Proxmox API token with sufficient privileges to list VMs, create/delete snapshots, and migrate VMs
 - SSH access to all target hosts, and to the Proxmox nodes, using a key stored in Semaphore's Key Store (never committed to this repo)
 
 ## Secrets
@@ -89,4 +106,4 @@ No credentials are stored in this repository. The Proxmox API token is read via 
 
 ## Roadmap
 
-See [`BACKLOG.md`](./BACKLOG.md) for planned work: a PVE (Proxmox host) update playbook with smart VM migration, a BunkerWeb reverse proxy rollout, weekly VM backups to pCloud, and content-view version retention.
+See [`BACKLOG.md`](./BACKLOG.md) for planned work: a BunkerWeb reverse proxy rollout, and weekly VM backups to pCloud.
