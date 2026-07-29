@@ -32,22 +32,22 @@
           register: pveversion_before
           changed_when: false
 
-        - name: Check for available updates
+        - name: Step 1 - Check for available updates
           include_role:
             name: check_updates
 
-        - name: Evacuate, patch and reboot (only if updates are available)
+        - name: Evacuate, patch and reboot the host (only if updates are available)
           when: has_updates | default(false) | bool
           block:
-            - name: Evacuate all VMs from this host (snapshots cleaned automatically before each move)
+            - name: Step 2 - Evacuate all VMs from this host (snapshots cleaned automatically before each move)
               include_role:
                 name: pve_evacuate_host
 
-            - name: Apply updates (apt full-upgrade)
+            - name: Step 3 - Apply updates (apt full-upgrade)
               include_role:
                 name: apply_updates
 
-            - name: Reboot and wait for the host to come back
+            - name: Step 4 - Reboot and wait for the host to come back
               include_role:
                 name: reboot_and_wait
 
