@@ -25,6 +25,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 | `pve-updates.yml` | Promotes the `CV_Proxmox` content view, then evacuates/patches/reboots each of the 3 Proxmox nodes in turn (halting the whole run on the first failure), and rebalances VMs across the cluster once every node is updated |
 | `cv-retention.yml` | Purges old `CV_Rocky_10`/`CV_Proxmox` content view versions beyond `cv_retention_count` |
 | `pve-rebalance-test.yml` | Standalone dry-run harness to compute a `pve_rebalance` plan in isolation, without running a full `pve-updates.yml` cycle |
+| `pcloud-backups.yml` | Runs a single `rclone` backup (source/destination/mode passed as extra vars); scheduled as one independent Semaphore template per backup job, replacing what used to be a system crontab on `smb101` |
 
 `vm-updates.yml` and `container-updates.yml` already remove their own snapshot as soon as the post-update health check passes — `cleanup-snapshots.yml` is the backstop for the ones deliberately left behind after a failed health check, run on its own independent schedule (as two separate Semaphore templates, one per `snapshot_label` value) since OS patching and container updates don't necessarily run on the same cadence.
 
@@ -35,6 +36,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 - **`pve-updates.yml`** — Proxmox host patching: `CV_Proxmox` promotion, per-node evacuate/patch/reboot, cluster rebalance
 - **`cv-retention.yml`** — Purges old content view versions beyond `cv_retention_count`
 - **`pve-rebalance-test.yml`** — Standalone dry-run test harness for the `pve_rebalance` role
+- **`pcloud-backups.yml`** — Runs one `rclone` backup per invocation (source/dest/mode via extra vars); each job gets its own scheduled Semaphore template
 - **`ansible.cfg`** — Silences interpreter discovery warnings
 - **`requirements.txt`** — Python deps (proxmoxer, requests) for the inventory plugin
 - **`collections/requirements.yml`** — Ansible collections (community.proxmox, ansible.posix, community.general)
@@ -85,6 +87,10 @@ podman_units:
 ```
 
 This makes the playbooks fully generic: no host-specific logic lives in the roles themselves.
+
+### pCloud backups
+
+`pcloud-backups.yml` runs a single `rclone` command per invocation — `pcloud_backup_source`, `pcloud_backup_dest`, `pcloud_backup_mode` (`sync` or `copy`, defaults to `sync`) and `pcloud_backup_extra_args` are passed as extra vars, not read from `host_vars`. This replaces what used to be a hand-edited crontab for the `deploy` user on `smb101`: each backup (Home Assistant, Immich per-user exports, …) is its own Semaphore template pointing at this same playbook, with its own schedule and its own set of extra vars — the same "one generic playbook, several scheduled templates" pattern already used for `cleanup-snapshots.yml`.
 
 ### Safety snapshots
 
