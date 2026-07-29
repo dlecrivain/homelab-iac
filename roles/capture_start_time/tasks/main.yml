@@ -1,0 +1,7 @@
+---
+- name: Capture the run start time (once)
+  ansible.builtin.set_fact:
+    run_start_epoch: "{{ now(fmt='%s') }}"
+  delegate_to: localhost
+  delegate_facts: true
+  run_once: true

@@ -1,4 +1,14 @@
 ---
+- name: Compute the total run duration
+  ansible.builtin.set_fact:
+    report_duration_seconds: "{{ (now(fmt='%s') | int) - (run_start_epoch | int) }}"
+  when: run_start_epoch is defined
+
+- name: Format the run duration for display
+  ansible.builtin.set_fact:
+    report_duration_display: "{{ (report_duration_seconds | int // 60) }}m {{ (report_duration_seconds | int % 60) }}s"
+  when: run_start_epoch is defined
+
 - name: Build and send the HTML report email
   community.general.mail:
     host: "{{ smtp_host }}"
@@ -29,6 +39,9 @@
       </style>
       </head>
       <body>
+      {% if report_duration_display is defined %}
+      <p><strong>Execution time:</strong> {{ report_duration_display }}</p>
+      {% endif %}
       {{ report_body }}
       </body>
       </html>

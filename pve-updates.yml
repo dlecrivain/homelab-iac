@@ -4,6 +4,10 @@
   gather_facts: false
   vars:
     content_view_name: CV_Proxmox
+  pre_tasks:
+    - name: Capture the run start time
+      include_role:
+        name: capture_start_time
   roles:
     - katello_promote
 

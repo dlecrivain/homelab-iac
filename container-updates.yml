@@ -4,6 +4,10 @@
   gather_facts: false
   serial: 1
   tasks:
+    - name: Capture the run start time
+      include_role:
+        name: capture_start_time
+
     - name: Capture the full list of targeted hosts (once)
       include_role:
         name: capture_host_list
