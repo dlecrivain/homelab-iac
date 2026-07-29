@@ -52,17 +52,26 @@ for vm in vms:
     ideal_used[best_node] += vm_mem
     ideal_count[best_node] += 1
 
-# Only report moves where the VM isn't already on its ideal node
+# Only report moves where the VM isn't already on its ideal node, and where
+# moving it actually closes a meaningful gap between the source and target
+# node's current usage (avoids migrating VMs for a marginal rebalance)
 moves = []
 for vm in vms:
     target = assignment[vm['vmid']]
-    if vm['node'] != target:
-        moves.append({
-            'vmid': vm['vmid'],
-            'name': vm.get('name', f"vm-{vm['vmid']}"),
-            'current_node': vm['node'],
-            'target_node': target,
-            'mem_required': vm.get('maxmem', 0)
-        })
+    if vm['node'] == target:
+        continue
+
+    source_usage = usage_pct(vm['node'], node_used[vm['node']])
+    target_usage = usage_pct(target, node_used[target])
+    if source_usage - target_usage < IMPROVEMENT_MARGIN:
+        continue
+
+    moves.append({
+        'vmid': vm['vmid'],
+        'name': vm.get('name', f"vm-{vm['vmid']}"),
+        'current_node': vm['node'],
+        'target_node': target,
+        'mem_required': vm.get('maxmem', 0)
+    })
 
 print(json.dumps(moves, indent=2))
