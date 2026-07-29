@@ -4,35 +4,59 @@
   gather_facts: false
   serial: 1
   tasks:
-    - name: "Step 1 - Migrate this VM to {{ vm_backup_node }} if it isn't already there"
-      when: proxmox_node != vm_backup_node
-      block:
-        - name: "Migrate VM to {{ vm_backup_node }} for backup"
-          include_role:
-            name: pve_migrate_vm
-          vars:
-            migrate_vmid: "{{ proxmox_vmid }}"
-            migrate_target_node: "{{ vm_backup_node }}"
-            migrate_delegate_to: "{{ proxmox_node }}"
-
-        - name: Check services after migration
-          include_role:
-            name: health_check
-          vars:
-            health_check_fail_on_unhealthy: true
-
-        - name: Record that at least one VM was migrated for backup
-          ansible.builtin.set_fact:
-            any_vm_migrated_for_backup: true
-          delegate_to: localhost
-          delegate_facts: true
-
-    - name: Step 2 - Run the vzdump backup and upload it to pCloud
+    - name: Capture the run start time
       include_role:
-        name: vzdump_backup
-      vars:
-        vzdump_vmid: "{{ proxmox_vmid }}"
-        vzdump_vm_name: "{{ inventory_hostname }}"
+        name: capture_start_time
+
+    - name: Capture the full list of targeted hosts (once)
+      include_role:
+        name: capture_host_list
+
+    - name: "Process this VM's backup, recording success or failure for the report"
+      block:
+        - name: "Step 1 - Migrate this VM to {{ vm_backup_node }} if it isn't already there"
+          when: proxmox_node != vm_backup_node
+          block:
+            - name: "Migrate VM to {{ vm_backup_node }} for backup"
+              include_role:
+                name: pve_migrate_vm
+              vars:
+                migrate_vmid: "{{ proxmox_vmid }}"
+                migrate_target_node: "{{ vm_backup_node }}"
+                migrate_delegate_to: "{{ proxmox_node }}"
+
+            - name: Check services after migration
+              include_role:
+                name: health_check
+              vars:
+                health_check_fail_on_unhealthy: true
+
+            - name: Record that this VM was migrated for backup
+              ansible.builtin.set_fact:
+                vm_was_migrated: true
+
+            - name: Record that at least one VM was migrated for backup
+              ansible.builtin.set_fact:
+                any_vm_migrated_for_backup: true
+              delegate_to: localhost
+              delegate_facts: true
+
+        - name: Step 2 - Run the vzdump backup and upload it to pCloud
+          include_role:
+            name: vzdump_backup
+          vars:
+            vzdump_vmid: "{{ proxmox_vmid }}"
+            vzdump_vm_name: "{{ inventory_hostname }}"
+
+        - name: Mark this VM's backup as successful
+          ansible.builtin.set_fact:
+            vm_backup_status: OK
+
+      rescue:
+        - name: Mark this VM's backup as failed, and record why
+          ansible.builtin.set_fact:
+            vm_backup_status: FAILED
+            vm_backup_failure_reason: "{{ ansible_failed_result.msg | default('Unknown error') }}"
 
 - name: Rebalance the cluster if any VM was migrated for backup
   hosts: "{{ vm_backup_node | default('pve1') }}"
@@ -48,3 +72,41 @@
       include_role:
         name: pve_rebalance
       when: hostvars['localhost'].any_vm_migrated_for_backup | default(false)
+
+- name: Send aggregated vm-backups report
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Build and send the HTML report email
+      include_role:
+        name: send_report
+      vars:
+        report_subject: "[vm-backups] Weekly VM backup report"
+        report_body: |
+          <h2>VM backups report</h2>
+          <table>
+            <tr>
+              <th>VM</th>
+              <th>Status</th>
+              <th>Details</th>
+            </tr>
+            {% for h in hostvars['localhost'].target_host_list %}
+            {% set st = hostvars[h].vm_backup_status | default('FAILED') %}
+            {% if st == 'OK' %}
+            {% set row_class = 'status-ok' %}
+            {% else %}
+            {% set row_class = 'status-problem' %}
+            {% endif %}
+            <tr class="{{ row_class }}">
+              <td>{{ h }}</td>
+              <td>{{ st }}</td>
+              <td>
+                {% if st == 'OK' %}
+                Backed up to pCloud{% if hostvars[h].vm_was_migrated | default(false) %} (migrated to {{ vm_backup_node }} first){% endif %}
+                {% else %}
+                {{ hostvars[h].vm_backup_failure_reason | default('Unknown error') }}
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </table>
