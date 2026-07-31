@@ -17,6 +17,6 @@ pve_safety_threshold: 0.80
 pve_rebalance_margin: 0.05
 vm_backup_node: pve1
 vm_backup_storage: Stockage_SSD
-vm_backup_local_retention: 5
+vm_backup_local_retention: 1
 vm_backup_pcloud_retention: 1
 vm_backup_pcloud_base_path: "pcloud:Backups/VM"
