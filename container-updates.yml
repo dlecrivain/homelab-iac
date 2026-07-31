@@ -12,19 +12,26 @@
       include_role:
         name: capture_host_list
 
-    - name: Step 1 - Snapshot before applying container updates
+    - name: Step 1 - Remove any leftover container snapshot from a previous run
+      include_role:
+        name: cleanup_snapshot
+      vars:
+        snapshot_label: ansible_container
+      when: podman_units is defined
+
+    - name: Step 2 - Snapshot before applying container updates
       vars:
         snapshot_label: ansible_container
       include_role:
         name: proxmox_snapshot
       when: podman_units is defined
 
-    - name: Step 2 - Update Podman containers
+    - name: Step 3 - Update Podman containers
       include_role:
         name: podman_update
       when: podman_units is defined and not (snapshot_already_exists | default(false))
 
-    - name: Step 3 - Check services after update
+    - name: Step 4 - Check services after update
       include_role:
         name: health_check
       when: podman_units is defined
@@ -39,7 +46,7 @@
         name: host_status
       when: podman_units is defined
 
-    - name: Step 4 - Remove the container snapshot now that the host is healthy
+    - name: Step 5 - Remove the container snapshot now that the host is healthy
       include_role:
         name: cleanup_snapshot
       vars:
@@ -48,7 +55,7 @@
         - podman_units is defined
         - host_overall_status | default('') == 'OK'
 
-    - name: Step 5 - Prune old container images
+    - name: Step 6 - Prune old container images
       include_role:
         name: image_retention
       when: podman_units is defined

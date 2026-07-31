@@ -5,21 +5,6 @@
   vars:
     snapshot_label: ansible_patching
   tasks:
-    - name: Check existing snapshots for this VM
-      ansible.builtin.command: >
-        pvesh get /nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/snapshot
-      delegate_to: "{{ proxmox_api_host }}"
-      remote_user: "{{ proxmox_ssh_user }}"
-      vars:
-        ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
-      register: snapshot_list
-      changed_when: false
-
     - name: "Remove the {{ snapshot_label }} snapshot if it exists"
-      ansible.builtin.command: >
-        pvesh delete /nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/snapshot/{{ snapshot_label }}
-      delegate_to: "{{ proxmox_api_host }}"
-      remote_user: "{{ proxmox_ssh_user }}"
-      vars:
-        ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
-      when: snapshot_label in snapshot_list.stdout
+      include_role:
+        name: cleanup_snapshot

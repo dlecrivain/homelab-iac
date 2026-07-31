@@ -20,30 +20,36 @@
       include_role:
         name: capture_host_list
 
-    - name: Step 1 - Check for available updates
+    - name: Step 1 - Remove any leftover patching snapshot from a previous run
+      include_role:
+        name: cleanup_snapshot
+      vars:
+        snapshot_label: ansible_patching
+
+    - name: Step 2 - Check for available updates
       include_role:
         name: check_updates
 
     - name: Snapshot, update and reboot the VM (only if updates are available)
       when: has_updates | default(false) | bool
       block:
-        - name: Step 2 - Proxmox snapshot
+        - name: Step 3 - Proxmox snapshot
           vars:
             snapshot_label: ansible_patching
           include_role:
             name: proxmox_snapshot
 
-        - name: Step 3 - Apply updates
+        - name: Step 4 - Apply updates
           include_role:
             name: apply_updates
           when: not (snapshot_already_exists | default(false))
 
-        - name: Step 4 - Reboot and wait
+        - name: Step 5 - Reboot and wait
           include_role:
             name: reboot_and_wait
           when: not (snapshot_already_exists | default(false))
 
-    - name: Step 5 - Check services
+    - name: Step 6 - Check services
       include_role:
         name: health_check
 
@@ -56,7 +62,7 @@
         host_update_applied: "{{ (has_updates | default(false) | bool) and not (snapshot_already_exists | default(false)) }}"
         host_update_skipped: "{{ (has_updates | default(false) | bool) and (snapshot_already_exists | default(false)) }}"
 
-    - name: Step 6 - Remove the patching snapshot now that the host is healthy
+    - name: Step 7 - Remove the patching snapshot now that the host is healthy
       include_role:
         name: cleanup_snapshot
       vars:
