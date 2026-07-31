@@ -65,15 +65,6 @@
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
 
-- name: Upload the backup archive to pCloud
-  ansible.builtin.command: >
-    rclone copy {{ vzdump_path_result.stdout | trim }} {{ vm_backup_pcloud_base_path }}/{{ vzdump_vm_name }}/
-  changed_when: true
-  delegate_to: "{{ vm_backup_node }}"
-  remote_user: "{{ proxmox_ssh_user }}"
-  vars:
-    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
-
 - name: Copy the pCloud retention script
   ansible.builtin.copy:
     src: prune_pcloud_backups.py
@@ -84,11 +75,11 @@
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
 
-- name: "Prune old backups on pCloud (keep the newest {{ vm_backup_pcloud_retention }})"
+- name: "Prune old backups on pCloud before uploading (keep {{ vm_backup_pcloud_retention - 1 }}, freeing space for the new one)"
   ansible.builtin.command: >
     python3 /tmp/prune_pcloud_backups.py
     {{ vm_backup_pcloud_base_path }}/{{ vzdump_vm_name }}
-    {{ vm_backup_pcloud_retention }}
+    {{ vm_backup_pcloud_retention - 1 }}
   register: pcloud_prune_result
   changed_when: "'removed:0' not in pcloud_prune_result.stdout"
   delegate_to: "{{ vm_backup_node }}"
@@ -100,6 +91,15 @@
   ansible.builtin.file:
     path: /tmp/prune_pcloud_backups.py
     state: absent
+  delegate_to: "{{ vm_backup_node }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+
+- name: Upload the backup archive to pCloud
+  ansible.builtin.command: >
+    rclone copy {{ vzdump_path_result.stdout | trim }} {{ vm_backup_pcloud_base_path }}/{{ vzdump_vm_name }}/
+  changed_when: true
   delegate_to: "{{ vm_backup_node }}"
   remote_user: "{{ proxmox_ssh_user }}"
   vars:
