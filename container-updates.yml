@@ -69,6 +69,12 @@
             name: image_retention
           when: podman_units is defined
 
+      rescue:
+        - name: Mark this host as having a problem, and record why
+          ansible.builtin.set_fact:
+            host_overall_status: PROBLEM
+            host_update_failure_reason: "{{ ansible_failed_result.msg | default('Unknown error') }}"
+
 - name: Send aggregated container-updates report
   hosts: localhost
   gather_facts: false
@@ -120,7 +126,13 @@
               <td colspan="3">Skipped — an "ansible_container" snapshot already existed</td>
             </tr>
             {% endif %}
-            {% if hostvars[h].podman_update_summary is defined and not (hostvars[h].host_update_skipped | default(false)) %}
+            {% if hostvars[h].host_update_failure_reason is defined %}
+            <tr class="status-problem">
+              <td>{{ h }}</td>
+              <td colspan="3">{{ hostvars[h].host_update_failure_reason }}</td>
+            </tr>
+            {% endif %}
+            {% if hostvars[h].podman_update_summary is defined and not (hostvars[h].host_update_skipped | default(false)) and not (hostvars[h].host_update_failure_reason is defined) %}
             {% for c in hostvars[h].podman_update_summary %}
             {% set running = hostvars[h].health_check_container_results | default([]) | selectattr('name','equalto',c.name) | map(attribute='status') | first | default('Up') %}
             {% if running != 'Up' %}

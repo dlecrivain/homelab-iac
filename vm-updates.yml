@@ -81,6 +81,12 @@
             - has_updates | default(false) | bool
             - host_overall_status == 'OK'
 
+      rescue:
+        - name: Mark this host as having a problem, and record why
+          ansible.builtin.set_fact:
+            host_overall_status: PROBLEM
+            host_update_failure_reason: "{{ ansible_failed_result.msg | default('Unknown error') }}"
+
 - name: Send aggregated vm-updates report
   hosts: localhost
   gather_facts: false
@@ -138,7 +144,9 @@
             <tr class="{{ row_class }}">
               <td>{{ h }}</td>
               <td>
-                {% if hostvars[h].host_update_skipped | default(false) %}
+                {% if hostvars[h].host_update_failure_reason is defined %}
+                {{ hostvars[h].host_update_failure_reason }}
+                {% elif hostvars[h].host_update_skipped | default(false) %}
                 Skipped — an "ansible_patching" snapshot already existed
                 {% elif hostvars[h].host_update_applied | default(false) %}
                 Updated and rebooted

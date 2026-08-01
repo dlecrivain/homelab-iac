@@ -106,6 +106,8 @@ This makes the playbooks fully generic: no host-specific logic lives in the role
 
 Both `vm-updates.yml` and `container-updates.yml` take a Proxmox snapshot before making any change (`ansible_patching` and `ansible_container` respectively), using ZFS copy-on-write storage so the cost is negligible until the underlying data actually changes. The snapshot is removed automatically as soon as the post-update health check passes; if the health check fails, the snapshot is left in place for a manual rollback decision, and `cleanup-snapshots.yml` won't touch it until you've dealt with it.
 
+Per-host work in both playbooks is also wrapped in a `block`/`rescue`: an unhandled task failure (a registry pull timing out, a transient network blip, …) on one host is caught, recorded as `host_overall_status: PROBLEM` with the failure reason shown in the report, and the run continues with the next host instead of aborting the whole playbook — which also matters for `full-updates.yml`, since an uncaught failure would otherwise kill the entire orchestrated chain rather than just failing that one stage's gate.
+
 `pve-updates.yml` takes a different safety approach, since it patches the hypervisors themselves rather than a single VM: if a node fails mid-run, a `rescue` block marks it `BLOCKED` and halts the entire run (`meta: end_play`) so no further node is touched, and the final cluster rebalance is skipped.
 
 ### Orchestrated run

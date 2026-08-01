@@ -38,6 +38,9 @@
       ansible.builtin.command: "podman pull {{ image_ref.stdout }}"
       register: pull_result
       changed_when: "'Copying blob' in pull_result.stdout or 'Copying config' in pull_result.stdout"
+      retries: 6
+      delay: 10
+      until: pull_result.rc == 0
 
     - name: Get image ID after pull
       ansible.builtin.command: "podman inspect {{ image_ref.stdout }} --format '{{ '{{' }}.Id{{ '}}' }}'"
