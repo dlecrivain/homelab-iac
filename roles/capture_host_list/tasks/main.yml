@@ -1,8 +1,8 @@
 ---
 - name: Capture the full list of targeted hosts (once)
   ansible.builtin.set_fact:
-    target_host_list: "{{ ansible_play_hosts_all }}"
+    "{{ capture_host_list_fact_name | default('target_host_list') }}": "{{ ansible_play_hosts_all }}"
   delegate_to: localhost
   delegate_facts: true
   run_once: true
-  when: hostvars['localhost'].target_host_list is not defined
+  when: hostvars['localhost'][capture_host_list_fact_name | default('target_host_list')] is not defined

@@ -17,6 +17,8 @@
     - name: Capture the full list of targeted hosts (once)
       include_role:
         name: capture_host_list
+      vars:
+        capture_host_list_fact_name: container_updates_host_list
 
     - name: Update containers on this host (skipped if an earlier stage in an orchestrated run had a problem)
       when: hostvars['localhost'].orchestration_should_run | default(true)
@@ -85,7 +87,7 @@
 
     - name: Determine if any host has a problem
       ansible.builtin.set_fact:
-        any_problem: "{{ hostvars['localhost'].target_host_list | map('extract', hostvars) | map(attribute='host_overall_status', default='OK') | select('equalto', 'PROBLEM') | list | length > 0 }}"
+        any_problem: "{{ hostvars['localhost'].container_updates_host_list | map('extract', hostvars) | map(attribute='host_overall_status', default='OK') | select('equalto', 'PROBLEM') | list | length > 0 }}"
 
     - name: Update the orchestration gate for any later stage
       ansible.builtin.set_fact:
@@ -119,7 +121,7 @@
               <th>Status</th>
               <th>URL Status</th>
             </tr>
-            {% for h in hostvars['localhost'].target_host_list %}
+            {% for h in hostvars['localhost'].container_updates_host_list %}
             {% if hostvars[h].host_update_skipped | default(false) %}
             <tr class="status-warning">
               <td>{{ h }}</td>

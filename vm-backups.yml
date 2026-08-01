@@ -11,6 +11,8 @@
     - name: Capture the full list of targeted hosts (once)
       include_role:
         name: capture_host_list
+      vars:
+        capture_host_list_fact_name: vm_backups_host_list
 
     - name: "Process this VM's backup, recording success or failure for the report"
       block:
@@ -90,7 +92,7 @@
               <th>Status</th>
               <th>Details</th>
             </tr>
-            {% for h in hostvars['localhost'].target_host_list %}
+            {% for h in hostvars['localhost'].vm_backups_host_list %}
             {% set st = hostvars[h].vm_backup_status | default('FAILED') %}
             {% if st == 'OK' %}
             {% set row_class = 'status-ok' %}

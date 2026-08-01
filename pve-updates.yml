@@ -35,6 +35,8 @@
     - name: Capture the full list of targeted hosts (once)
       include_role:
         name: capture_host_list
+      vars:
+        capture_host_list_fact_name: pve_updates_host_list
 
     - name: Process this host, aborting the whole run on any failure
       when: hostvars['localhost'].orchestration_should_run | default(true)
@@ -117,7 +119,7 @@
 
     - name: Determine if the run was halted due to a blocked host
       ansible.builtin.set_fact:
-        run_was_halted: "{{ hostvars['localhost'].target_host_list | map('extract', hostvars) | map(attribute='pve_host_status', default='NOT_PROCESSED') | select('equalto', 'BLOCKED') | list | length > 0 }}"
+        run_was_halted: "{{ hostvars['localhost'].pve_updates_host_list | map('extract', hostvars) | map(attribute='pve_host_status', default='NOT_PROCESSED') | select('equalto', 'BLOCKED') | list | length > 0 }}"
 
     - name: Update the orchestration gate for any later stage
       ansible.builtin.set_fact:
@@ -172,7 +174,7 @@
               <th>Version</th>
               <th>Details</th>
             </tr>
-            {% for h in hostvars['localhost'].target_host_list %}
+            {% for h in hostvars['localhost'].pve_updates_host_list %}
             {% set st = hostvars[h].pve_host_status | default('NOT_PROCESSED') %}
             {% if st == 'OK' %}
             {% set row_class = 'status-info' %}
