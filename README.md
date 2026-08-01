@@ -32,6 +32,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 | `full-updates.yml` | Runs `container-updates.yml`, then `vm-updates.yml`, then `pve-updates.yml` in one go — each stage only runs if the previous one had no problem, otherwise later stages report as `SKIPPED`; finishes by patching `semaphore102` back |
 | `update-semaphore-peer.yml` | OS-patches + Podman-updates `{{ peer_host }}` (`semaphore101` or `semaphore102`), then pings its Semaphore web service to confirm it's back up — the mechanism behind item 8 above |
 | `provision-semaphore-peer.yml` | One-time setup: deploys Semaphore via Podman Quadlet onto a fresh `{{ peer_host }}` VM, identically to the existing instance, then waits for its web service to respond |
+| `bump-semaphore-image.yml` | Manual, deliberate action: bumps `{{ peer_host }}`'s live `semaphore.container` to `{{ semaphore_image_tag }}` and restarts it — run from the *other* Semaphore instance, never from the one being restarted |
 
 `vm-updates.yml` and `container-updates.yml` already remove their own snapshot as soon as the post-update health check passes — `cleanup-snapshots.yml` is the backstop for the ones deliberately left behind after a failed health check, run on its own independent schedule (as two separate Semaphore templates, one per `snapshot_label` value) since OS patching and container updates don't necessarily run on the same cadence.
 
@@ -47,6 +48,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 - **`full-updates.yml`** — Chains `container-updates.yml` → `vm-updates.yml` → `pve-updates.yml` → patches `semaphore102` back, gated on each stage's outcome
 - **`update-semaphore-peer.yml`** — OS-patches + Podman-updates one Semaphore peer, then confirms its Semaphore web service is back up
 - **`provision-semaphore-peer.yml`** — One-time deploy of Semaphore (Podman Quadlet) onto a fresh peer VM
+- **`bump-semaphore-image.yml`** — Manually bumps one peer's Semaphore image tag and restarts it, run from the other peer
 - **`ansible.cfg`** — Silences interpreter discovery warnings
 - **`requirements.txt`** — Python deps (proxmoxer, requests) for the inventory plugin
 - **`collections/requirements.yml`** — Ansible collections (community.proxmox, ansible.posix, community.general)
@@ -146,6 +148,8 @@ There's no direct hand-off between the two instances — no API call, no shared 
 This only runs in the `semaphore102`-facing direction (`image_reference_host` is only passed by `full-updates.yml`); when `semaphore102` patches `semaphore101` the other way, `image_reference_host` is omitted and each unit is simply pulled by its configured tag as normal.
 
 **Version checks (notify only, never auto-applied)**: `semaphore.container` and `semaphore-db.container` are pinned to exact/major versions on purpose (see [Provisioning a new Semaphore peer](#provisioning-a-new-semaphore-peer)), so the normal update flow never bumps Semaphore or Postgres to a new major version by itself. `update-semaphore-peer.yml` ends with two read-only checks, run in both directions: one compares the running Semaphore image against the latest GitHub release, the other compares the running Postgres major version against the latest tag published on Docker Hub. Either sends its own email the moment a newer version exists — nothing is ever pulled or restarted as a result. Semaphore's own image is a simple stateless swap-and-restart when you do decide to bump it by hand; Postgres is not — a major-version bump needs a real migration (`pg_upgrade` or dump/restore) since Postgres refuses to start against a data directory from a different major version, so the Postgres email spells that out explicitly rather than treating it like a routine update.
+
+When a newer Semaphore version notification arrives and you've decided to act on it, `bump-semaphore-image.yml` does the actual bump as an Ansible task rather than a manual SSH session — but it still has to be triggered from the *other* peer (a one-off Semaphore template run on `semaphore102` with `-e peer_host=semaphore101 -e semaphore_image_tag=vX.Y.Z` to bump `semaphore101`, or the reverse to bump `semaphore102`), since restarting `semaphore.service` from within a run executing on that same instance would kill the task itself mid-flight. It's deliberately not wired into any schedule — always a manual, one-off run. Remember to also bump the `Image=` line in `roles/semaphore_provision/files/semaphore.container` and commit it, so a future fresh provision starts at the new version too.
 
 ### Provisioning a new Semaphore peer
 
