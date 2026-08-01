@@ -31,10 +31,11 @@
     url: "{{ health_check_url }}"
     status_code: 200
     timeout: 10
+    validate_certs: "{{ health_check_validate_certs | default(true) }}"
   when: (health_check_url | default('')) | length > 0
   register: url_check
-  retries: 5
-  delay: 10
+  retries: "{{ health_check_retries | default(5) }}"
+  delay: "{{ health_check_delay | default(10) }}"
   until: (url_check.status | default(0)) == 200
   ignore_errors: true
   delegate_to: "{{ health_check_delegate_to | default(inventory_hostname) }}"

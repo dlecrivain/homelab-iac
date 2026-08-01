@@ -1,0 +1,4 @@
+health_check_url: "https://192.168.1.112/"
+health_check_validate_certs: false
+health_check_retries: 30
+health_check_delay: 10

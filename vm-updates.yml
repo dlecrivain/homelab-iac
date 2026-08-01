@@ -12,8 +12,8 @@
     - role: katello_promote
       when: hostvars['localhost'].orchestration_should_run | default(true)
 
-- name: Check and update all VMs except lpkat101 and semaphore101
-  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101') }}"
+- name: Check and update all VMs except semaphore101
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!semaphore101') }}"
   gather_facts: true
   serial: 1
   tasks:

@@ -20,7 +20,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 
 | Playbook | Purpose |
 |---|---|
-| `vm-updates.yml` | Promotes the `CV_Rocky_10` content view in Katello, then checks/patches/reboots every VM in the cluster (excluding the Foreman and Semaphore hosts themselves) |
+| `vm-updates.yml` | Promotes the `CV_Rocky_10` content view in Katello, then checks/patches/reboots every VM in the cluster (excluding the Semaphore host itself, which can't safely reboot itself mid-run) |
 | `container-updates.yml` | Updates Podman/Quadlet-managed containers on hosts that define `podman_units` in their `host_vars` |
 | `cleanup-snapshots.yml` | Removes leftover safety snapshots matching `snapshot_label` (default `ansible_patching`); pass `-e snapshot_label=ansible_container` to clean up the container-update ones instead |
 | `pve-updates.yml` | Promotes the `CV_Proxmox` content view, then evacuates/patches/reboots each of the 3 Proxmox nodes in turn (halting the whole run on the first failure), and rebalances VMs across the cluster once every node is updated |
@@ -81,6 +81,9 @@ Each host that needs container updates or health checks declares its configurati
 ```yaml
 health_check_url: "http://192.168.1.x:PORT"
 health_check_podman_user: deploy   # or root, or a specific user like "immich"
+health_check_validate_certs: false # optional, only if health_check_url is https with a self-signed/invalid cert
+health_check_retries: 30           # optional, only if the service is slow to start (default: 5 retries, 10s apart)
+health_check_delay: 10
 health_check_containers:
   - container_name_1
   - container_name_2
