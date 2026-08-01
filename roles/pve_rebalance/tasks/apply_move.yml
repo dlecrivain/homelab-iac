@@ -16,3 +16,6 @@
     health_check_containers: "{{ hostvars[move.name].health_check_containers | default([]) }}"
     health_check_url: "{{ hostvars[move.name].health_check_url | default('') }}"
     health_check_podman_user: "{{ hostvars[move.name].health_check_podman_user | default('root') }}"
+    health_check_validate_certs: "{{ hostvars[move.name].health_check_validate_certs | default(true) }}"
+    health_check_retries: "{{ hostvars[move.name].health_check_retries | default(5) }}"
+    health_check_delay: "{{ hostvars[move.name].health_check_delay | default(10) }}"
