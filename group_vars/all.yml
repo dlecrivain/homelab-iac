@@ -9,6 +9,7 @@ smtp_port: 587
 smtp_user: "{{ lookup('env', 'SMTP_USER') }}"
 smtp_password: "{{ lookup('env', 'SMTP_PASSWORD') }}"
 notify_email_to: "{{ lookup('env', 'NOTIFY_EMAIL_TO') }}"
+github_push_token: "{{ lookup('env', 'GITHUB_PUSH_TOKEN') }}"
 cv_retention_count: 10
 cv_retention_views:
   - CV_Rocky_10

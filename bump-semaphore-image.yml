@@ -1,23 +1,67 @@
 ---
-- name: Bump the Semaphore image tag on a peer and restart it (manual, deliberate action - never run automatically)
+- name: Bump the Semaphore image tag on a peer and restart it (run from the *other* peer, never from the one being restarted)
   hosts: "{{ peer_host }}"
   gather_facts: false
   become: true
   tasks:
-    - name: Update the Image= line in semaphore.container
-      ansible.builtin.replace:
-        path: /etc/containers/systemd/semaphore.container
-        regexp: '^Image=docker\.io/semaphoreui/semaphore:.*$'
-        replace: "Image=docker.io/semaphoreui/semaphore:{{ semaphore_image_tag }}"
+    - name: Get the currently configured Semaphore image reference
+      ansible.builtin.command: podman inspect semaphore --format '{{ '{{' }}.ImageName{{ '}}' }}'
+      register: semaphore_current_image_ref
+      changed_when: false
 
-    - name: Reload systemd to pick up the change
-      ansible.builtin.systemd:
-        daemon_reload: true
+    - name: Extract the current version
+      ansible.builtin.set_fact:
+        semaphore_current_version: "{{ semaphore_current_image_ref.stdout.split(':')[-1] }}"
 
-    - name: Restart the Semaphore service
-      ansible.builtin.systemd:
-        name: semaphore.service
-        state: restarted
+    - name: Determine the target tag automatically (latest stable release within the same major line) when semaphore_image_tag isn't explicitly passed
+      when: semaphore_image_tag is not defined
+      block:
+        - name: Extract the current version's major line
+          ansible.builtin.set_fact:
+            semaphore_current_major: "{{ semaphore_current_version | regex_replace('^v?([0-9]+)\\..*$', '\\1') }}"
+
+        - name: Query available Semaphore tags on Docker Hub
+          ansible.builtin.uri:
+            url: "https://hub.docker.com/v2/repositories/semaphoreui/semaphore/tags?page_size=100"
+            return_content: true
+          register: semaphore_tags_response
+          delegate_to: localhost
+
+        - name: Filter to pure vMAJOR.MINOR.PATCH tags in the same major line (excludes beta/rc/arch-suffixed tags)
+          ansible.builtin.set_fact:
+            semaphore_candidate_versions: >-
+              {{
+                semaphore_tags_response.json.results
+                | map(attribute='name')
+                | select('match', '^v' + semaphore_current_major | regex_escape() + '\.[0-9]+\.[0-9]+$')
+                | list
+              }}
+
+        - name: Rank each candidate by its [major, minor, patch] numbers, paired with its tag string
+          ansible.builtin.set_fact:
+            semaphore_ranked_versions: "{{ semaphore_candidate_versions | map('regex_findall', '[0-9]+') | map('map', 'int') | map('list') | list | zip(semaphore_candidate_versions) | map('list') | list }}"
+
+        - name: Set the auto-detected target tag (highest-ranked candidate)
+          ansible.builtin.set_fact:
+            semaphore_image_tag: "{{ (semaphore_ranked_versions | sort)[-1][1] }}"
+
+    - name: Update the Image= line in semaphore.container (only if the target tag is actually different)
+      when: semaphore_image_tag != semaphore_current_version
+      block:
+        - name: Update the Image= line in semaphore.container
+          ansible.builtin.replace:
+            path: /etc/containers/systemd/semaphore.container
+            regexp: '^Image=docker\.io/semaphoreui/semaphore:.*$'
+            replace: "Image=docker.io/semaphoreui/semaphore:{{ semaphore_image_tag }}"
+
+        - name: Reload systemd to pick up the change
+          ansible.builtin.systemd:
+            daemon_reload: true
+
+        - name: Restart the Semaphore service
+          ansible.builtin.systemd:
+            name: semaphore.service
+            state: restarted
 
 - name: Confirm the peer Semaphore instance is back up after the version bump
   hosts: localhost
@@ -32,3 +76,40 @@
       retries: 30
       delay: 10
       until: (peer_semaphore_ping.status | default(0)) == 200
+
+- name: Keep this repo's provisioning template in sync with the version that was just applied (only if a bump actually happened)
+  hosts: localhost
+  gather_facts: false
+  vars:
+    semaphore_bumped_tag: "{{ hostvars[peer_host].semaphore_image_tag }}"
+    semaphore_previous_tag: "{{ hostvars[peer_host].semaphore_current_version }}"
+  tasks:
+    - name: Update, commit and push the new version to roles/semaphore_provision/files/semaphore.container
+      when: semaphore_bumped_tag != semaphore_previous_tag
+      block:
+        - name: Update the Image= line in this repo's provisioning template
+          ansible.builtin.replace:
+            path: /repos/roles/semaphore_provision/files/semaphore.container
+            regexp: '^Image=docker\.io/semaphoreui/semaphore:.*$'
+            replace: "Image=docker.io/semaphoreui/semaphore:{{ semaphore_bumped_tag }}"
+
+        - name: Configure a git identity for this commit (harmless if already set)
+          ansible.builtin.command: "{{ item }}"
+          loop:
+            - git config user.email "semaphore-automation@{{ peer_host }}"
+            - git config user.name "Semaphore automation"
+          args:
+            chdir: /repos
+          changed_when: false
+
+        - name: Commit the version bump
+          ansible.builtin.command: >-
+            git commit -am "Bump provisioned Semaphore image to {{ semaphore_bumped_tag }} (applied to {{ peer_host }} by bump-semaphore-image.yml)"
+          args:
+            chdir: /repos
+
+        - name: Push the commit to origin/main
+          ansible.builtin.command: "git push https://{{ github_push_token }}@github.com/dlecrivain/homelab-iac main"
+          args:
+            chdir: /repos
+          no_log: true
