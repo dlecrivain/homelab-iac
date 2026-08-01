@@ -8,6 +8,11 @@
       register: image_before
       changed_when: false
 
+    - name: Get the currently configured image tag
+      ansible.builtin.command: "podman inspect {{ unit.name }} --format '{{ '{{' }}.ImageName{{ '}}' }}'"
+      register: image_tag_before
+      changed_when: false
+
     - name: Pull the reference host's exact image digest
       ansible.builtin.command: "podman pull {{ podman_align_reference_digests[unit.name] }}"
       register: pull_result
@@ -25,12 +30,16 @@
       register: image_after
       changed_when: false
 
+    - name: Determine whether this unit actually needs realigning (image content changed, or just the visible tag is stale)
+      ansible.builtin.set_fact:
+        unit_needs_realign: "{{ (image_after.stdout != image_before.stdout) or (image_tag_before.stdout != podman_align_reference_tags[unit.name]) }}"
+
     - name: Update this unit's Image= line to match the reference host's tag
       ansible.builtin.replace:
         path: "/etc/containers/systemd/{{ (unit.service_name | default(unit.name)) }}.container"
         regexp: '^Image=.*$'
         replace: "Image={{ podman_align_reference_tags[unit.name] }}"
-      when: image_after.stdout != image_before.stdout
+      when: unit_needs_realign | bool
       register: image_line_updated
 
     - name: Reload systemd to pick up the Image= change
@@ -38,14 +47,14 @@
         daemon_reload: true
       when: image_line_updated is changed
 
-    - name: Restart unit if image changed
+    - name: Restart unit if realigned
       ansible.builtin.systemd:
         name: "{{ (unit.service_name | default(unit.name)) }}.service"
         state: restarted
         scope: "{{ 'system' if unit.scope == 'root' else 'user' }}"
-      when: image_after.stdout != image_before.stdout
+      when: unit_needs_realign | bool
 
     - name: Wait a moment for the unit to stabilize after restart
       ansible.builtin.pause:
         seconds: 5
-      when: image_after.stdout != image_before.stdout
+      when: unit_needs_realign | bool
