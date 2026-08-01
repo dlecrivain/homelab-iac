@@ -1,0 +1,8 @@
+---
+- name: Align each Podman Quadlet unit's image to the reference host's exact version
+  ansible.builtin.include_tasks: align_unit.yml
+  loop: "{{ podman_units }}"
+  loop_control:
+    loop_var: unit
+    label: "{{ unit.name }}"
+  when: unit.name in podman_align_reference_digests

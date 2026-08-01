@@ -1,0 +1,11 @@
+health_check_url: "http://{{ ansible_host }}:3000/api/ping"
+health_check_podman_user: root
+health_check_containers:
+  - semaphore
+  - semaphore_db
+
+podman_units:
+  - name: semaphore
+    scope: root
+  - name: semaphore_db
+    scope: root

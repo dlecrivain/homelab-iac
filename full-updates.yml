@@ -54,3 +54,8 @@
           {{ hostvars['localhost'].container_updates_report_body }}
           {{ hostvars['localhost'].vm_updates_report_body }}
           {{ hostvars['localhost'].pve_updates_report_body }}
+
+- import_playbook: update-semaphore-peer.yml
+  vars:
+    peer_host: semaphore102
+    image_reference_host: semaphore101

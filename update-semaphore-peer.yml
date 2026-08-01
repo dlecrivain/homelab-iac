@@ -1,0 +1,124 @@
+---
+- name: OS-patch this Semaphore peer (no Katello promotion - this VM isn't Katello-managed content)
+  hosts: "{{ peer_host }}"
+  gather_facts: true
+  tasks:
+    - name: Patch this peer (skipped if an earlier stage in an orchestrated run had a problem)
+      when: hostvars['localhost'].orchestration_should_run | default(true)
+      block:
+        - name: Step 1 - Remove any leftover patching snapshot from a previous run
+          include_role:
+            name: cleanup_snapshot
+          vars:
+            snapshot_label: ansible_patching
+
+        - name: Step 2 - Check for available updates
+          include_role:
+            name: check_updates
+
+        - name: Snapshot, update and reboot the VM (only if updates are available)
+          when: has_updates | default(false) | bool
+          block:
+            - name: Step 3 - Proxmox snapshot
+              vars:
+                snapshot_label: ansible_patching
+              include_role:
+                name: proxmox_snapshot
+
+            - name: Step 4 - Apply updates
+              include_role:
+                name: apply_updates
+              when: not (snapshot_already_exists | default(false))
+
+            - name: Step 5 - Reboot and wait
+              include_role:
+                name: reboot_and_wait
+              when: not (snapshot_already_exists | default(false))
+
+        - name: Step 6 - Check services
+          include_role:
+            name: health_check
+
+        - name: Determine overall host status
+          include_role:
+            name: host_status
+
+        - name: Step 7 - Remove the patching snapshot now that the host is healthy
+          include_role:
+            name: cleanup_snapshot
+          vars:
+            snapshot_label: ansible_patching
+          when:
+            - has_updates | default(false) | bool
+            - host_overall_status == 'OK'
+
+- import_playbook: container-updates.yml
+  vars:
+    target_hosts: "{{ peer_host }}"
+
+- name: Capture the reference host's current image versions, only if it's healthy (used to align the peer's images to match)
+  hosts: "{{ image_reference_host | default('localhost') }}"
+  gather_facts: false
+  tasks:
+    - name: Gather and validate the reference host's image versions
+      when: image_reference_host is defined
+      block:
+        - name: Check services on the reference host
+          include_role:
+            name: health_check
+
+        - name: Determine the reference host's overall status
+          include_role:
+            name: host_status
+
+        - name: Get each unit's current image ID on the reference host
+          ansible.builtin.command: "podman inspect {{ item.name }} --format '{{ '{{' }}.Image{{ '}}' }}'"
+          become: true
+          loop: "{{ podman_units }}"
+          loop_control:
+            label: "{{ item.name }}"
+          register: reference_image_ids
+          changed_when: false
+          when: host_overall_status == 'OK'
+
+        - name: Resolve each image ID to a pullable digest reference
+          ansible.builtin.command: "podman inspect {{ item.stdout }} --format '{{ '{{' }} index .RepoDigests 0 {{ '}}' }}'"
+          become: true
+          loop: "{{ reference_image_ids.results }}"
+          loop_control:
+            label: "{{ item.item.name }}"
+          register: reference_digest_refs
+          changed_when: false
+          when: host_overall_status == 'OK'
+
+        - name: Save the reference host's image digests, keyed by unit name
+          ansible.builtin.set_fact:
+            reference_image_digests: "{{ dict(podman_units | map(attribute='name') | zip(reference_digest_refs.results | map(attribute='stdout'))) }}"
+          delegate_to: localhost
+          delegate_facts: true
+          when: host_overall_status == 'OK'
+
+- name: Align this peer's images to the reference host's exact versions (only if a reference host was provided and confirmed healthy)
+  hosts: "{{ peer_host }}"
+  gather_facts: false
+  tasks:
+    - name: Align Postgres/Semaphore images to the reference host
+      include_role:
+        name: podman_align_image
+      vars:
+        podman_align_reference_digests: "{{ hostvars['localhost'].reference_image_digests }}"
+      when: hostvars['localhost'].reference_image_digests is defined
+
+- name: Confirm the peer Semaphore instance is back up
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: "Wait for {{ peer_host }}'s Semaphore web service to respond"
+      ansible.builtin.uri:
+        url: "http://{{ hostvars[peer_host].ansible_host }}:3000/api/ping"
+        status_code: 200
+        timeout: 10
+      register: peer_semaphore_ping
+      retries: 30
+      delay: 10
+      until: (peer_semaphore_ping.status | default(0)) == 200

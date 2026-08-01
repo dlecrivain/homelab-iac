@@ -1,0 +1,43 @@
+---
+- name: Align this unit's image to the reference host's exact version
+  become: "{{ unit.scope == 'root' }}"
+  become_user: root
+  block:
+    - name: Get current image ID
+      ansible.builtin.command: "podman inspect {{ unit.name }} --format '{{ '{{' }}.Image{{ '}}' }}'"
+      register: image_before
+      changed_when: false
+
+    - name: Get the image reference this unit is configured to use
+      ansible.builtin.command: "podman inspect {{ unit.name }} --format '{{ '{{' }}.ImageName{{ '}}' }}'"
+      register: image_ref
+      changed_when: false
+
+    - name: Pull the reference host's exact image digest
+      ansible.builtin.command: "podman pull {{ podman_align_reference_digests[unit.name] }}"
+      register: pull_result
+      changed_when: "'Copying blob' in pull_result.stdout or 'Copying config' in pull_result.stdout"
+      retries: 6
+      delay: 10
+      until: pull_result.rc == 0
+
+    - name: Tag the pulled digest as this unit's configured image reference
+      ansible.builtin.command: "podman tag {{ podman_align_reference_digests[unit.name] }} {{ image_ref.stdout }}"
+      changed_when: true
+
+    - name: Get image ID after aligning
+      ansible.builtin.command: "podman inspect {{ image_ref.stdout }} --format '{{ '{{' }}.Id{{ '}}' }}'"
+      register: image_after
+      changed_when: false
+
+    - name: Restart unit if image changed
+      ansible.builtin.systemd:
+        name: "{{ (unit.service_name | default(unit.name)) }}.service"
+        state: restarted
+        scope: "{{ 'system' if unit.scope == 'root' else 'user' }}"
+      when: image_after.stdout != image_before.stdout
+
+    - name: Wait a moment for the unit to stabilize after restart
+      ansible.builtin.pause:
+        seconds: 5
+      when: image_after.stdout != image_before.stdout

@@ -13,6 +13,7 @@ This repository automates the full patch-management lifecycle for a homelab runn
 5. **Patch the Proxmox hosts themselves**: evacuate VMs off a node with memory-aware placement, apply updates, reboot, then rebalance the whole cluster once every node is done
 6. **Retain a bounded history** of content view versions in Katello
 7. **Back up every VM** weekly via `vzdump` (ZSTD) to local Proxmox storage, upload to pCloud, and prune both retentions — migrating a VM to the backup node first if needed, then rebalancing the cluster afterwards
+8. **Patch Semaphore itself**: a second instance (`semaphore102`) patches the primary (`semaphore101`) OS + Podman images on its own schedule; `full-updates.yml` runs on `semaphore101` on a separate schedule timed to start afterward, and patches `semaphore102` back once everything else succeeds — so neither instance ever has to update itself
 
 VM target hosts are discovered automatically from the Proxmox cluster via a dynamic inventory — adding a new VM to Proxmox is enough for it to be picked up (unless explicitly excluded). The 3 Proxmox nodes themselves (`pve1`/`pve2`/`pve3`) can't be discovered that way (they're the hypervisors, not VMs), so they're declared as a small static host list via their own `host_vars/pve*.yml`.
 
@@ -28,7 +29,8 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 | `pve-rebalance-test.yml` | Standalone dry-run harness to compute a `pve_rebalance` plan in isolation, without running a full `pve-updates.yml` cycle |
 | `pcloud-backups.yml` | Runs a single `rclone` backup when `pcloud_backup_source` is passed as an extra var (one independent Semaphore template per backup job, replacing what used to be a system crontab on `smb101`); with no extra vars, runs all 3 built-in backups (Home Assistant, Immich Daniel, Immich Marine) in parallel instead — one failed job doesn't stop the others |
 | `vm-backups.yml` | Runs a `vzdump` (ZSTD) of every VM, migrating it to `pve1` first if it isn't already there (the only node with the `Stockage_SSD` backup storage), uploads the archive to pCloud, prunes both retentions, then rebalances the cluster if anything was migrated |
-| `full-updates.yml` | Runs `container-updates.yml`, then `vm-updates.yml`, then `pve-updates.yml` in one go — each stage only runs if the previous one had no problem, otherwise later stages report as `SKIPPED` |
+| `full-updates.yml` | Runs `container-updates.yml`, then `vm-updates.yml`, then `pve-updates.yml` in one go — each stage only runs if the previous one had no problem, otherwise later stages report as `SKIPPED`; finishes by patching `semaphore102` back |
+| `update-semaphore-peer.yml` | OS-patches + Podman-updates `{{ peer_host }}` (`semaphore101` or `semaphore102`), then pings its Semaphore web service to confirm it's back up — the mechanism behind item 8 above |
 
 `vm-updates.yml` and `container-updates.yml` already remove their own snapshot as soon as the post-update health check passes — `cleanup-snapshots.yml` is the backstop for the ones deliberately left behind after a failed health check, run on its own independent schedule (as two separate Semaphore templates, one per `snapshot_label` value) since OS patching and container updates don't necessarily run on the same cadence.
 
@@ -41,13 +43,14 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 - **`pve-rebalance-test.yml`** — Standalone dry-run test harness for the `pve_rebalance` role
 - **`pcloud-backups.yml`** — Runs one `rclone` backup per invocation (source/dest/mode via extra vars, one scheduled Semaphore template per job), or all 3 built-in jobs in parallel when called with no extra vars
 - **`vm-backups.yml`** — Weekly `vzdump` of every VM to `Stockage_SSD` then pCloud, with migration + rebalance as needed
-- **`full-updates.yml`** — Chains `container-updates.yml` → `vm-updates.yml` → `pve-updates.yml`, gated on each stage's outcome
+- **`full-updates.yml`** — Chains `container-updates.yml` → `vm-updates.yml` → `pve-updates.yml` → patches `semaphore102` back, gated on each stage's outcome
+- **`update-semaphore-peer.yml`** — OS-patches + Podman-updates one Semaphore peer, then confirms its Semaphore web service is back up
 - **`ansible.cfg`** — Silences interpreter discovery warnings
 - **`requirements.txt`** — Python deps (proxmoxer, requests) for the inventory plugin
 - **`collections/requirements.yml`** — Ansible collections (community.proxmox, ansible.posix, community.general)
 - **`inventory/proxmox.yml`** — Dynamic Proxmox inventory for VMs (API token via env var)
 - **`group_vars/all.yml`** — Shared variables (Proxmox API host, Katello org, SMTP, retention/rebalance tuning, etc.)
-- **`host_vars/`** — Per-VM variables (health checks, `podman_units`) and per-Proxmox-node connection details (`pve1`/`pve2`/`pve3`)
+- **`host_vars/`** — Per-VM variables (health checks, `podman_units`) and per-Proxmox-node connection details (`pve1`/`pve2`/`pve3`); `semaphore101`/`semaphore102` declare their own `semaphore`/`semaphore_db` Podman units like any other host
 - **`roles/`**
   - `katello_promote/` — Content view promote/publish via hammer
   - `check_updates/` — dnf/apt update check
@@ -57,6 +60,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
   - `health_check/` — Verify containers are up + HTTP endpoint responds
   - `cleanup_snapshot/` — Remove a named Proxmox snapshot
   - `podman_update/` — Pull + conditionally restart a Quadlet unit
+  - `podman_align_image/` — Pull a specific image digest (rather than re-resolving a tag) + conditionally restart a Quadlet unit, so a peer host can be forced to match another host's exact running image versions
   - `image_retention/` — Prune old container images, keep the 2 most recent
   - `capture_start_time/` — Record a start-time epoch on localhost (once), for the run duration shown in reports
   - `capture_host_list/` — Snapshot the play's host list onto localhost, for the final report
@@ -122,6 +126,21 @@ Per-host work in both playbooks is also wrapped in a `block`/`rescue`: an unhand
 - After running, each stage combines the incoming gate with its own outcome (`stage_was_allowed_to_run and not <this stage's problem flag>`), so a stage that was itself skipped can't accidentally re-open the gate for the next one.
 
 **Reports**: run standalone, each playbook still sends its own single email exactly as before (subject/body marked `SKIPPED (previous stage had a problem)` if it was itself skipped). Run via `full-updates.yml`, the 3 individual emails are suppressed (`is_orchestrated_run`, set by a leading play before the 3 `import_playbook`s) and replaced by **one** combined email at the end: a summary table (stage, status, duration for each of the 3), followed by each stage's full report body concatenated in — plus the overall run duration, which `send_report` already adds automatically from the shared `run_start_epoch` fact. Per-stage durations use the same `capture_start_time` role with a second, stage-scoped fact name (`capture_start_time_fact_name`) alongside the existing global one.
+
+### Mutual Semaphore updates
+
+`semaphore101` has always been excluded from `vm-updates.yml`/`container-updates.yml` — it can't safely patch-and-reboot itself while it's the thing running the automation. `semaphore102` exists purely to break that deadlock, using `update-semaphore-peer.yml` in both directions, via two independently-scheduled Semaphore templates:
+
+1. A template on `semaphore102` runs `update-semaphore-peer.yml -e peer_host=semaphore101` on its own schedule. This patches `semaphore101`'s OS and Podman images (reusing the same roles `vm-updates.yml` uses, minus its Katello promotion play — that would otherwise re-run redundantly here *and* again moments later when `full-updates.yml` starts), then waits for its Semaphore web service (`/api/ping`) to respond before finishing.
+2. `full-updates.yml` runs on `semaphore101` on its own separate schedule, timed to start after `semaphore102`'s job is expected to be done, so it always finds `semaphore101` already up to date. It runs the whole fleet as usual, and finishes with `import_playbook: update-semaphore-peer.yml, vars: {peer_host: semaphore102, image_reference_host: semaphore101}` — gated by the same `orchestration_should_run` fact as every other stage, so `semaphore102` only gets patched back if nothing upstream failed.
+
+There's no direct hand-off between the two instances — no API call, no shared flag — just two schedules timed so each one's prerequisite is done by the time it runs.
+
+**Keeping Postgres/Semaphore image versions identical**: `podman_update`'s normal "pull whatever the configured tag currently resolves to" is fine for most hosts, but for this pair specifically it risks drift — a floating tag (e.g. `postgres:16`) could resolve to a newer patch release on `semaphore102` than what `semaphore101` is actually running, if a new image was published upstream between the two runs. So when `image_reference_host` is passed, `update-semaphore-peer.yml` adds two extra plays after the normal container update:
+1. It checks `image_reference_host` (`semaphore101`) is healthy right now, then reads the exact image digest each of its Podman units (`semaphore`, `semaphore_db`) is *actually running* (`podman inspect` — not the configured tag, the resolved digest) and saves it on `localhost`.
+2. If that succeeded, it forces `peer_host` (`semaphore102`) to pull and tag that exact digest for each matching unit (`podman_align_image` role), restarting only if it actually changed something — so `semaphore102` always ends up bit-for-bit identical to `semaphore101`, regardless of whether the image's tag is fully pinned or floating.
+
+This only runs in the `semaphore102`-facing direction (`image_reference_host` is only passed by `full-updates.yml`); when `semaphore102` patches `semaphore101` the other way, `image_reference_host` is omitted and each unit is simply pulled by its configured tag as normal.
 
 ## Requirements
 
