@@ -1,4 +1,56 @@
 ---
+- name: Mark this as an orchestrated run
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Set the orchestration flag
+      ansible.builtin.set_fact:
+        is_orchestrated_run: true
+
 - import_playbook: container-updates.yml
 - import_playbook: vm-updates.yml
 - import_playbook: pve-updates.yml
+
+- name: Send the combined full-updates report
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Determine overall status across all 3 stages
+      ansible.builtin.set_fact:
+        full_run_any_problem: "{{ 'PROBLEM' in [hostvars['localhost'].container_updates_stage_status, hostvars['localhost'].vm_updates_stage_status, hostvars['localhost'].pve_updates_stage_status] }}"
+
+    - name: Build and send the combined HTML report email
+      include_role:
+        name: send_report
+      vars:
+        report_subject: "[full-updates] {{ 'PROBLEM detected' if full_run_any_problem else 'All OK' }}"
+        report_body: |
+          <h2>Full update run summary</h2>
+          <table>
+            <tr>
+              <th>Stage</th>
+              <th>Status</th>
+              <th>Duration</th>
+            </tr>
+            {% for stage in [
+              {'name': 'container-updates', 'status': hostvars['localhost'].container_updates_stage_status, 'duration': hostvars['localhost'].container_updates_duration_display},
+              {'name': 'vm-updates', 'status': hostvars['localhost'].vm_updates_stage_status, 'duration': hostvars['localhost'].vm_updates_duration_display},
+              {'name': 'pve-updates', 'status': hostvars['localhost'].pve_updates_stage_status, 'duration': hostvars['localhost'].pve_updates_duration_display}
+            ] %}
+            {% if stage.status == 'PROBLEM' %}
+            {% set row_class = 'status-problem' %}
+            {% elif stage.status == 'SKIPPED' %}
+            {% set row_class = 'status-warning' %}
+            {% else %}
+            {% set row_class = 'status-ok' %}
+            {% endif %}
+            <tr class="{{ row_class }}">
+              <td>{{ stage.name }}</td>
+              <td>{{ stage.status }}</td>
+              <td>{{ stage.duration }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+          {{ hostvars['localhost'].container_updates_report_body }}
+          {{ hostvars['localhost'].vm_updates_report_body }}
+          {{ hostvars['localhost'].pve_updates_report_body }}

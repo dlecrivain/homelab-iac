@@ -1,8 +1,8 @@
 ---
 - name: Capture the run start time (once)
   ansible.builtin.set_fact:
-    run_start_epoch: "{{ now(fmt='%s') }}"
+    "{{ capture_start_time_fact_name | default('run_start_epoch') }}": "{{ now(fmt='%s') }}"
   delegate_to: localhost
   delegate_facts: true
   run_once: true
-  when: hostvars['localhost'].run_start_epoch is not defined
+  when: hostvars['localhost'][capture_start_time_fact_name | default('run_start_epoch')] is not defined

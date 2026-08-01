@@ -58,6 +58,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
   - `cleanup_snapshot/` — Remove a named Proxmox snapshot
   - `podman_update/` — Pull + conditionally restart a Quadlet unit
   - `image_retention/` — Prune old container images, keep the 2 most recent
+  - `capture_start_time/` — Record a start-time epoch on localhost (once), for the run duration shown in reports
   - `capture_host_list/` — Snapshot the play's host list onto localhost, for the final report
   - `host_status/` — Derive a host's overall OK/PROBLEM status from its health check results
   - `send_report/` — Shared HTML email skeleton + CSS; sends the per-playbook report body
@@ -113,7 +114,8 @@ Both `vm-updates.yml` and `container-updates.yml` take a Proxmox snapshot before
 
 - Each stage's real work is wrapped in `when: hostvars['localhost'].orchestration_should_run | default(true)` — the `default(true)` means each playbook behaves completely normally when run standalone from its own Semaphore template, exactly as before.
 - After running, each stage combines the incoming gate with its own outcome (`stage_was_allowed_to_run and not <this stage's problem flag>`), so a stage that was itself skipped can't accidentally re-open the gate for the next one.
-- A skipped stage still sends its usual report email, with the subject/body clearly marked `SKIPPED (previous stage had a problem)` instead of silently doing nothing.
+
+**Reports**: run standalone, each playbook still sends its own single email exactly as before (subject/body marked `SKIPPED (previous stage had a problem)` if it was itself skipped). Run via `full-updates.yml`, the 3 individual emails are suppressed (`is_orchestrated_run`, set by a leading play before the 3 `import_playbook`s) and replaced by **one** combined email at the end: a summary table (stage, status, duration for each of the 3), followed by each stage's full report body concatenated in — plus the overall run duration, which `send_report` already adds automatically from the shared `run_start_epoch` fact. Per-stage durations use the same `capture_start_time` role with a second, stage-scoped fact name (`capture_start_time_fact_name`) alongside the existing global one.
 
 ## Requirements
 

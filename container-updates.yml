@@ -8,6 +8,12 @@
       include_role:
         name: capture_start_time
 
+    - name: Capture this stage's own start time
+      include_role:
+        name: capture_start_time
+      vars:
+        capture_start_time_fact_name: container_updates_start_epoch
+
     - name: Capture the full list of targeted hosts (once)
       include_role:
         name: capture_host_list
@@ -79,12 +85,21 @@
       ansible.builtin.set_fact:
         orchestration_should_run: "{{ stage_was_allowed_to_run and not any_problem }}"
 
-    - name: Build and send the HTML report email
-      include_role:
-        name: send_report
-      vars:
-        report_subject: "[container-updates] {{ 'SKIPPED (previous stage had a problem)' if not stage_was_allowed_to_run else ('PROBLEM detected' if any_problem else 'All OK') }}"
-        report_body: |
+    - name: Determine this stage's status label
+      ansible.builtin.set_fact:
+        container_updates_stage_status: "{{ 'SKIPPED' if not stage_was_allowed_to_run else ('PROBLEM' if any_problem else 'OK') }}"
+
+    - name: Compute this stage's own duration
+      ansible.builtin.set_fact:
+        container_updates_duration_seconds: "{{ (now(fmt='%s') | int) - (hostvars['localhost'].container_updates_start_epoch | int) }}"
+
+    - name: Format this stage's duration for display
+      ansible.builtin.set_fact:
+        container_updates_duration_display: "{{ (container_updates_duration_seconds | int // 3600) }}h {{ ((container_updates_duration_seconds | int % 3600) // 60) }}m {{ (container_updates_duration_seconds | int % 60) }}s"
+
+    - name: Capture this stage's report body
+      ansible.builtin.set_fact:
+        container_updates_report_body: |
           <h2>Container updates report</h2>
           {% if not stage_was_allowed_to_run %}
           <p class="alert-warning">
@@ -130,3 +145,11 @@
             {% endif %}
             {% endfor %}
           </table>
+
+    - name: Build and send the HTML report email (skipped when part of an orchestrated run; the combined email covers it instead)
+      include_role:
+        name: send_report
+      when: not (hostvars['localhost'].is_orchestrated_run | default(false))
+      vars:
+        report_subject: "[container-updates] {{ 'SKIPPED (previous stage had a problem)' if not stage_was_allowed_to_run else ('PROBLEM detected' if any_problem else 'All OK') }}"
+        report_body: "{{ container_updates_report_body }}"

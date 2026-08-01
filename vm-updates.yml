@@ -8,6 +8,12 @@
     - name: Capture the run start time
       include_role:
         name: capture_start_time
+
+    - name: Capture this stage's own start time
+      include_role:
+        name: capture_start_time
+      vars:
+        capture_start_time_fact_name: vm_updates_start_epoch
   roles:
     - role: katello_promote
       when: hostvars['localhost'].orchestration_should_run | default(true)
@@ -91,12 +97,21 @@
       ansible.builtin.set_fact:
         orchestration_should_run: "{{ stage_was_allowed_to_run and not any_problem }}"
 
-    - name: Build and send the HTML report email
-      include_role:
-        name: send_report
-      vars:
-        report_subject: "[vm-updates] {{ 'SKIPPED (previous stage had a problem)' if not stage_was_allowed_to_run else ('PROBLEM detected' if any_problem else 'Weekly patch report') }}"
-        report_body: |
+    - name: Determine this stage's status label
+      ansible.builtin.set_fact:
+        vm_updates_stage_status: "{{ 'SKIPPED' if not stage_was_allowed_to_run else ('PROBLEM' if any_problem else 'OK') }}"
+
+    - name: Compute this stage's own duration
+      ansible.builtin.set_fact:
+        vm_updates_duration_seconds: "{{ (now(fmt='%s') | int) - (hostvars['localhost'].vm_updates_start_epoch | int) }}"
+
+    - name: Format this stage's duration for display
+      ansible.builtin.set_fact:
+        vm_updates_duration_display: "{{ (vm_updates_duration_seconds | int // 3600) }}h {{ ((vm_updates_duration_seconds | int % 3600) // 60) }}m {{ (vm_updates_duration_seconds | int % 60) }}s"
+
+    - name: Capture this stage's report body
+      ansible.builtin.set_fact:
+        vm_updates_report_body: |
           <h2>VM updates report</h2>
           {% if not stage_was_allowed_to_run %}
           <p class="alert-warning">
@@ -136,3 +151,11 @@
             {% endif %}
             {% endfor %}
           </table>
+
+    - name: Build and send the HTML report email (skipped when part of an orchestrated run; the combined email covers it instead)
+      include_role:
+        name: send_report
+      when: not (hostvars['localhost'].is_orchestrated_run | default(false))
+      vars:
+        report_subject: "[vm-updates] {{ 'SKIPPED (previous stage had a problem)' if not stage_was_allowed_to_run else ('PROBLEM detected' if any_problem else 'Weekly patch report') }}"
+        report_body: "{{ vm_updates_report_body }}"

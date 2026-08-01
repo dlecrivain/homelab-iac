@@ -8,6 +8,12 @@
     - name: Capture the run start time
       include_role:
         name: capture_start_time
+
+    - name: Capture this stage's own start time
+      include_role:
+        name: capture_start_time
+      vars:
+        capture_start_time_fact_name: pve_updates_start_epoch
   roles:
     - role: katello_promote
       when: hostvars['localhost'].orchestration_should_run | default(true)
@@ -117,6 +123,18 @@
       ansible.builtin.set_fact:
         orchestration_should_run: "{{ stage_was_allowed_to_run and not run_was_halted }}"
 
+    - name: Determine this stage's status label
+      ansible.builtin.set_fact:
+        pve_updates_stage_status: "{{ 'SKIPPED' if not stage_was_allowed_to_run else ('PROBLEM' if run_was_halted else 'OK') }}"
+
+    - name: Compute this stage's own duration
+      ansible.builtin.set_fact:
+        pve_updates_duration_seconds: "{{ (now(fmt='%s') | int) - (hostvars['localhost'].pve_updates_start_epoch | int) }}"
+
+    - name: Format this stage's duration for display
+      ansible.builtin.set_fact:
+        pve_updates_duration_display: "{{ (pve_updates_duration_seconds | int // 3600) }}h {{ ((pve_updates_duration_seconds | int % 3600) // 60) }}m {{ (pve_updates_duration_seconds | int % 60) }}s"
+
     - name: Best-effort check for a newer major PVE release (informational only, never acted upon)
       ansible.builtin.uri:
         url: http://download.proxmox.com/debian/pve/dists/
@@ -128,12 +146,9 @@
       ansible.builtin.set_fact:
         newer_pve_suite_available: "{{ (pve_dists_check.content is defined) and ('forky' in pve_dists_check.content) }}"
 
-    - name: Build and send the HTML report email
-      include_role:
-        name: send_report
-      vars:
-        report_subject: "[pve-updates] {{ 'SKIPPED (previous stage had a problem)' if not stage_was_allowed_to_run else ('STOPPED - manual intervention needed' if run_was_halted else 'Run completed') }}"
-        report_body: |
+    - name: Capture this stage's report body
+      ansible.builtin.set_fact:
+        pve_updates_report_body: |
           <h2>PVE hosts update report</h2>
           {% if not stage_was_allowed_to_run %}
           <p class="alert-warning">
@@ -196,3 +211,11 @@
             </tr>
             {% endfor %}
           </table>
+
+    - name: Build and send the HTML report email (skipped when part of an orchestrated run; the combined email covers it instead)
+      include_role:
+        name: send_report
+      when: not (hostvars['localhost'].is_orchestrated_run | default(false))
+      vars:
+        report_subject: "[pve-updates] {{ 'SKIPPED (previous stage had a problem)' if not stage_was_allowed_to_run else ('STOPPED - manual intervention needed' if run_was_halted else 'Run completed') }}"
+        report_body: "{{ pve_updates_report_body }}"
