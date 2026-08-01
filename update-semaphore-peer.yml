@@ -98,6 +98,23 @@
           delegate_facts: true
           when: host_overall_status == 'OK'
 
+        - name: Get each unit's current image tag on the reference host
+          ansible.builtin.command: "podman inspect {{ item.name }} --format '{{ '{{' }}.ImageName{{ '}}' }}'"
+          become: true
+          loop: "{{ podman_units }}"
+          loop_control:
+            label: "{{ item.name }}"
+          register: reference_image_refs
+          changed_when: false
+          when: host_overall_status == 'OK'
+
+        - name: Save the reference host's image tags, keyed by unit name
+          ansible.builtin.set_fact:
+            reference_image_tags: "{{ dict(podman_units | map(attribute='name') | zip(reference_image_refs.results | map(attribute='stdout'))) }}"
+          delegate_to: localhost
+          delegate_facts: true
+          when: host_overall_status == 'OK'
+
 - name: Align this peer's images to the reference host's exact versions (only if a reference host was provided and confirmed healthy)
   hosts: "{{ peer_host }}"
   gather_facts: false
@@ -107,6 +124,7 @@
         name: podman_align_image
       vars:
         podman_align_reference_digests: "{{ hostvars['localhost'].reference_image_digests }}"
+        podman_align_reference_tags: "{{ hostvars['localhost'].reference_image_tags }}"
       when: hostvars['localhost'].reference_image_digests is defined
 
 - name: Bump this peer's Semaphore image if a newer patch/minor is available (skipped in the image_reference_host direction, which uses exact-digest alignment above instead)

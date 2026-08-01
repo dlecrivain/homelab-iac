@@ -8,11 +8,6 @@
       register: image_before
       changed_when: false
 
-    - name: Get the image reference this unit is configured to use
-      ansible.builtin.command: "podman inspect {{ unit.name }} --format '{{ '{{' }}.ImageName{{ '}}' }}'"
-      register: image_ref
-      changed_when: false
-
     - name: Pull the reference host's exact image digest
       ansible.builtin.command: "podman pull {{ podman_align_reference_digests[unit.name] }}"
       register: pull_result
@@ -21,14 +16,27 @@
       delay: 10
       until: pull_result.rc == 0
 
-    - name: Tag the pulled digest as this unit's configured image reference
-      ansible.builtin.command: "podman tag {{ podman_align_reference_digests[unit.name] }} {{ image_ref.stdout }}"
+    - name: Tag the pulled digest with the reference host's current tag name
+      ansible.builtin.command: "podman tag {{ podman_align_reference_digests[unit.name] }} {{ podman_align_reference_tags[unit.name] }}"
       changed_when: true
 
     - name: Get image ID after aligning
-      ansible.builtin.command: "podman inspect {{ image_ref.stdout }} --format '{{ '{{' }}.Id{{ '}}' }}'"
+      ansible.builtin.command: "podman inspect {{ podman_align_reference_tags[unit.name] }} --format '{{ '{{' }}.Id{{ '}}' }}'"
       register: image_after
       changed_when: false
+
+    - name: Update this unit's Image= line to match the reference host's tag
+      ansible.builtin.replace:
+        path: "/etc/containers/systemd/{{ (unit.service_name | default(unit.name)) }}.container"
+        regexp: '^Image=.*$'
+        replace: "Image={{ podman_align_reference_tags[unit.name] }}"
+      when: image_after.stdout != image_before.stdout
+      register: image_line_updated
+
+    - name: Reload systemd to pick up the Image= change
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: image_line_updated is changed
 
     - name: Restart unit if image changed
       ansible.builtin.systemd:
