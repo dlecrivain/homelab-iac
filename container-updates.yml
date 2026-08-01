@@ -1,6 +1,11 @@
 ---
 - name: Update Podman containers on Quadlet-managed hosts
-  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101') }}"
+  # semaphore101/102 are excluded: they're covered end-to-end (OS + container images) by
+  # update-semaphore-peer.yml, which pulls by exact digest against a reference host instead of
+  # by tag - running this generic pass on them too re-pulls their currently configured tag and
+  # can silently undo that alignment (a real regression seen in production: semaphore102 got
+  # reverted from an aligned v2.18.29 back to the stale v2.18.27 tag before realignment ran).
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101:!semaphore102') }}"
   gather_facts: false
   serial: 1
   tasks:

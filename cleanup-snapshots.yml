@@ -1,6 +1,10 @@
 ---
 - name: "Remove {{ snapshot_label }} snapshots across all targeted VMs"
-  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101') }}"
+  # semaphore101/102 are excluded: update-semaphore-peer.yml manages their own ansible_patching
+  # snapshot lifecycle end-to-end, and this playbook runs on its own independent schedule - if it
+  # fired mid-run it could remove the snapshot update-semaphore-peer.yml is relying on as a
+  # rollback safety net.
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101:!semaphore102') }}"
   gather_facts: false
   vars:
     snapshot_label: ansible_patching
