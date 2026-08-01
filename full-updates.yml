@@ -1,0 +1,4 @@
+---
+- import_playbook: container-updates.yml
+- import_playbook: vm-updates.yml
+- import_playbook: pve-updates.yml

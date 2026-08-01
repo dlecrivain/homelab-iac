@@ -12,69 +12,85 @@
       include_role:
         name: capture_host_list
 
-    - name: Step 1 - Remove any leftover container snapshot from a previous run
-      include_role:
-        name: cleanup_snapshot
-      vars:
-        snapshot_label: ansible_container
-      when: podman_units is defined
+    - name: Update containers on this host (skipped if an earlier stage in an orchestrated run had a problem)
+      when: hostvars['localhost'].orchestration_should_run | default(true)
+      block:
+        - name: Step 1 - Remove any leftover container snapshot from a previous run
+          include_role:
+            name: cleanup_snapshot
+          vars:
+            snapshot_label: ansible_container
+          when: podman_units is defined
 
-    - name: Step 2 - Snapshot before applying container updates
-      vars:
-        snapshot_label: ansible_container
-      include_role:
-        name: proxmox_snapshot
-      when: podman_units is defined
+        - name: Step 2 - Snapshot before applying container updates
+          vars:
+            snapshot_label: ansible_container
+          include_role:
+            name: proxmox_snapshot
+          when: podman_units is defined
 
-    - name: Step 3 - Update Podman containers
-      include_role:
-        name: podman_update
-      when: podman_units is defined and not (snapshot_already_exists | default(false))
+        - name: Step 3 - Update Podman containers
+          include_role:
+            name: podman_update
+          when: podman_units is defined and not (snapshot_already_exists | default(false))
 
-    - name: Step 4 - Check services after update
-      include_role:
-        name: health_check
-      when: podman_units is defined
+        - name: Step 4 - Check services after update
+          include_role:
+            name: health_check
+          when: podman_units is defined
 
-    - name: Record whether the update was skipped due to an existing snapshot
-      ansible.builtin.set_fact:
-        host_update_skipped: "{{ (podman_units is defined) and (snapshot_already_exists | default(false)) }}"
-      when: podman_units is defined
+        - name: Record whether the update was skipped due to an existing snapshot
+          ansible.builtin.set_fact:
+            host_update_skipped: "{{ (podman_units is defined) and (snapshot_already_exists | default(false)) }}"
+          when: podman_units is defined
 
-    - name: Determine overall host status
-      include_role:
-        name: host_status
-      when: podman_units is defined
+        - name: Determine overall host status
+          include_role:
+            name: host_status
+          when: podman_units is defined
 
-    - name: Step 5 - Remove the container snapshot now that the host is healthy
-      include_role:
-        name: cleanup_snapshot
-      vars:
-        snapshot_label: ansible_container
-      when:
-        - podman_units is defined
-        - host_overall_status | default('') == 'OK'
+        - name: Step 5 - Remove the container snapshot now that the host is healthy
+          include_role:
+            name: cleanup_snapshot
+          vars:
+            snapshot_label: ansible_container
+          when:
+            - podman_units is defined
+            - host_overall_status | default('') == 'OK'
 
-    - name: Step 6 - Prune old container images
-      include_role:
-        name: image_retention
-      when: podman_units is defined
+        - name: Step 6 - Prune old container images
+          include_role:
+            name: image_retention
+          when: podman_units is defined
 
 - name: Send aggregated container-updates report
   hosts: localhost
   gather_facts: false
   tasks:
+    - name: Record whether this stage was allowed to run
+      ansible.builtin.set_fact:
+        stage_was_allowed_to_run: "{{ hostvars['localhost'].orchestration_should_run | default(true) }}"
+
     - name: Determine if any host has a problem
       ansible.builtin.set_fact:
         any_problem: "{{ hostvars['localhost'].target_host_list | map('extract', hostvars) | map(attribute='host_overall_status', default='OK') | select('equalto', 'PROBLEM') | list | length > 0 }}"
+
+    - name: Update the orchestration gate for any later stage
+      ansible.builtin.set_fact:
+        orchestration_should_run: "{{ stage_was_allowed_to_run and not any_problem }}"
 
     - name: Build and send the HTML report email
       include_role:
         name: send_report
       vars:
-        report_subject: "[container-updates] {{ 'PROBLEM detected' if any_problem else 'All OK' }}"
+        report_subject: "[container-updates] {{ 'SKIPPED (previous stage had a problem)' if not stage_was_allowed_to_run else ('PROBLEM detected' if any_problem else 'All OK') }}"
         report_body: |
           <h2>Container updates report</h2>
+          {% if not stage_was_allowed_to_run %}
+          <p class="alert-warning">
+            <strong>Skipped.</strong> An earlier stage in this orchestrated run reported a problem, so container updates were not attempted.
+          </p>
+          {% endif %}
           <table>
             <tr>
               <th>Host</th>

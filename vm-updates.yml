@@ -9,7 +9,8 @@
       include_role:
         name: capture_start_time
   roles:
-    - katello_promote
+    - role: katello_promote
+      when: hostvars['localhost'].orchestration_should_run | default(true)
 
 - name: Check and update all VMs except lpkat101 and semaphore101
   hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101') }}"
@@ -20,68 +21,88 @@
       include_role:
         name: capture_host_list
 
-    - name: Step 1 - Remove any leftover patching snapshot from a previous run
-      include_role:
-        name: cleanup_snapshot
-      vars:
-        snapshot_label: ansible_patching
-
-    - name: Step 2 - Check for available updates
-      include_role:
-        name: check_updates
-
-    - name: Snapshot, update and reboot the VM (only if updates are available)
-      when: has_updates | default(false) | bool
+    - name: Update this VM (skipped if an earlier stage in an orchestrated run had a problem)
+      when: hostvars['localhost'].orchestration_should_run | default(true)
       block:
-        - name: Step 3 - Proxmox snapshot
+        - name: Step 1 - Remove any leftover patching snapshot from a previous run
+          include_role:
+            name: cleanup_snapshot
           vars:
             snapshot_label: ansible_patching
+
+        - name: Step 2 - Check for available updates
           include_role:
-            name: proxmox_snapshot
+            name: check_updates
 
-        - name: Step 4 - Apply updates
+        - name: Snapshot, update and reboot the VM (only if updates are available)
+          when: has_updates | default(false) | bool
+          block:
+            - name: Step 3 - Proxmox snapshot
+              vars:
+                snapshot_label: ansible_patching
+              include_role:
+                name: proxmox_snapshot
+
+            - name: Step 4 - Apply updates
+              include_role:
+                name: apply_updates
+              when: not (snapshot_already_exists | default(false))
+
+            - name: Step 5 - Reboot and wait
+              include_role:
+                name: reboot_and_wait
+              when: not (snapshot_already_exists | default(false))
+
+        - name: Step 6 - Check services
           include_role:
-            name: apply_updates
-          when: not (snapshot_already_exists | default(false))
+            name: health_check
 
-        - name: Step 5 - Reboot and wait
+        - name: Determine overall host status
           include_role:
-            name: reboot_and_wait
-          when: not (snapshot_already_exists | default(false))
+            name: host_status
 
-    - name: Step 6 - Check services
-      include_role:
-        name: health_check
+        - name: Record whether an update was applied or skipped for this host
+          ansible.builtin.set_fact:
+            host_update_applied: "{{ (has_updates | default(false) | bool) and not (snapshot_already_exists | default(false)) }}"
+            host_update_skipped: "{{ (has_updates | default(false) | bool) and (snapshot_already_exists | default(false)) }}"
 
-    - name: Determine overall host status
-      include_role:
-        name: host_status
-
-    - name: Record whether an update was applied or skipped for this host
-      ansible.builtin.set_fact:
-        host_update_applied: "{{ (has_updates | default(false) | bool) and not (snapshot_already_exists | default(false)) }}"
-        host_update_skipped: "{{ (has_updates | default(false) | bool) and (snapshot_already_exists | default(false)) }}"
-
-    - name: Step 7 - Remove the patching snapshot now that the host is healthy
-      include_role:
-        name: cleanup_snapshot
-      vars:
-        snapshot_label: ansible_patching
-      when:
-        - has_updates | default(false) | bool
-        - host_overall_status == 'OK'
+        - name: Step 7 - Remove the patching snapshot now that the host is healthy
+          include_role:
+            name: cleanup_snapshot
+          vars:
+            snapshot_label: ansible_patching
+          when:
+            - has_updates | default(false) | bool
+            - host_overall_status == 'OK'
 
 - name: Send aggregated vm-updates report
   hosts: localhost
   gather_facts: false
   tasks:
+    - name: Record whether this stage was allowed to run
+      ansible.builtin.set_fact:
+        stage_was_allowed_to_run: "{{ hostvars['localhost'].orchestration_should_run | default(true) }}"
+
+    - name: Determine if any host has a problem
+      ansible.builtin.set_fact:
+        any_problem: "{{ hostvars['localhost'].target_host_list | map('extract', hostvars) | map(attribute='host_overall_status', default='OK') | select('equalto', 'PROBLEM') | list | length > 0 }}"
+
+    - name: Update the orchestration gate for any later stage
+      ansible.builtin.set_fact:
+        orchestration_should_run: "{{ stage_was_allowed_to_run and not any_problem }}"
+
     - name: Build and send the HTML report email
       include_role:
         name: send_report
       vars:
-        report_subject: "[vm-updates] Weekly patch report"
+        report_subject: "[vm-updates] {{ 'SKIPPED (previous stage had a problem)' if not stage_was_allowed_to_run else ('PROBLEM detected' if any_problem else 'Weekly patch report') }}"
         report_body: |
           <h2>VM updates report</h2>
+          {% if not stage_was_allowed_to_run %}
+          <p class="alert-warning">
+            <strong>Skipped.</strong> An earlier stage in this orchestrated run reported a problem, so VM updates were not attempted.
+          </p>
+          {% endif %}
           <table>
             <tr>
               <th>Host</th>

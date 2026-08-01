@@ -9,7 +9,8 @@
       include_role:
         name: capture_start_time
   roles:
-    - katello_promote
+    - role: katello_promote
+      when: hostvars['localhost'].orchestration_should_run | default(true)
 
 - name: PVE host updates - evacuate, patch, reboot
   hosts: "{{ target_pve_hosts | default('pve1,pve2,pve3') }}"
@@ -30,6 +31,7 @@
         name: capture_host_list
 
     - name: Process this host, aborting the whole run on any failure
+      when: hostvars['localhost'].orchestration_should_run | default(true)
       block:
         - name: Capture the current PVE version
           ansible.builtin.command: pveversion
@@ -88,9 +90,13 @@
   tasks:
     - name: Determine locally if any host was blocked during this run
       ansible.builtin.set_fact:
-        rebalance_should_run: "{{ ansible_play_hosts_all | map('extract', hostvars) | map(attribute='pve_host_status', default='NOT_PROCESSED') | select('equalto', 'BLOCKED') | list | length == 0 }}"
+        rebalance_should_run: >-
+          {{
+            (hostvars['localhost'].orchestration_should_run | default(true))
+            and (ansible_play_hosts_all | map('extract', hostvars) | map(attribute='pve_host_status', default='NOT_PROCESSED') | select('equalto', 'BLOCKED') | list | length == 0)
+          }}
 
-    - name: Rebalance the whole cluster (skipped if any host was blocked earlier)
+    - name: Rebalance the whole cluster (skipped if any host was blocked earlier, or this stage was itself skipped)
       include_role:
         name: pve_rebalance
       when: rebalance_should_run | bool
@@ -99,9 +105,17 @@
   hosts: localhost
   gather_facts: false
   tasks:
+    - name: Record whether this stage was allowed to run
+      ansible.builtin.set_fact:
+        stage_was_allowed_to_run: "{{ hostvars['localhost'].orchestration_should_run | default(true) }}"
+
     - name: Determine if the run was halted due to a blocked host
       ansible.builtin.set_fact:
         run_was_halted: "{{ hostvars['localhost'].target_host_list | map('extract', hostvars) | map(attribute='pve_host_status', default='NOT_PROCESSED') | select('equalto', 'BLOCKED') | list | length > 0 }}"
+
+    - name: Update the orchestration gate for any later stage
+      ansible.builtin.set_fact:
+        orchestration_should_run: "{{ stage_was_allowed_to_run and not run_was_halted }}"
 
     - name: Best-effort check for a newer major PVE release (informational only, never acted upon)
       ansible.builtin.uri:
@@ -118,9 +132,14 @@
       include_role:
         name: send_report
       vars:
-        report_subject: "[pve-updates] {{ 'STOPPED - manual intervention needed' if run_was_halted else 'Run completed' }}"
+        report_subject: "[pve-updates] {{ 'SKIPPED (previous stage had a problem)' if not stage_was_allowed_to_run else ('STOPPED - manual intervention needed' if run_was_halted else 'Run completed') }}"
         report_body: |
           <h2>PVE hosts update report</h2>
+          {% if not stage_was_allowed_to_run %}
+          <p class="alert-warning">
+            <strong>Skipped.</strong> An earlier stage in this orchestrated run reported a problem, so PVE host updates were not attempted.
+          </p>
+          {% endif %}
           {% if run_was_halted %}
           <p class="alert-danger">
             <strong>The run was stopped.</strong> A host failed during processing, so no further hosts were touched, as configured. The final cluster rebalance was skipped.

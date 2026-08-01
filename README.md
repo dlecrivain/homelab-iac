@@ -28,6 +28,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 | `pve-rebalance-test.yml` | Standalone dry-run harness to compute a `pve_rebalance` plan in isolation, without running a full `pve-updates.yml` cycle |
 | `pcloud-backups.yml` | Runs a single `rclone` backup (source/destination/mode passed as extra vars); scheduled as one independent Semaphore template per backup job, replacing what used to be a system crontab on `smb101` |
 | `vm-backups.yml` | Runs a `vzdump` (ZSTD) of every VM, migrating it to `pve1` first if it isn't already there (the only node with the `Stockage_SSD` backup storage), uploads the archive to pCloud, prunes both retentions, then rebalances the cluster if anything was migrated |
+| `full-updates.yml` | Runs `container-updates.yml`, then `vm-updates.yml`, then `pve-updates.yml` in one go — each stage only runs if the previous one had no problem, otherwise later stages report as `SKIPPED` |
 
 `vm-updates.yml` and `container-updates.yml` already remove their own snapshot as soon as the post-update health check passes — `cleanup-snapshots.yml` is the backstop for the ones deliberately left behind after a failed health check, run on its own independent schedule (as two separate Semaphore templates, one per `snapshot_label` value) since OS patching and container updates don't necessarily run on the same cadence.
 
@@ -40,6 +41,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 - **`pve-rebalance-test.yml`** — Standalone dry-run test harness for the `pve_rebalance` role
 - **`pcloud-backups.yml`** — Runs one `rclone` backup per invocation (source/dest/mode via extra vars); each job gets its own scheduled Semaphore template
 - **`vm-backups.yml`** — Weekly `vzdump` of every VM to `Stockage_SSD` then pCloud, with migration + rebalance as needed
+- **`full-updates.yml`** — Chains `container-updates.yml` → `vm-updates.yml` → `pve-updates.yml`, gated on each stage's outcome
 - **`ansible.cfg`** — Silences interpreter discovery warnings
 - **`requirements.txt`** — Python deps (proxmoxer, requests) for the inventory plugin
 - **`collections/requirements.yml`** — Ansible collections (community.proxmox, ansible.posix, community.general)
@@ -101,6 +103,14 @@ This makes the playbooks fully generic: no host-specific logic lives in the role
 Both `vm-updates.yml` and `container-updates.yml` take a Proxmox snapshot before making any change (`ansible_patching` and `ansible_container` respectively), using ZFS copy-on-write storage so the cost is negligible until the underlying data actually changes. The snapshot is removed automatically as soon as the post-update health check passes; if the health check fails, the snapshot is left in place for a manual rollback decision, and `cleanup-snapshots.yml` won't touch it until you've dealt with it.
 
 `pve-updates.yml` takes a different safety approach, since it patches the hypervisors themselves rather than a single VM: if a node fails mid-run, a `rescue` block marks it `BLOCKED` and halts the entire run (`meta: end_play`) so no further node is touched, and the final cluster rebalance is skipped.
+
+### Orchestrated run
+
+`ansible.builtin.import_playbook` (used by `full-updates.yml`) concatenates whole playbooks into one run but doesn't support `when:`, so there's no native "run playbook B only if playbook A succeeded". Instead, `container-updates.yml`, `vm-updates.yml` and `pve-updates.yml` each read and write a shared fact, `orchestration_should_run`, set on `localhost`:
+
+- Each stage's real work is wrapped in `when: hostvars['localhost'].orchestration_should_run | default(true)` — the `default(true)` means each playbook behaves completely normally when run standalone from its own Semaphore template, exactly as before.
+- After running, each stage combines the incoming gate with its own outcome (`stage_was_allowed_to_run and not <this stage's problem flag>`), so a stage that was itself skipped can't accidentally re-open the gate for the next one.
+- A skipped stage still sends its usual report email, with the subject/body clearly marked `SKIPPED (previous stage had a problem)` instead of silently doing nothing.
 
 ## Requirements
 
