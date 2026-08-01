@@ -31,6 +31,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 | `vm-backups.yml` | Runs a `vzdump` (ZSTD) of every VM, migrating it to `pve1` first if it isn't already there (the only node with the `Stockage_SSD` backup storage), uploads the archive to pCloud, prunes both retentions, then rebalances the cluster if anything was migrated |
 | `full-updates.yml` | Runs `container-updates.yml`, then `vm-updates.yml`, then `pve-updates.yml` in one go — each stage only runs if the previous one had no problem, otherwise later stages report as `SKIPPED`; finishes by patching `semaphore102` back |
 | `update-semaphore-peer.yml` | OS-patches + Podman-updates `{{ peer_host }}` (`semaphore101` or `semaphore102`), then pings its Semaphore web service to confirm it's back up — the mechanism behind item 8 above |
+| `provision-semaphore-peer.yml` | One-time setup: deploys Semaphore via Podman Quadlet onto a fresh `{{ peer_host }}` VM, identically to the existing instance, then waits for its web service to respond |
 
 `vm-updates.yml` and `container-updates.yml` already remove their own snapshot as soon as the post-update health check passes — `cleanup-snapshots.yml` is the backstop for the ones deliberately left behind after a failed health check, run on its own independent schedule (as two separate Semaphore templates, one per `snapshot_label` value) since OS patching and container updates don't necessarily run on the same cadence.
 
@@ -45,6 +46,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 - **`vm-backups.yml`** — Weekly `vzdump` of every VM to `Stockage_SSD` then pCloud, with migration + rebalance as needed
 - **`full-updates.yml`** — Chains `container-updates.yml` → `vm-updates.yml` → `pve-updates.yml` → patches `semaphore102` back, gated on each stage's outcome
 - **`update-semaphore-peer.yml`** — OS-patches + Podman-updates one Semaphore peer, then confirms its Semaphore web service is back up
+- **`provision-semaphore-peer.yml`** — One-time deploy of Semaphore (Podman Quadlet) onto a fresh peer VM
 - **`ansible.cfg`** — Silences interpreter discovery warnings
 - **`requirements.txt`** — Python deps (proxmoxer, requests) for the inventory plugin
 - **`collections/requirements.yml`** — Ansible collections (community.proxmox, ansible.posix, community.general)
@@ -61,6 +63,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
   - `cleanup_snapshot/` — Remove a named Proxmox snapshot
   - `podman_update/` — Pull + conditionally restart a Quadlet unit
   - `podman_align_image/` — Pull a specific image digest (rather than re-resolving a tag) + conditionally restart a Quadlet unit, so a peer host can be forced to match another host's exact running image versions
+  - `semaphore_provision/` — Deploy Semaphore's 7 Quadlet unit files + generate fresh app/DB secrets + clone this repo, for a brand-new Semaphore peer VM
   - `image_retention/` — Prune old container images, keep the 2 most recent
   - `capture_start_time/` — Record a start-time epoch on localhost (once), for the run duration shown in reports
   - `capture_host_list/` — Snapshot the play's host list onto localhost, for the final report
@@ -141,6 +144,17 @@ There's no direct hand-off between the two instances — no API call, no shared 
 2. If that succeeded, it forces `peer_host` (`semaphore102`) to pull and tag that exact digest for each matching unit (`podman_align_image` role), restarting only if it actually changed something — so `semaphore102` always ends up bit-for-bit identical to `semaphore101`, regardless of whether the image's tag is fully pinned or floating.
 
 This only runs in the `semaphore102`-facing direction (`image_reference_host` is only passed by `full-updates.yml`); when `semaphore102` patches `semaphore101` the other way, `image_reference_host` is omitted and each unit is simply pulled by its configured tag as normal.
+
+### Provisioning a new Semaphore peer
+
+`provision-semaphore-peer.yml` (run from `semaphore101`, targeting the brand-new VM) deploys Semaphore identically to the existing instance: it copies the 7 Quadlet unit files (`semaphore-network.network`, 4 `.volume` files, `semaphore-db.container`, `semaphore.container` — byte-identical to `semaphore101`'s, since nothing in them is host-specific), generates **fresh** `SEMAPHORE_DB_PASS`/`POSTGRES_PASSWORD` (kept in sync with each other) and `SEMAPHORE_ADMIN_PASSWORD` secrets rather than reusing `semaphore101`'s real ones, clones this repo into `/home/deploy/repos/automatic_updates` (bind-mounted into the container as `/repos`), then enables and starts both services.
+
+It's safe to re-run: if `/etc/semaphore/app.env` already exists, the secrets and env files are left untouched (regenerating them on an already-initialized Postgres data volume would desync the stored DB password from a freshly-rewritten one).
+
+Not handled by this playbook, and needs a short manual checklist once the containers are up:
+- VM creation itself (Proxmox side) — same manual process as any other VM in this cluster.
+- Recreating Semaphore's own data (projects/templates/environments/credentials — these live in `semaphore102`'s own Postgres DB, not in anything this repo touches): the SSH key in the Key Store (same key as `semaphore101`'s), the Proxmox/SMTP Variable Group, the repo connection (pointing at `/repos`), and at minimum the two templates this design needs — "Update semaphore101" (`update-semaphore-peer.yml -e peer_host=semaphore101`) on its own schedule, and (on `semaphore101`) "Full updates" (`full-updates.yml`) timed to run after it.
+- Changing `SEMAPHORE_ADMIN_PASSWORD` from its generated value via Semaphore's own UI on first login (same as should be done for `semaphore101`'s `changeme` default while at it).
 
 ## Requirements
 

@@ -1,0 +1,96 @@
+---
+- name: Check whether this peer has already been provisioned
+  ansible.builtin.stat:
+    path: /etc/semaphore/app.env
+  register: semaphore_provision_existing
+  become: true
+
+- name: Generate fresh secrets for a brand-new instance (existing app.env/db.env are never touched, so a re-run can't desync them from the already-initialized Postgres data)
+  ansible.builtin.set_fact:
+    semaphore_provision_db_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=32, chars=['ascii_letters', 'digits']) }}"
+    semaphore_provision_admin_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=20, chars=['ascii_letters', 'digits']) }}"
+  when: not semaphore_provision_existing.stat.exists
+  no_log: true
+
+- name: Ensure /etc/semaphore exists
+  ansible.builtin.file:
+    path: /etc/semaphore
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Ensure /etc/containers/systemd exists
+  ansible.builtin.file:
+    path: /etc/containers/systemd
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Deploy the Quadlet unit files (identical on both Semaphore instances)
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/containers/systemd/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  loop:
+    - semaphore-network.network
+    - semaphore_data.volume
+    - semaphore_config.volume
+    - semaphore_tmp.volume
+    - semaphore_postgres.volume
+    - semaphore-db.container
+    - semaphore.container
+
+- name: Deploy the app environment file (only for a brand-new instance)
+  ansible.builtin.template:
+    src: app.env.j2
+    dest: /etc/semaphore/app.env
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+  when: not semaphore_provision_existing.stat.exists
+  no_log: true
+
+- name: Deploy the database environment file (only for a brand-new instance)
+  ansible.builtin.template:
+    src: db.env.j2
+    dest: /etc/semaphore/db.env
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+  when: not semaphore_provision_existing.stat.exists
+  no_log: true
+
+- name: Clone this repo into /home/deploy/repos (bind-mounted into the Semaphore container as /repos)
+  ansible.builtin.git:
+    repo: https://github.com/dlecrivain/automatic_updates
+    dest: /home/deploy/repos/automatic_updates
+  become: true
+  become_user: deploy
+
+- name: Reload systemd to pick up the new Quadlet units
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
+
+- name: Enable and start the Postgres DB service
+  ansible.builtin.systemd:
+    name: semaphore-db.service
+    enabled: true
+    state: started
+  become: true
+
+- name: Enable and start the Semaphore service
+  ansible.builtin.systemd:
+    name: semaphore.service
+    enabled: true
+    state: started
+  become: true

@@ -9,3 +9,4 @@ podman_units:
     scope: root
   - name: semaphore_db
     scope: root
+    service_name: semaphore-db # Quadlet names the systemd unit after semaphore-db.container, not ContainerName=

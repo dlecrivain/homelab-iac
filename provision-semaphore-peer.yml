@@ -1,0 +1,19 @@
+---
+- name: Provision a fresh Semaphore peer instance identically to the existing one (run from semaphore101, targeting the new VM)
+  hosts: "{{ peer_host }}"
+  gather_facts: true
+  tasks:
+    - name: Deploy Semaphore via Podman Quadlet
+      include_role:
+        name: semaphore_provision
+
+    - name: Wait for the new peer's Semaphore web service to respond
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}:3000/api/ping"
+        status_code: 200
+        timeout: 10
+      register: new_peer_semaphore_ping
+      retries: 30
+      delay: 10
+      until: (new_peer_semaphore_ping.status | default(0)) == 200
+      delegate_to: localhost

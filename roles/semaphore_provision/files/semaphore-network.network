@@ -1,0 +1,4 @@
+[Network]
+NetworkName=semaphore_network
+Driver=bridge
+DNS=192.168.1.254
