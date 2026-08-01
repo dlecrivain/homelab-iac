@@ -122,3 +122,78 @@
       retries: 30
       delay: 10
       until: (peer_semaphore_ping.status | default(0)) == 200
+
+- name: Check whether a newer Semaphore release is available (informational only - never applied automatically)
+  hosts: "{{ peer_host }}"
+  gather_facts: false
+  tasks:
+    - name: Get the currently running Semaphore image reference
+      ansible.builtin.command: podman inspect semaphore --format '{{ '{{' }}.ImageName{{ '}}' }}'
+      register: semaphore_current_image_ref
+      changed_when: false
+      become: true
+
+    - name: Query the latest published Semaphore release on GitHub
+      ansible.builtin.uri:
+        url: https://api.github.com/repos/semaphoreui/semaphore/releases/latest
+        return_content: true
+      register: semaphore_latest_release
+      delegate_to: localhost
+      ignore_errors: true
+
+    - name: Record the current and latest version for comparison
+      ansible.builtin.set_fact:
+        semaphore_current_version: "{{ semaphore_current_image_ref.stdout.split(':')[-1] }}"
+        semaphore_latest_version: "{{ semaphore_latest_release.json.tag_name }}"
+      when: semaphore_latest_release is succeeded
+
+    - name: Notify by email that a newer Semaphore version is available
+      include_role:
+        name: send_report
+      vars:
+        report_subject: "[update-semaphore-peer] Newer Semaphore version available: {{ semaphore_latest_version }}"
+        report_body: |
+          <h2>Semaphore version check</h2>
+          <p>{{ peer_host }} is running <strong>{{ semaphore_current_version }}</strong>. The latest published release is <strong>{{ semaphore_latest_version }}</strong>.</p>
+          <p>This is informational only — nothing is applied automatically. To upgrade: bump the <code>Image=</code> line in <code>roles/semaphore_provision/files/semaphore.container</code> and on both live hosts' <code>/etc/containers/systemd/semaphore.container</code>, then restart <code>semaphore.service</code> manually on each (never from within an Ansible run executing on the instance being restarted).</p>
+      when:
+        - semaphore_latest_release is succeeded
+        - semaphore_current_version != semaphore_latest_version
+
+- name: Check whether a newer Postgres major version is available (informational only - a major-version bump needs a real data migration, never applied automatically)
+  hosts: "{{ peer_host }}"
+  gather_facts: false
+  tasks:
+    - name: Get the currently running Postgres image reference
+      ansible.builtin.command: podman inspect semaphore_db --format '{{ '{{' }}.ImageName{{ '}}' }}'
+      register: postgres_current_image_ref
+      changed_when: false
+      become: true
+
+    - name: Query available Postgres tags on Docker Hub
+      ansible.builtin.uri:
+        url: "https://hub.docker.com/v2/repositories/library/postgres/tags?page_size=100"
+        return_content: true
+      register: postgres_tags_response
+      delegate_to: localhost
+      ignore_errors: true
+
+    - name: Determine the current and latest published Postgres major version
+      ansible.builtin.set_fact:
+        postgres_current_major: "{{ postgres_current_image_ref.stdout.split(':')[-1] | int }}"
+        postgres_latest_major: "{{ postgres_tags_response.json.results | map(attribute='name') | select('match', '^[0-9]+$') | map('int') | list | max }}"
+      when: postgres_tags_response is succeeded
+
+    - name: Notify by email that a newer Postgres major version is available
+      include_role:
+        name: send_report
+      vars:
+        report_subject: "[update-semaphore-peer] Newer Postgres major version available: {{ postgres_latest_major }}"
+        report_body: |
+          <h2>Postgres version check</h2>
+          <p>{{ peer_host }} is running Postgres major version <strong>{{ postgres_current_major }}</strong>. The latest published major version on Docker Hub is <strong>{{ postgres_latest_major }}</strong>.</p>
+          <p>Semaphore has been reported working with Postgres versions up to 17 (not confirmed beyond that) — check Semaphore's own release notes/docs before upgrading.</p>
+          <p><strong>This is informational only — nothing is applied automatically, and this is not a simple image swap like the Semaphore check above:</strong> Postgres refuses to start against a data directory from a different major version, so a bump needs a real migration (<code>pg_upgrade</code> or dump/restore), planned and tested manually — not just editing <code>Image=</code> in semaphore-db.container.</p>
+      when:
+        - postgres_tags_response is succeeded
+        - (postgres_current_major | int) != (postgres_latest_major | int)
