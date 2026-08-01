@@ -207,7 +207,7 @@
       block:
         - name: Update the Image= line in this repo's provisioning template
           ansible.builtin.replace:
-            path: /repos/roles/semaphore_provision/files/semaphore.container
+            path: /repos/homelab-iac/roles/semaphore_provision/files/semaphore.container
             regexp: '^Image=docker\.io/semaphoreui/semaphore:.*$'
             replace: "Image=docker.io/semaphoreui/semaphore:{{ semaphore_bumped_tag }}"
 
@@ -217,19 +217,19 @@
             - git config user.email "semaphore-automation@{{ peer_host }}"
             - git config user.name "Semaphore automation"
           args:
-            chdir: /repos
+            chdir: /repos/homelab-iac
           changed_when: false
 
         - name: Commit the version bump
           ansible.builtin.command: >-
             git commit -am "Bump provisioned Semaphore image to {{ semaphore_bumped_tag }} (applied to {{ peer_host }} by update-semaphore-peer.yml)"
           args:
-            chdir: /repos
+            chdir: /repos/homelab-iac
 
         - name: Push the commit to origin/main
           ansible.builtin.command: "git push https://{{ github_push_token }}@github.com/dlecrivain/homelab-iac main"
           args:
-            chdir: /repos
+            chdir: /repos/homelab-iac
           no_log: true
 
 - name: Check whether a newer Postgres major version is available (informational only - a major-version bump needs a real data migration, never applied automatically)
