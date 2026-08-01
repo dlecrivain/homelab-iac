@@ -1,0 +1,5 @@
+---
+- name: "Run rclone {{ pcloud_backup_mode | default('sync') }}: {{ pcloud_backup_source }} -> {{ pcloud_backup_dest }}"
+  ansible.builtin.command: >
+    rclone {{ pcloud_backup_mode | default('sync') }} {{ pcloud_backup_source }} {{ pcloud_backup_dest }} {{ pcloud_backup_extra_args | default('') }}
+  changed_when: true

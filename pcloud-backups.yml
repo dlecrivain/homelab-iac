@@ -1,9 +1,60 @@
 ---
-- name: Run a scheduled pCloud backup via rclone
+- name: Run pCloud backup(s) via rclone
   hosts: "{{ pcloud_backup_host | default('smb101') }}"
   gather_facts: false
+  vars:
+    pcloud_backup_jobs:
+      - name: Home Assistant
+        mode: sync
+        source: /var/lib/Backups/Home_Assistant/
+        dest: "pcloud:Backups/Home_Assistant"
+        extra_args: "--log-file /var/log/rclone-pcloud.log --log-level INFO"
+      - name: Immich Daniel
+        mode: copy
+        source: /mnt/immich_photos/ee67ced3-2998-420c-82b5-2768292c81ab/
+        dest: "pcloud:Backups/Immich/Daniel"
+      - name: Immich Marine
+        mode: copy
+        source: /mnt/immich_photos/1c98b908-3122-4969-b34a-e63b6a242994/
+        dest: "pcloud:Backups/Immich/Marine"
   tasks:
-    - name: "Run rclone {{ pcloud_backup_mode | default('sync') }}: {{ pcloud_backup_source }} -> {{ pcloud_backup_dest }}"
+    # Single-job mode: pcloud_backup_source (and dest/mode/extra_args) passed as extra vars.
+    - name: Run a single pCloud backup
+      include_role:
+        name: pcloud_backup_job
+      when: pcloud_backup_source is defined
+
+    # All-jobs mode: no extra vars passed, run every job in pcloud_backup_jobs in parallel.
+    # Launched directly (not via the pcloud_backup_job role) because async/poll only apply
+    # to a single module invocation, not to include_role.
+    - name: "Start pCloud backup: {{ item.name }}"
       ansible.builtin.command: >
-        rclone {{ pcloud_backup_mode | default('sync') }} {{ pcloud_backup_source }} {{ pcloud_backup_dest }} {{ pcloud_backup_extra_args | default('') }}
-      changed_when: true
+        rclone {{ item.mode | default('sync') }} {{ item.source }} {{ item.dest }} {{ item.extra_args | default('') }}
+      async: 21600
+      poll: 0
+      register: pcloud_launch
+      loop: "{{ pcloud_backup_jobs }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: pcloud_backup_source is not defined
+
+    - name: Wait for all pCloud backups to complete
+      ansible.builtin.async_status:
+        jid: "{{ item.ansible_job_id }}"
+      register: pcloud_wait
+      until: pcloud_wait.finished
+      retries: 720
+      delay: 30
+      loop: "{{ pcloud_launch.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      ignore_errors: true
+      when: pcloud_backup_source is not defined
+
+    - name: Fail clearly if any pCloud backup failed
+      ansible.builtin.fail:
+        msg: "pCloud backup '{{ item.item.item.name }}' failed: {{ item.stderr | default('unknown error') }}"
+      loop: "{{ pcloud_wait.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.item.name }}"
+      when: pcloud_backup_source is not defined and item.rc is defined and item.rc != 0

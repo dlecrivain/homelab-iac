@@ -26,7 +26,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 | `pve-updates.yml` | Promotes the `CV_Proxmox` content view, then evacuates/patches/reboots each of the 3 Proxmox nodes in turn (halting the whole run on the first failure), and rebalances VMs across the cluster once every node is updated |
 | `cv-retention.yml` | Purges old `CV_Rocky_10`/`CV_Proxmox` content view versions beyond `cv_retention_count` |
 | `pve-rebalance-test.yml` | Standalone dry-run harness to compute a `pve_rebalance` plan in isolation, without running a full `pve-updates.yml` cycle |
-| `pcloud-backups.yml` | Runs a single `rclone` backup (source/destination/mode passed as extra vars); scheduled as one independent Semaphore template per backup job, replacing what used to be a system crontab on `smb101` |
+| `pcloud-backups.yml` | Runs a single `rclone` backup when `pcloud_backup_source` is passed as an extra var (one independent Semaphore template per backup job, replacing what used to be a system crontab on `smb101`); with no extra vars, runs all 3 built-in backups (Home Assistant, Immich Daniel, Immich Marine) in parallel instead — one failed job doesn't stop the others |
 | `vm-backups.yml` | Runs a `vzdump` (ZSTD) of every VM, migrating it to `pve1` first if it isn't already there (the only node with the `Stockage_SSD` backup storage), uploads the archive to pCloud, prunes both retentions, then rebalances the cluster if anything was migrated |
 | `full-updates.yml` | Runs `container-updates.yml`, then `vm-updates.yml`, then `pve-updates.yml` in one go — each stage only runs if the previous one had no problem, otherwise later stages report as `SKIPPED` |
 
@@ -39,7 +39,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 - **`pve-updates.yml`** — Proxmox host patching: `CV_Proxmox` promotion, per-node evacuate/patch/reboot, cluster rebalance
 - **`cv-retention.yml`** — Purges old content view versions beyond `cv_retention_count`
 - **`pve-rebalance-test.yml`** — Standalone dry-run test harness for the `pve_rebalance` role
-- **`pcloud-backups.yml`** — Runs one `rclone` backup per invocation (source/dest/mode via extra vars); each job gets its own scheduled Semaphore template
+- **`pcloud-backups.yml`** — Runs one `rclone` backup per invocation (source/dest/mode via extra vars, one scheduled Semaphore template per job), or all 3 built-in jobs in parallel when called with no extra vars
 - **`vm-backups.yml`** — Weekly `vzdump` of every VM to `Stockage_SSD` then pCloud, with migration + rebalance as needed
 - **`full-updates.yml`** — Chains `container-updates.yml` → `vm-updates.yml` → `pve-updates.yml`, gated on each stage's outcome
 - **`ansible.cfg`** — Silences interpreter discovery warnings
@@ -67,6 +67,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
   - `pve_placement/` — Memory-aware placement calculation for evacuating one node
   - `pve_rebalance/` — Cluster-wide rebalance calculation and move execution
   - `vzdump_backup/` — Run vzdump, locate the resulting archive, upload it to pCloud, prune the pCloud retention
+  - `pcloud_backup_job/` — Run a single `rclone` backup (source/dest/mode/extra_args), used by `pcloud-backups.yml`
 - **`BACKLOG.md`** — Planned future automation work
 
 ## How it works
@@ -100,7 +101,10 @@ This makes the playbooks fully generic: no host-specific logic lives in the role
 
 ### pCloud backups
 
-`pcloud-backups.yml` runs a single `rclone` command per invocation — `pcloud_backup_source`, `pcloud_backup_dest`, `pcloud_backup_mode` (`sync` or `copy`, defaults to `sync`) and `pcloud_backup_extra_args` are passed as extra vars, not read from `host_vars`. This replaces what used to be a hand-edited crontab for the `deploy` user on `smb101`: each backup (Home Assistant, Immich per-user exports, …) is its own Semaphore template pointing at this same playbook, with its own schedule and its own set of extra vars — the same "one generic playbook, several scheduled templates" pattern already used for `cleanup-snapshots.yml`.
+`pcloud-backups.yml` has two modes, switched on whether `pcloud_backup_source` is passed as an extra var:
+
+- **Single-job mode** (`pcloud_backup_source`, `pcloud_backup_dest`, `pcloud_backup_mode` — `sync` or `copy`, defaults to `sync` — and `pcloud_backup_extra_args` passed as extra vars, not read from `host_vars`): runs one `rclone` command via the `pcloud_backup_job` role. This replaces what used to be a hand-edited crontab for the `deploy` user on `smb101`: each backup (Home Assistant, Immich per-user exports, …) is its own Semaphore template pointing at this same playbook with its own schedule and its own set of extra vars — the same "one generic playbook, several scheduled templates" pattern already used for `cleanup-snapshots.yml`.
+- **All-jobs mode** (no extra vars): runs all 3 jobs from the `pcloud_backup_jobs` list built into the playbook, in **parallel** — useful for an on-demand "back up everything now" run. It launches all 3 `rclone` commands with `async`/`poll: 0` (same pattern as the VM migration/vzdump waits elsewhere in this repo), then waits for all of them via `async_status`, so the 3 backups run concurrently rather than one after another, and one failing doesn't stop the others. This mode doesn't go through the `pcloud_backup_job` role — `async`/`poll` only apply to a single module task, not to `include_role` — so the `rclone` command is inlined directly there instead.
 
 ### Safety snapshots
 
