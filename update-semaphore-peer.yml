@@ -115,12 +115,12 @@
   tasks:
     - name: Auto-bump (or apply an explicit semaphore_image_tag) Semaphore's image
       when: image_reference_host is not defined
-      become: true
       block:
         - name: Get the currently configured Semaphore image reference
           ansible.builtin.command: podman inspect semaphore --format '{{ '{{' }}.ImageName{{ '}}' }}'
           register: semaphore_current_image_ref
           changed_when: false
+          become: true
 
         - name: Extract the current version
           ansible.builtin.set_fact:
@@ -166,15 +166,18 @@
                 path: /etc/containers/systemd/semaphore.container
                 regexp: '^Image=docker\.io/semaphoreui/semaphore:.*$'
                 replace: "Image=docker.io/semaphoreui/semaphore:{{ semaphore_image_tag }}"
+              become: true
 
             - name: Reload systemd to pick up the change
               ansible.builtin.systemd:
                 daemon_reload: true
+              become: true
 
             - name: Restart the Semaphore service
               ansible.builtin.systemd:
                 name: semaphore.service
                 state: restarted
+              become: true
 
 - name: Confirm the peer Semaphore instance is back up
   hosts: localhost
