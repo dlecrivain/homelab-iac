@@ -109,6 +109,73 @@
         podman_align_reference_digests: "{{ hostvars['localhost'].reference_image_digests }}"
       when: hostvars['localhost'].reference_image_digests is defined
 
+- name: Bump this peer's Semaphore image if a newer patch/minor is available (skipped in the image_reference_host direction, which uses exact-digest alignment above instead)
+  hosts: "{{ peer_host }}"
+  gather_facts: false
+  tasks:
+    - name: Auto-bump (or apply an explicit semaphore_image_tag) Semaphore's image
+      when: image_reference_host is not defined
+      become: true
+      block:
+        - name: Get the currently configured Semaphore image reference
+          ansible.builtin.command: podman inspect semaphore --format '{{ '{{' }}.ImageName{{ '}}' }}'
+          register: semaphore_current_image_ref
+          changed_when: false
+
+        - name: Extract the current version
+          ansible.builtin.set_fact:
+            semaphore_current_version: "{{ semaphore_current_image_ref.stdout.split(':')[-1] }}"
+
+        - name: Determine the target tag automatically (latest stable release within the same major line) when semaphore_image_tag isn't explicitly passed
+          when: semaphore_image_tag is not defined
+          block:
+            - name: Extract the current version's major line
+              ansible.builtin.set_fact:
+                semaphore_current_major: "{{ semaphore_current_version | regex_replace('^v?([0-9]+)\\..*$', '\\1') }}"
+
+            - name: Query available Semaphore tags on Docker Hub
+              ansible.builtin.uri:
+                url: "https://hub.docker.com/v2/repositories/semaphoreui/semaphore/tags?page_size=100"
+                return_content: true
+              register: semaphore_tags_response
+              delegate_to: localhost
+
+            - name: Filter to pure vMAJOR.MINOR.PATCH tags in the same major line (excludes beta/rc/arch-suffixed tags)
+              ansible.builtin.set_fact:
+                semaphore_candidate_versions: >-
+                  {{
+                    semaphore_tags_response.json.results
+                    | map(attribute='name')
+                    | select('match', '^v' + semaphore_current_major | regex_escape() + '\.[0-9]+\.[0-9]+$')
+                    | list
+                  }}
+
+            - name: Rank each candidate by its [major, minor, patch] numbers, paired with its tag string
+              ansible.builtin.set_fact:
+                semaphore_ranked_versions: "{{ semaphore_candidate_versions | map('regex_findall', '[0-9]+') | map('map', 'int') | map('list') | list | zip(semaphore_candidate_versions) | map('list') | list }}"
+
+            - name: Set the auto-detected target tag (highest-ranked candidate)
+              ansible.builtin.set_fact:
+                semaphore_image_tag: "{{ (semaphore_ranked_versions | sort)[-1][1] }}"
+
+        - name: Update the Image= line in semaphore.container (only if the target tag is actually different)
+          when: semaphore_image_tag != semaphore_current_version
+          block:
+            - name: Update the Image= line in semaphore.container
+              ansible.builtin.replace:
+                path: /etc/containers/systemd/semaphore.container
+                regexp: '^Image=docker\.io/semaphoreui/semaphore:.*$'
+                replace: "Image=docker.io/semaphoreui/semaphore:{{ semaphore_image_tag }}"
+
+            - name: Reload systemd to pick up the change
+              ansible.builtin.systemd:
+                daemon_reload: true
+
+            - name: Restart the Semaphore service
+              ansible.builtin.systemd:
+                name: semaphore.service
+                state: restarted
+
 - name: Confirm the peer Semaphore instance is back up
   hosts: localhost
   gather_facts: false
@@ -123,42 +190,44 @@
       delay: 10
       until: (peer_semaphore_ping.status | default(0)) == 200
 
-- name: Check whether a newer Semaphore release is available (informational only - never applied automatically)
-  hosts: "{{ peer_host }}"
+- name: Keep this repo's provisioning template in sync with any Semaphore version bump that was just applied
+  hosts: localhost
   gather_facts: false
+  vars:
+    semaphore_bumped_tag: "{{ hostvars[peer_host].semaphore_image_tag | default('') }}"
+    semaphore_previous_tag: "{{ hostvars[peer_host].semaphore_current_version | default('') }}"
   tasks:
-    - name: Get the currently running Semaphore image reference
-      ansible.builtin.command: podman inspect semaphore --format '{{ '{{' }}.ImageName{{ '}}' }}'
-      register: semaphore_current_image_ref
-      changed_when: false
-      become: true
-
-    - name: Query the latest published Semaphore release on GitHub
-      ansible.builtin.uri:
-        url: https://api.github.com/repos/semaphoreui/semaphore/releases/latest
-        return_content: true
-      register: semaphore_latest_release
-      delegate_to: localhost
-      ignore_errors: true
-
-    - name: Record the current and latest version for comparison
-      ansible.builtin.set_fact:
-        semaphore_current_version: "{{ semaphore_current_image_ref.stdout.split(':')[-1] }}"
-        semaphore_latest_version: "{{ semaphore_latest_release.json.tag_name }}"
-      when: semaphore_latest_release is succeeded
-
-    - name: Notify by email that a newer Semaphore version is available
-      include_role:
-        name: send_report
-      vars:
-        report_subject: "[update-semaphore-peer] Newer Semaphore version available: {{ semaphore_latest_version }}"
-        report_body: |
-          <h2>Semaphore version check</h2>
-          <p>{{ peer_host }} is running <strong>{{ semaphore_current_version }}</strong>. The latest published release is <strong>{{ semaphore_latest_version }}</strong>.</p>
-          <p>This is informational only — nothing is applied automatically. To upgrade: bump the <code>Image=</code> line in <code>roles/semaphore_provision/files/semaphore.container</code> and on both live hosts' <code>/etc/containers/systemd/semaphore.container</code>, then restart <code>semaphore.service</code> manually on each (never from within an Ansible run executing on the instance being restarted).</p>
+    - name: Update, commit and push the new version to roles/semaphore_provision/files/semaphore.container
       when:
-        - semaphore_latest_release is succeeded
-        - semaphore_current_version != semaphore_latest_version
+        - semaphore_bumped_tag != ''
+        - semaphore_bumped_tag != semaphore_previous_tag
+      block:
+        - name: Update the Image= line in this repo's provisioning template
+          ansible.builtin.replace:
+            path: /repos/roles/semaphore_provision/files/semaphore.container
+            regexp: '^Image=docker\.io/semaphoreui/semaphore:.*$'
+            replace: "Image=docker.io/semaphoreui/semaphore:{{ semaphore_bumped_tag }}"
+
+        - name: Configure a git identity for this commit (harmless if already set)
+          ansible.builtin.command: "{{ item }}"
+          loop:
+            - git config user.email "semaphore-automation@{{ peer_host }}"
+            - git config user.name "Semaphore automation"
+          args:
+            chdir: /repos
+          changed_when: false
+
+        - name: Commit the version bump
+          ansible.builtin.command: >-
+            git commit -am "Bump provisioned Semaphore image to {{ semaphore_bumped_tag }} (applied to {{ peer_host }} by update-semaphore-peer.yml)"
+          args:
+            chdir: /repos
+
+        - name: Push the commit to origin/main
+          ansible.builtin.command: "git push https://{{ github_push_token }}@github.com/dlecrivain/homelab-iac main"
+          args:
+            chdir: /repos
+          no_log: true
 
 - name: Check whether a newer Postgres major version is available (informational only - a major-version bump needs a real data migration, never applied automatically)
   hosts: "{{ peer_host }}"
@@ -193,7 +262,7 @@
           <h2>Postgres version check</h2>
           <p>{{ peer_host }} is running Postgres major version <strong>{{ postgres_current_major }}</strong>. The latest published major version on Docker Hub is <strong>{{ postgres_latest_major }}</strong>.</p>
           <p>Semaphore has been reported working with Postgres versions up to 17 (not confirmed beyond that) — check Semaphore's own release notes/docs before upgrading.</p>
-          <p><strong>This is informational only — nothing is applied automatically, and this is not a simple image swap like the Semaphore check above:</strong> Postgres refuses to start against a data directory from a different major version, so a bump needs a real migration (<code>pg_upgrade</code> or dump/restore), planned and tested manually — not just editing <code>Image=</code> in semaphore-db.container.</p>
+          <p><strong>This is informational only — nothing is applied automatically, and this is not a simple image swap like Semaphore's own image:</strong> Postgres refuses to start against a data directory from a different major version, so a bump needs a real migration (<code>pg_upgrade</code> or dump/restore), planned and tested manually — not just editing <code>Image=</code> in semaphore-db.container.</p>
       when:
         - postgres_tags_response is succeeded
         - (postgres_current_major | int) != (postgres_latest_major | int)
