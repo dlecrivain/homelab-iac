@@ -12,6 +12,24 @@
   when: not semaphore_provision_existing.stat.exists
   no_log: true
 
+- name: Ensure podman and git are installed (dnf/yum)
+  ansible.builtin.dnf:
+    name:
+      - podman
+      - git
+    state: present
+  become: true
+  when: ansible_facts['pkg_mgr'] in ['dnf', 'yum']
+
+- name: Ensure podman and git are installed (apt)
+  ansible.builtin.apt:
+    name:
+      - podman
+      - git
+    state: present
+  become: true
+  when: ansible_facts['pkg_mgr'] == 'apt'
+
 - name: Ensure /etc/semaphore exists
   ansible.builtin.file:
     path: /etc/semaphore
@@ -68,20 +86,6 @@
   become: true
   when: not semaphore_provision_existing.stat.exists
   no_log: true
-
-- name: Ensure git is installed (dnf/yum)
-  ansible.builtin.dnf:
-    name: git
-    state: present
-  become: true
-  when: ansible_facts['pkg_mgr'] in ['dnf', 'yum']
-
-- name: Ensure git is installed (apt)
-  ansible.builtin.apt:
-    name: git
-    state: present
-  become: true
-  when: ansible_facts['pkg_mgr'] == 'apt'
 
 - name: Clone this repo into /home/deploy/repos (bind-mounted into the Semaphore container as /repos)
   ansible.builtin.git:
