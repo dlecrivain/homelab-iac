@@ -71,8 +71,8 @@
 
 - name: Clone this repo into /home/deploy/repos (bind-mounted into the Semaphore container as /repos)
   ansible.builtin.git:
-    repo: https://github.com/dlecrivain/automatic_updates
-    dest: /home/deploy/repos/automatic_updates
+    repo: https://github.com/dlecrivain/homelab-iac
+    dest: /home/deploy/repos/homelab-iac
   become: true
   become_user: deploy
 

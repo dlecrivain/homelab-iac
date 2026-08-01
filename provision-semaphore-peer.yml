@@ -1,6 +1,6 @@
 ---
 - name: Provision a fresh Semaphore peer instance identically to the existing one (run from semaphore101, targeting the new VM)
-  hosts: "{{ peer_host }}"
+  hosts: "{{ peer_host | default('semaphore102') }}"
   gather_facts: true
   tasks:
     - name: Deploy Semaphore via Podman Quadlet

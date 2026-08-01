@@ -147,7 +147,7 @@ This only runs in the `semaphore102`-facing direction (`image_reference_host` is
 
 ### Provisioning a new Semaphore peer
 
-`provision-semaphore-peer.yml` (run from `semaphore101`, targeting the brand-new VM) deploys Semaphore identically to the existing instance: it copies the 7 Quadlet unit files (`semaphore-network.network`, 4 `.volume` files, `semaphore-db.container`, `semaphore.container` — byte-identical to `semaphore101`'s, since nothing in them is host-specific), generates **fresh** `SEMAPHORE_DB_PASS`/`POSTGRES_PASSWORD` (kept in sync with each other) and `SEMAPHORE_ADMIN_PASSWORD` secrets rather than reusing `semaphore101`'s real ones, clones this repo into `/home/deploy/repos/automatic_updates` (bind-mounted into the container as `/repos`), then enables and starts both services.
+`provision-semaphore-peer.yml` (run from `semaphore101`, targeting the brand-new VM) deploys Semaphore identically to the existing instance: it copies the 7 Quadlet unit files (`semaphore-network.network`, 4 `.volume` files, `semaphore-db.container`, `semaphore.container` — byte-identical to `semaphore101`'s, since nothing in them is host-specific), generates **fresh** `SEMAPHORE_DB_PASS`/`POSTGRES_PASSWORD` (kept in sync with each other) and `SEMAPHORE_ADMIN_PASSWORD` secrets rather than reusing `semaphore101`'s real ones, clones this repo into `/home/deploy/repos/homelab-iac` (bind-mounted into the container as `/repos`), then enables and starts both services.
 
 It's safe to re-run: if `/etc/semaphore/app.env` already exists, the secrets and env files are left untouched (regenerating them on an already-initialized Postgres data volume would desync the stored DB password from a freshly-rewritten one).
 
