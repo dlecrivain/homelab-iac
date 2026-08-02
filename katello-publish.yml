@@ -41,4 +41,3 @@
             </tr>
             {% endfor %}
           </table>
-          <p>vm-updates.yml, pve-updates.yml and full-updates.yml no longer publish automatically - run this on its own schedule with enough lead time before them, so they see the content you intended without republishing a new version on every retry.</p>
