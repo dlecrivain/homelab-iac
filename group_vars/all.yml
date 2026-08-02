@@ -10,6 +10,8 @@ smtp_user: "{{ lookup('env', 'SMTP_USER') }}"
 smtp_password: "{{ lookup('env', 'SMTP_PASSWORD') }}"
 notify_email_to: "{{ lookup('env', 'NOTIFY_EMAIL_TO') }}"
 github_push_token: "{{ lookup('env', 'GITHUB_PUSH_TOKEN') }}"
+katello_hammer_username: "{{ lookup('env', 'KATELLO_HAMMER_USERNAME') }}"
+katello_hammer_password: "{{ lookup('env', 'KATELLO_HAMMER_PASSWORD') }}"
 cv_retention_count: 10
 cv_retention_views:
   - CV_Rocky_10

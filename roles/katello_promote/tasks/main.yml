@@ -4,30 +4,36 @@
 
 - name: Promote the latest version to Production
   ansible.builtin.command: >
-    hammer content-view version promote
+    hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
+    content-view version promote
     --id {{ cv_version_id }}
     --organization "{{ katello_organization }}"
     --to-lifecycle-environment Production
   delegate_to: "{{ lpkat_host }}"
   become: true
+  no_log: true
 
 - name: Publish a new version
   ansible.builtin.command: >
-    hammer content-view publish
+    hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
+    content-view publish
     --name {{ content_view_name }}
     --organization "{{ katello_organization }}"
     --description "Automatic publish via Semaphore"
   delegate_to: "{{ lpkat_host }}"
   become: true
+  no_log: true
 
 - name: Get the newly published content view version
   ansible.builtin.include_tasks: get_version_id.yml
 
 - name: Promote the new version to Test only
   ansible.builtin.command: >
-    hammer content-view version promote
+    hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
+    content-view version promote
     --id {{ cv_version_id }}
     --organization "{{ katello_organization }}"
     --to-lifecycle-environment Test
   delegate_to: "{{ lpkat_host }}"
   become: true
+  no_log: true

@@ -179,6 +179,8 @@ Not handled by this playbook, and needs a short manual checklist once the contai
 
 No credentials are stored in this repository. The Proxmox API token is read via `lookup('env', 'PROXMOX_TOKEN_SECRET')` in `inventory/proxmox.yml`, injected by Semaphore through a Variable Group. SSH keys live exclusively in Semaphore's Key Store. `GITHUB_PUSH_TOKEN` (a GitHub PAT with write access, used only by `update-semaphore-peer.yml` to push its own Semaphore version-bump commit) follows the same env-var-via-Variable-Group pattern.
 
+`katello_promote` and `cv-retention.yml` pass `KATELLO_HAMMER_USERNAME`/`KATELLO_HAMMER_PASSWORD` explicitly on every `hammer` command (`no_log: true`, since the password would otherwise appear in the command's argv in Semaphore's task log) rather than relying on lpkat101's local hammer CLI config file — its automatic/interactive credential loading proved unreliable (a real production incident: correct credentials in `/root/.hammer/cli_config.yml`, confirmed byte-for-byte via `-u`/`-p`, still got rejected through the config-driven `InteractiveBasicAuth` path) and explicit `-u`/`-p` never failed once confirmed working. Rotate the Foreman admin password by updating this env var in Semaphore's Variable Group — no need to touch lpkat101 itself.
+
 ## Roadmap
 
 See [`BACKLOG.md`](./BACKLOG.md) for planned work: a BunkerWeb reverse proxy rollout.

@@ -1,7 +1,8 @@
 ---
 - name: Get the current content view version
   ansible.builtin.command: >
-    hammer content-view version list
+    hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
+    content-view version list
     --content-view {{ content_view_name }}
     --organization "{{ katello_organization }}"
     --per-page 1
@@ -10,6 +11,7 @@
   changed_when: false
   delegate_to: "{{ lpkat_host }}"
   become: true
+  no_log: true
 
 - name: Extract the version ID from command output
   ansible.builtin.set_fact:
