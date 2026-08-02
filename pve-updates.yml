@@ -1,23 +1,4 @@
 ---
-- name: Promote CV_Proxmox
-  hosts: "{{ lpkat_host | default('lpkat101') }}"
-  gather_facts: false
-  vars:
-    content_view_name: CV_Proxmox
-  pre_tasks:
-    - name: Capture the run start time
-      include_role:
-        name: capture_start_time
-
-    - name: Capture this stage's own start time
-      include_role:
-        name: capture_start_time
-      vars:
-        capture_start_time_fact_name: pve_updates_start_epoch
-  roles:
-    - role: katello_promote
-      when: hostvars['localhost'].orchestration_should_run | default(true)
-
 - name: PVE host updates - evacuate, patch, reboot
   hosts: "{{ target_pve_hosts | default('pve1,pve2,pve3') }}"
   gather_facts: true
@@ -32,6 +13,16 @@
     proxmox_api_node: "{{ pve_other_nodes | first }}"
     proxmox_api_host: "{{ hostvars[proxmox_api_node].ansible_host }}"
   tasks:
+    - name: Capture the run start time
+      include_role:
+        name: capture_start_time
+
+    - name: Capture this stage's own start time
+      include_role:
+        name: capture_start_time
+      vars:
+        capture_start_time_fact_name: pve_updates_start_epoch
+
     - name: Capture the full list of targeted hosts (once)
       include_role:
         name: capture_host_list

@@ -6,7 +6,7 @@ Ansible automation for patching and maintaining a homelab infrastructure running
 
 This repository automates the full patch-management lifecycle for a homelab running Rocky Linux 10 VMs (managed by Foreman/Katello, services deployed via rootless/root Podman with [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)) and a 3-node Proxmox VE cluster:
 
-1. **Promote content views** in Katello (Production, then publish + Test) — `CV_Rocky_10` for the VMs, `CV_Proxmox` for the hypervisors
+1. **Promote content views** in Katello (Production, then publish + Test) — `CV_Rocky_10` for the VMs, `CV_Proxmox` for the hypervisors — via its own independently scheduled playbook, so re-running a patch stage never republishes a new content view version
 2. **Check for OS updates** on each VM, snapshot it if any are available, apply them, reboot, and verify the service is healthy again
 3. **Check for new container images**, snapshot the VM, pull and redeploy only the containers whose image actually changed, verify health, and prune old images
 4. **Clean up** the safety snapshot as soon as the post-update health check passes; a snapshot left behind after a failed check is swept up later by an independently scheduled cleanup run
@@ -21,10 +21,11 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 
 | Playbook | Purpose |
 |---|---|
-| `vm-updates.yml` | Promotes the `CV_Rocky_10` content view in Katello, then checks/patches/reboots every VM in the cluster (excluding the Semaphore host itself, which can't safely reboot itself mid-run) |
+| `katello-publish.yml` | Promotes the current latest version of `CV_Rocky_10` and `CV_Proxmox` to Production, then publishes and promotes a new version to Test — run on its own independent schedule, with enough lead time before `vm-updates.yml`/`pve-updates.yml`/`full-updates.yml` so they see the content it published |
+| `vm-updates.yml` | Checks/patches/reboots every VM in the cluster (excluding the Semaphore hosts themselves, which can't safely reboot themselves mid-run) |
 | `container-updates.yml` | Updates Podman/Quadlet-managed containers on hosts that define `podman_units` in their `host_vars` |
 | `cleanup-snapshots.yml` | Removes leftover safety snapshots matching `snapshot_label` (default `ansible_patching`); pass `-e snapshot_label=ansible_container` to clean up the container-update ones instead |
-| `pve-updates.yml` | Promotes the `CV_Proxmox` content view, then evacuates/patches/reboots each of the 3 Proxmox nodes in turn (halting the whole run on the first failure), and rebalances VMs across the cluster once every node is updated |
+| `pve-updates.yml` | Evacuates/patches/reboots each of the 3 Proxmox nodes in turn (halting the whole run on the first failure), and rebalances VMs across the cluster once every node is updated |
 | `cv-retention.yml` | Purges old `CV_Rocky_10`/`CV_Proxmox` content view versions beyond `cv_retention_count` |
 | `pve-rebalance-test.yml` | Standalone dry-run harness to compute a `pve_rebalance` plan in isolation, without running a full `pve-updates.yml` cycle |
 | `pcloud-backups.yml` | Runs a single `rclone` backup when `pcloud_backup_source` is passed as an extra var (one independent Semaphore template per backup job, replacing what used to be a system crontab on `smb101`); with no extra vars, runs all 3 built-in backups (Home Assistant, Immich Daniel, Immich Marine) in parallel instead — one failed job doesn't stop the others |
@@ -36,10 +37,11 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 `vm-updates.yml` and `container-updates.yml` already remove their own snapshot as soon as the post-update health check passes — `cleanup-snapshots.yml` is the backstop for the ones deliberately left behind after a failed health check, run on its own independent schedule (as two separate Semaphore templates, one per `snapshot_label` value) since OS patching and container updates don't necessarily run on the same cadence.
 
 ## Repository structure
-- **`vm-updates.yml`** — Main OS patching + Katello promotion playbook (VMs)
+- **`katello-publish.yml`** — Standalone Katello content view promote/publish (`CV_Rocky_10`, `CV_Proxmox`), independent of any patch run
+- **`vm-updates.yml`** — Main OS patching playbook (VMs)
 - **`container-updates.yml`** — Podman container update playbook
 - **`cleanup-snapshots.yml`** — Removes leftover snapshots for a given `snapshot_label` (parametrized, see [Playbooks](#playbooks))
-- **`pve-updates.yml`** — Proxmox host patching: `CV_Proxmox` promotion, per-node evacuate/patch/reboot, cluster rebalance
+- **`pve-updates.yml`** — Proxmox host patching: per-node evacuate/patch/reboot, cluster rebalance
 - **`cv-retention.yml`** — Purges old content view versions beyond `cv_retention_count`
 - **`pve-rebalance-test.yml`** — Standalone dry-run test harness for the `pve_rebalance` role
 - **`pcloud-backups.yml`** — Runs one `rclone` backup per invocation (source/dest/mode via extra vars, one scheduled Semaphore template per job), or all 3 built-in jobs in parallel when called with no extra vars
@@ -132,9 +134,9 @@ Per-host work in both playbooks is also wrapped in a `block`/`rescue`: an unhand
 
 ### Mutual Semaphore updates
 
-`semaphore101` has always been excluded from `vm-updates.yml`/`container-updates.yml` — it can't safely patch-and-reboot itself while it's the thing running the automation. `semaphore102` exists purely to break that deadlock, using `update-semaphore-peer.yml` in both directions, via two independently-scheduled Semaphore templates:
+`semaphore101` and `semaphore102` are both excluded from `vm-updates.yml`/`container-updates.yml` — neither can safely patch-and-reboot itself while it might be the thing running the automation, and each is already covered end-to-end by its own `update-semaphore-peer.yml` run. `semaphore102` exists purely to break that deadlock, using `update-semaphore-peer.yml` in both directions, via two independently-scheduled Semaphore templates:
 
-1. A template on `semaphore102` runs `update-semaphore-peer.yml -e peer_host=semaphore101` on its own schedule. This patches `semaphore101`'s OS and Podman images (reusing the same roles `vm-updates.yml` uses, minus its Katello promotion play — that would otherwise re-run redundantly here *and* again moments later when `full-updates.yml` starts), then waits for its Semaphore web service (`/api/ping`) to respond before finishing.
+1. A template on `semaphore102` runs `update-semaphore-peer.yml -e peer_host=semaphore101` on its own schedule. This patches `semaphore101`'s OS and Podman images (reusing the same roles `vm-updates.yml` uses), then waits for its Semaphore web service (`/api/ping`) to respond before finishing.
 2. `full-updates.yml` runs on `semaphore101` on its own separate schedule, timed to start after `semaphore102`'s job is expected to be done, so it always finds `semaphore101` already up to date. It runs the whole fleet as usual, and finishes with `import_playbook: update-semaphore-peer.yml, vars: {peer_host: semaphore102, image_reference_host: semaphore101}` — gated by the same `orchestration_should_run` fact as every other stage, so `semaphore102` only gets patched back if nothing upstream failed.
 
 There's no direct hand-off between the two instances — no API call, no shared flag — just two schedules timed so each one's prerequisite is done by the time it runs.

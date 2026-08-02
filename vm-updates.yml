@@ -1,10 +1,12 @@
 ---
-- name: Promote CV_Rocky_10
-  hosts: "{{ lpkat_host | default('lpkat101') }}"
-  gather_facts: false
-  vars:
-    content_view_name: CV_Rocky_10
-  pre_tasks:
+- name: Check and update all VMs except semaphore101/102
+  # semaphore102 is excluded for the same reason semaphore101 always was: update-semaphore-peer.yml
+  # already covers its OS patching (and its container alignment), so processing it here too is
+  # redundant and, worse, races with that dedicated pass in the same full-updates.yml run.
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!semaphore101:!semaphore102') }}"
+  gather_facts: true
+  serial: 1
+  tasks:
     - name: Capture the run start time
       include_role:
         name: capture_start_time
@@ -14,18 +16,7 @@
         name: capture_start_time
       vars:
         capture_start_time_fact_name: vm_updates_start_epoch
-  roles:
-    - role: katello_promote
-      when: hostvars['localhost'].orchestration_should_run | default(true)
 
-- name: Check and update all VMs except semaphore101/102
-  # semaphore102 is excluded for the same reason semaphore101 always was: update-semaphore-peer.yml
-  # already covers its OS patching (and its container alignment), so processing it here too is
-  # redundant and, worse, races with that dedicated pass in the same full-updates.yml run.
-  hosts: "{{ target_hosts | default('proxmox_all_qemu:!semaphore101:!semaphore102') }}"
-  gather_facts: true
-  serial: 1
-  tasks:
     - name: Capture the full list of targeted hosts (once)
       include_role:
         name: capture_host_list
