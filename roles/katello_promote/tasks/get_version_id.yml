@@ -6,13 +6,16 @@
     --content-view {{ content_view_name }}
     --organization "{{ katello_organization }}"
     --per-page 1
-    --fields id
+    --fields id,version
   register: cv_version_list
   changed_when: false
   delegate_to: "{{ lpkat_host }}"
   become: true
   no_log: true
 
-- name: Extract the version ID from command output
+- name: Extract the version ID and number from command output
+  vars:
+    cv_version_row: "{{ cv_version_list.stdout_lines | select('match', '^\\s*[0-9]+\\s*\\|\\s*[0-9.]+\\s*$') | first }}"
   ansible.builtin.set_fact:
-    cv_version_id: "{{ cv_version_list.stdout_lines | select('match', '^[0-9]+$') | first }}"
+    cv_version_id: "{{ cv_version_row.split('|')[0] | trim }}"
+    cv_version_number: "{{ cv_version_row.split('|')[1] | trim }}"

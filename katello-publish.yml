@@ -27,5 +27,18 @@
         report_subject: "[katello-publish] Content views promoted and published"
         report_body: |
           <h2>Katello publish report</h2>
-          <p>Promoted the current latest version to Production, then published a new version and promoted it to Test, for: <strong>{{ (katello_publish_views | default(['CV_Rocky_10', 'CV_Proxmox'])) | join(', ') }}</strong>.</p>
+          <table>
+            <tr>
+              <th>Content View</th>
+              <th>Promoted to Production</th>
+              <th>Published (now in Test)</th>
+            </tr>
+            {% for r in hostvars[lpkat_host | default('lpkat101')].katello_publish_results %}
+            <tr>
+              <td>{{ r.name }}</td>
+              <td>{{ r.promoted_version }}</td>
+              <td>{{ r.published_version }}</td>
+            </tr>
+            {% endfor %}
+          </table>
           <p>vm-updates.yml, pve-updates.yml and full-updates.yml no longer publish automatically - run this on its own schedule with enough lead time before them, so they see the content you intended without republishing a new version on every retry.</p>

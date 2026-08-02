@@ -2,6 +2,10 @@
 - name: Get the latest content view version
   ansible.builtin.include_tasks: get_version_id.yml
 
+- name: Remember the version about to be promoted to Production
+  ansible.builtin.set_fact:
+    katello_promoted_version: "{{ cv_version_number }}"
+
 - name: Promote the latest version to Production
   ansible.builtin.command: >
     hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
@@ -27,6 +31,10 @@
 - name: Get the newly published content view version
   ansible.builtin.include_tasks: get_version_id.yml
 
+- name: Remember the version that was just published
+  ansible.builtin.set_fact:
+    katello_published_version: "{{ cv_version_number }}"
+
 - name: Promote the new version to Test only
   ansible.builtin.command: >
     hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
@@ -37,3 +45,7 @@
   delegate_to: "{{ lpkat_host }}"
   become: true
   no_log: true
+
+- name: Record this content view's promote/publish result
+  ansible.builtin.set_fact:
+    katello_publish_results: "{{ (katello_publish_results | default([])) + [{'name': content_view_name, 'promoted_version': katello_promoted_version, 'published_version': katello_published_version}] }}"
