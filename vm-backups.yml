@@ -1,5 +1,5 @@
 ---
-- name: Back up every VM to Stockage_SSD then pCloud, rebalancing the cluster afterwards
+- name: Back up every VM to Stockage_SSD then pCloud, migrating each one back to its own node right after
   hosts: "{{ target_hosts | default('proxmox_all_qemu') }}"
   gather_facts: false
   serial: 1
@@ -33,15 +33,10 @@
               vars:
                 health_check_fail_on_unhealthy: true
 
-            - name: Record that this VM was migrated for backup
+            - name: Record that this VM was migrated for backup, and its original node
               ansible.builtin.set_fact:
                 vm_was_migrated: true
-
-            - name: Record that at least one VM was migrated for backup
-              ansible.builtin.set_fact:
-                any_vm_migrated_for_backup: true
-              delegate_to: localhost
-              delegate_facts: true
+                vm_original_node: "{{ proxmox_node }}"
 
         - name: Step 2 - Run the vzdump backup and upload it to pCloud
           include_role:
@@ -60,20 +55,23 @@
             vm_backup_status: FAILED
             vm_backup_failure_reason: "{{ ansible_failed_result.msg | default('Unknown error') }}"
 
-- name: Rebalance the cluster if any VM was migrated for backup
-  hosts: "{{ vm_backup_node | default('pve1') }}"
-  gather_facts: false
-  run_once: true
-  vars:
-    pve_all_nodes:
-      - pve1
-      - pve2
-      - pve3
-  tasks:
-    - name: Rebalance the whole cluster
-      include_role:
-        name: pve_rebalance
-      when: hostvars['localhost'].any_vm_migrated_for_backup | default(false)
+      always:
+        - name: "Step 3 - Migrate this VM back to {{ vm_original_node | default('its original node') }} (backup attempt done, success or not)"
+          when: vm_was_migrated | default(false)
+          block:
+            - name: "Migrate VM back to its original node"
+              include_role:
+                name: pve_migrate_vm
+              vars:
+                migrate_vmid: "{{ proxmox_vmid }}"
+                migrate_target_node: "{{ vm_original_node }}"
+                migrate_delegate_to: "{{ vm_backup_node }}"
+
+            - name: Check services after migrating back
+              include_role:
+                name: health_check
+              vars:
+                health_check_fail_on_unhealthy: true
 
 - name: Send aggregated vm-backups report
   hosts: localhost
@@ -104,7 +102,7 @@
               <td>{{ st }}</td>
               <td>
                 {% if st == 'OK' %}
-                Backed up to pCloud{% if hostvars[h].vm_was_migrated | default(false) %} (migrated to {{ vm_backup_node }} first){% endif %}
+                Backed up to pCloud{% if hostvars[h].vm_was_migrated | default(false) %} (migrated to {{ vm_backup_node }} and back){% endif %}
                 {% else %}
                 {{ hostvars[h].vm_backup_failure_reason | default('Unknown error') }}
                 {% endif %}

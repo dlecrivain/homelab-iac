@@ -12,7 +12,7 @@ This repository automates the full patch-management lifecycle for a homelab runn
 4. **Clean up** the safety snapshot as soon as the post-update health check passes; a snapshot left behind after a failed check is swept up later by an independently scheduled cleanup run
 5. **Patch the Proxmox hosts themselves**: evacuate VMs off a node with memory-aware placement, apply updates, reboot, then rebalance the whole cluster once every node is done
 6. **Retain a bounded history** of content view versions in Katello
-7. **Back up every VM** weekly via `vzdump` (ZSTD) to local Proxmox storage, upload to pCloud, and prune both retentions — migrating a VM to the backup node first if needed, then rebalancing the cluster afterwards
+7. **Back up every VM** weekly via `vzdump` (ZSTD) to local Proxmox storage, upload to pCloud, and prune both retentions — migrating a VM to the backup node first if needed, then straight back to its own node once its backup is done, so the backup node never ends up hosting the whole fleet at once
 8. **Patch Semaphore itself**: a second instance (`semaphore102`) patches the primary (`semaphore101`) OS + Podman images on its own schedule; `full-updates.yml` runs on `semaphore101` on a separate schedule timed to start afterward, and patches `semaphore102` back once everything else succeeds — so neither instance ever has to update itself
 
 VM target hosts are discovered automatically from the Proxmox cluster via a dynamic inventory — adding a new VM to Proxmox is enough for it to be picked up (unless explicitly excluded). The 3 Proxmox nodes themselves (`pve1`/`pve2`/`pve3`) can't be discovered that way (they're the hypervisors, not VMs), so they're declared as a small static host list via their own `host_vars/pve*.yml`.
@@ -29,7 +29,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 | `cv-retention.yml` | Purges old `CV_Rocky_10`/`CV_Proxmox` content view versions beyond `cv_retention_count` |
 | `pve-rebalance-test.yml` | Standalone dry-run harness to compute a `pve_rebalance` plan in isolation, without running a full `pve-updates.yml` cycle |
 | `pcloud-backups.yml` | Runs a single `rclone` backup when `pcloud_backup_source` is passed as an extra var (one independent Semaphore template per backup job, replacing what used to be a system crontab on `smb101`); with no extra vars, runs all 3 built-in backups (Home Assistant, Immich Daniel, Immich Marine) in parallel instead — one failed job doesn't stop the others |
-| `vm-backups.yml` | Runs a `vzdump` (ZSTD) of every VM, migrating it to `pve1` first if it isn't already there (the only node with the `Stockage_SSD` backup storage), uploads the archive to pCloud, prunes both retentions, then rebalances the cluster if anything was migrated |
+| `vm-backups.yml` | Runs a `vzdump` (ZSTD) of every VM, migrating it to `pve1` first if it isn't already there (the only node with the `Stockage_SSD` backup storage), uploads the archive to pCloud, prunes both retentions, then migrates it straight back to its own node before moving on to the next VM |
 | `full-updates.yml` | Runs `container-updates.yml`, then `vm-updates.yml`, then `pve-updates.yml` in one go — each stage only runs if the previous one had no problem, otherwise later stages report as `SKIPPED`; finishes by patching `semaphore102` back |
 | `update-semaphore-peer.yml` | OS-patches + Podman-updates `{{ peer_host }}` (`semaphore101` or `semaphore102`), auto-bumps its Semaphore image to the latest patch/minor within the same major line (or an explicit `semaphore_image_tag`, for a major jump), then pings its Semaphore web service to confirm it's back up — the mechanism behind item 8 above |
 | `provision-semaphore-peer.yml` | One-time setup: deploys Semaphore via Podman Quadlet onto a fresh `{{ peer_host }}` VM, identically to the existing instance, then waits for its web service to respond |
@@ -46,7 +46,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 - **`cv-retention.yml`** — Purges old content view versions beyond `cv_retention_count`
 - **`pve-rebalance-test.yml`** — Standalone dry-run test harness for the `pve_rebalance` role
 - **`pcloud-backups.yml`** — Runs one `rclone` backup per invocation (source/dest/mode via extra vars, one scheduled Semaphore template per job), or all 3 built-in jobs in parallel when called with no extra vars
-- **`vm-backups.yml`** — Weekly `vzdump` of every VM to `Stockage_SSD` then pCloud, with migration + rebalance as needed
+- **`vm-backups.yml`** — Weekly `vzdump` of every VM to `Stockage_SSD` then pCloud, migrating each VM to the backup node and straight back afterwards as needed (one VM at a time, never accumulating the whole fleet on the backup node)
 - **`full-updates.yml`** — Chains `container-updates.yml` → `vm-updates.yml` → `pve-updates.yml` → patches `semaphore102` back, gated on each stage's outcome
 - **`update-semaphore-peer.yml`** — OS-patches + Podman-updates one Semaphore peer, auto-bumps its Semaphore image (patch/minor), and confirms its Semaphore web service is back up
 - **`provision-semaphore-peer.yml`** — One-time deploy of Semaphore (Podman Quadlet) onto a fresh peer VM
