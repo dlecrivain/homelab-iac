@@ -2,7 +2,7 @@
 - name: Back up every VM to Stockage_SSD then pCloud, migrating each one back to its own node right after
   hosts: "{{ target_hosts | default('proxmox_all_qemu') }}"
   gather_facts: false
-  serial: 1
+  serial: 3
   tasks:
     - name: Capture the run start time
       include_role:
@@ -73,6 +73,36 @@
               vars:
                 health_check_fail_on_unhealthy: true
 
+            - name: Record that this VM made it back to its own node
+              ansible.builtin.set_fact:
+                vm_migrated_back: true
+
+- name: Rebalance the cluster if anything got left behind (safety net for a failed migrate-back)
+  hosts: "{{ vm_backup_node | default('pve1') }}"
+  gather_facts: false
+  run_once: true
+  vars:
+    pve_all_nodes:
+      - pve1
+      - pve2
+      - pve3
+  tasks:
+    - name: Determine which VMs, if any, are stranded on the backup node
+      ansible.builtin.set_fact:
+        vm_backups_stragglers: >-
+          {%- set stragglers = [] -%}
+          {%- for h in hostvars['localhost'].vm_backups_host_list -%}
+            {%- if hostvars[h].vm_was_migrated | default(false) and not (hostvars[h].vm_migrated_back | default(false)) -%}
+              {%- set _ = stragglers.append(h) -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ stragglers }}
+
+    - name: Rebalance the whole cluster (only needed if a migrate-back failed above)
+      include_role:
+        name: pve_rebalance
+      when: vm_backups_stragglers | length > 0
+
 - name: Send aggregated vm-backups report
   hosts: localhost
   gather_facts: false
@@ -84,6 +114,12 @@
         report_subject: "[vm-backups] Weekly VM backup report"
         report_body: |
           <h2>VM backups report</h2>
+          {% set stragglers = hostvars[vm_backup_node | default('pve1')].vm_backups_stragglers | default([]) %}
+          {% if stragglers | length > 0 %}
+          <p class="alert-warning">
+            <strong>Left behind on {{ vm_backup_node }}:</strong> {{ stragglers | join(', ') }} — their migrate-back failed after backup, and the safety-net cluster rebalance was triggered to redistribute them. Check they landed somewhere sensible.
+          </p>
+          {% endif %}
           <table>
             <tr>
               <th>VM</th>
