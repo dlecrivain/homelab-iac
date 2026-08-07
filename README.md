@@ -88,7 +88,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
   - `pve_destroy_vm/` — Shut down and destroy (`--purge`) a Proxmox VM
   - `provision_vm_reconnect/` — Reconfigure a freshly cloned VM's IP/hostname/SSH host key, then reconnect at its final identity
   - `katello_register_host/` — Generate and run a Katello global registration command for a host
-  - `katello_deregister_host/` — Search Katello by name (failing clearly if not exactly one match), then delete the host
+  - `katello_deregister_host/` — Confirm the host exists in Katello under its exact name, then delete it
 - **`BACKLOG.md`** — Planned future automation work
 
 ## How it works
@@ -185,7 +185,7 @@ Not handled by this playbook, and needs a short manual checklist once the contai
 1. Resolve a free IP via phpIPAM (`phpipam_next_ip` role) starting from `phpipam_search_start_ip`, with a TCP:22 liveness probe as a safety net — phpIPAM's own data isn't assumed to be current, so a candidate that's actually alive gets self-healed back into phpIPAM and the search retries (`phpipam_max_retries`) before failing loudly.
 2. Full-clone the template on `pve_clone_node` (`pve_clone_vm` role: `qm clone --full --storage pve_clone_storage`), start it, and connect to it at its baked-in default IP (`provision_template_ip`, `192.168.1.200` — every fresh clone boots here since the template's static config never changes).
 3. Reconfigure the clone (`provision_vm_reconnect` role): switch its network config to the resolved IP via `nmcli`, set the hostname, and regenerate its SSH host key — the key regenerates exactly **once**, at this point, not on every future boot like cloud-init used to do, so each VM still gets its own stable identity without the churn. This is the one genuinely delicate part: the IP change and the host-key change both invalidate the current SSH session, so it's done as a single fire-and-forget async command, followed by clearing just that IP's stale `known_hosts` entry on the control node (`ansible_ssh_common_args`'s `accept-new` only covers hosts never seen before, not a *changed* key at an IP that's been reused), then `meta: reset_connection` + `wait_for_connection` to land back on the same host at its new identity.
-4. Register with Katello (`katello_register_host` role) via `hammer host-registration generate-command`, apply OS updates, install `podman`+`git`.
+4. Register with Katello (`katello_register_host` role) via `hammer host-registration generate-command`, then confirms Katello registered it under the exact hostname (`hammer host info --name`, failing loudly on any mismatch — this is what lets `decommission-vm.yml` find it by `new_vm_name` alone, no guessing later), apply OS updates, install `podman`+`git`.
 5. Register the resolved IP as officially used in phpIPAM, then write `host_vars/<new_vm_name>.yml` (`ansible_host: <resolved IP>`) into this repo and commit+push it — servers are **never** resolved via AdGuard (that's DHCP clients only) or any other DNS, so this is how every later fleet-wide playbook finds the new VM, the same pattern already used for `semaphore101`/`semaphore102`.
 6. Rebalance the cluster (`pve_rebalance`), since the clone always lands on `pve_clone_node` first.
 
@@ -199,7 +199,7 @@ Not handled by this playbook, and needs a short manual checklist once the contai
 
 1. Resolve the VM's Proxmox VMID/node and IP from `hostvars` (the dynamic inventory + its `host_vars` file) — fails clearly if the name isn't a known host at all.
 2. Migrate to `vm_backup_node` if it isn't already there, then take a final `vzdump` safety backup to pCloud (`pve_migrate_vm` + `vzdump_backup`, the exact same roles/pattern `vm-backups.yml` uses) — a last-resort rollback if the decommission turns out to be a mistake.
-3. Deregister from Katello (`katello_deregister_host` role): searches by name first and **fails clearly if it finds anything other than exactly one match**, rather than guessing at how Foreman formatted the registered hostname (short name vs FQDN) — only deletes once a single unambiguous match is confirmed.
+3. Deregister from Katello (`katello_deregister_host` role): looks up the host by its exact name and fails clearly if not found, then deletes it — `provision-vm.yml`'s own `katello_register_host` role verifies the exact same exact-name match right after registration, so a VM provisioned by this repo is guaranteed findable by `new_vm_name` alone at decommission time.
 4. Remove the IP's address entry from phpIPAM (`phpipam_remove_address` role) — a no-op, not an error, if it's already absent.
 5. Destroy the VM (`pve_destroy_vm` role: graceful `qm shutdown`, confirm stopped, then `qm destroy --purge`).
 6. Remove `host_vars/<new_vm_name>.yml` from this repo (if present) and commit+push the deletion.

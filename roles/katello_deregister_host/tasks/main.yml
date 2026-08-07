@@ -1,31 +1,17 @@
 ---
-- name: Search for this host in Katello by name
+- name: Confirm this host exists in Katello under this exact name (provisioning guarantees an exact match, no fuzzy search needed)
   ansible.builtin.command: >
     hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
-    host list --search "name ~ {{ katello_deregister_name }}" --fields Id,Name
-  register: katello_host_search
-  changed_when: false
+    host info --name {{ katello_deregister_name }}
   delegate_to: "{{ lpkat_host }}"
   become: true
+  changed_when: false
   no_log: true
-
-- name: Extract matching host rows
-  ansible.builtin.set_fact:
-    katello_matching_hosts: "{{ katello_host_search.stdout_lines | select('match', '^\\s*[0-9]+\\s*\\|') | list }}"
-
-- name: Fail clearly if the host isn't found in Katello, or the name is ambiguous
-  ansible.builtin.fail:
-    msg: "Katello: expected exactly 1 host matching '{{ katello_deregister_name }}', found {{ katello_matching_hosts | length }}: {{ katello_matching_hosts }}"
-  when: katello_matching_hosts | length != 1
-
-- name: Extract the exact registered hostname
-  ansible.builtin.set_fact:
-    katello_exact_hostname: "{{ katello_matching_hosts[0].split('|')[1] | trim }}"
 
 - name: Delete the host from Katello
   ansible.builtin.command: >
     hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
-    host delete --name "{{ katello_exact_hostname }}"
+    host delete --name {{ katello_deregister_name }}
   delegate_to: "{{ lpkat_host }}"
   become: true
   no_log: true

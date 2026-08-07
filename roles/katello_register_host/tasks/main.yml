@@ -18,3 +18,12 @@
   ansible.builtin.shell: "{{ katello_registration_command_result.stdout }}"
   become: true
   no_log: true
+
+- name: Confirm Katello registered this host under its exact hostname (so decommission-vm.yml can find it by exact name later)
+  ansible.builtin.command: >
+    hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
+    host info --name {{ new_vm_name }}
+  delegate_to: "{{ lpkat_host }}"
+  become: true
+  changed_when: false
+  no_log: true
