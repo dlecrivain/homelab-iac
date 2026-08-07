@@ -107,9 +107,15 @@
         chdir: "{{ playbook_dir }}"
       changed_when: false
 
+    - name: Stage the new host_vars file (untracked - git commit -am only picks up tracked changes)
+      ansible.builtin.command: "git add host_vars/{{ new_vm_name }}.yml"
+      args:
+        chdir: "{{ playbook_dir }}"
+      changed_when: false
+
     - name: Commit the new host_vars file
       ansible.builtin.command: >-
-        git commit -am "Add host_vars for {{ new_vm_name }} ({{ resolved_new_ip }}), provisioned via provision-vm.yml"
+        git commit -m "Add host_vars for {{ new_vm_name }} ({{ resolved_new_ip }}), provisioned via provision-vm.yml"
       args:
         chdir: "{{ playbook_dir }}"
 
