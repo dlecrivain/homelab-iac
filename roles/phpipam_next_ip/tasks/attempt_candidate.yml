@@ -3,7 +3,7 @@
   ansible.builtin.uri:
     url: "{{ phpipam_base_url }}/subnets/{{ phpipam_subnet_id }}/addresses/"
     headers:
-      token: "{{ phpipam_api_token }}"
+      token: "{{ phpipam_session_token }}"
     status_code: [200, 404]
   register: phpipam_used_addresses
   no_log: true
@@ -38,7 +38,7 @@
     url: "{{ phpipam_base_url }}/addresses/"
     method: POST
     headers:
-      token: "{{ phpipam_api_token }}"
+      token: "{{ phpipam_session_token }}"
     body_format: json
     body:
       subnetId: "{{ phpipam_subnet_id }}"

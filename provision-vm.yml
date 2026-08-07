@@ -76,7 +76,7 @@
         url: "{{ phpipam_base_url }}/addresses/"
         method: POST
         headers:
-          token: "{{ phpipam_api_token }}"
+          token: "{{ hostvars['localhost'].phpipam_session_token }}"
         body_format: json
         body:
           subnetId: "{{ hostvars['localhost'].phpipam_subnet_id }}"

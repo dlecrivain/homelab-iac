@@ -25,8 +25,12 @@ vm_backup_pcloud_retention: 1
 vm_backup_pcloud_base_path: "pcloud:Backups/VM"
 
 # phpIPAM
+# "User token" security mode (not "SSL with ..."): those two require a real HTTPS connection and
+# 503 with "SSL connection is required for API" over plain HTTP - phpipam101 is HTTP-only until
+# BunkerWeb fronts it (see BACKLOG.md). "User token" does a login exchange for a session token instead.
 phpipam_api_app_id: "ansible"
-phpipam_api_token: "{{ lookup('env', 'PHPIPAM_API_TOKEN') }}"
+phpipam_api_username: "{{ lookup('env', 'PHPIPAM_API_USERNAME') }}"
+phpipam_api_password: "{{ lookup('env', 'PHPIPAM_API_PASSWORD') }}"
 phpipam_base_url: "http://192.168.1.116:8080/api/{{ phpipam_api_app_id }}"
 phpipam_subnet_cidr: "192.168.1.0/24"
 phpipam_search_start_ip: "192.168.1.111"

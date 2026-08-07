@@ -1,9 +1,25 @@
 ---
+- name: Log in to phpIPAM to obtain a session token ("User token" security mode)
+  ansible.builtin.uri:
+    url: "{{ phpipam_base_url }}/user/"
+    method: POST
+    url_username: "{{ phpipam_api_username }}"
+    url_password: "{{ phpipam_api_password }}"
+    force_basic_auth: true
+    status_code: 200
+  register: phpipam_login
+  no_log: true
+
+- name: Save the phpIPAM session token
+  ansible.builtin.set_fact:
+    phpipam_session_token: "{{ phpipam_login.json.data.token }}"
+  no_log: true
+
 - name: Resolve the subnet ID from its CIDR (once)
   ansible.builtin.uri:
     url: "{{ phpipam_base_url }}/subnets/cidr/{{ phpipam_subnet_cidr | replace('/', '_') }}/"
     headers:
-      token: "{{ phpipam_api_token }}"
+      token: "{{ phpipam_session_token }}"
     status_code: 200
   register: phpipam_subnet_lookup
   no_log: true
