@@ -131,7 +131,11 @@
       ansible.builtin.fail:
         msg: >-
           git push failed (rc={{ provision_git_push.rc }}):
-          {{ (provision_git_push.stderr | default('')) | replace(github_push_token, '***REDACTED***') }}
+          {{
+            (provision_git_push.stderr | default('')) | replace(github_push_token, '***REDACTED***')
+            if (github_push_token | default('') | length > 0)
+            else (provision_git_push.stderr | default('')) + ' (github_push_token is empty - GITHUB_PUSH_TOKEN missing from this template''s Variable Group)'
+          }}
       when: provision_git_push.rc != 0
 
 - name: Rebalance the cluster now that the new VM has landed on pve1

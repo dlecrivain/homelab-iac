@@ -112,7 +112,11 @@
           ansible.builtin.fail:
             msg: >-
               git push failed (rc={{ decom_git_push.rc }}):
-              {{ (decom_git_push.stderr | default('')) | replace(github_push_token, '***REDACTED***') }}
+              {{
+                (decom_git_push.stderr | default('')) | replace(github_push_token, '***REDACTED***')
+                if (github_push_token | default('') | length > 0)
+                else (decom_git_push.stderr | default('')) + ' (github_push_token is empty - GITHUB_PUSH_TOKEN missing from this template''s Variable Group)'
+              }}
           when: decom_git_push.rc != 0
 
 - name: Send the decommission report
