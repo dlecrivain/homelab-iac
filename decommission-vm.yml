@@ -104,7 +104,16 @@
           ansible.builtin.command: "git push https://{{ github_push_token }}@github.com/dlecrivain/homelab-iac main"
           args:
             chdir: "{{ playbook_dir }}"
+          register: decom_git_push
+          failed_when: false
           no_log: true
+
+        - name: Fail with a token-redacted error if the push failed
+          ansible.builtin.fail:
+            msg: >-
+              git push failed (rc={{ decom_git_push.rc }}):
+              {{ (decom_git_push.stderr | default('')) | replace(github_push_token, '***REDACTED***') }}
+          when: decom_git_push.rc != 0
 
 - name: Send the decommission report
   hosts: localhost

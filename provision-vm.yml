@@ -123,7 +123,16 @@
       ansible.builtin.command: "git push https://{{ github_push_token }}@github.com/dlecrivain/homelab-iac main"
       args:
         chdir: "{{ playbook_dir }}"
+      register: provision_git_push
+      failed_when: false
       no_log: true
+
+    - name: Fail with a token-redacted error if the push failed
+      ansible.builtin.fail:
+        msg: >-
+          git push failed (rc={{ provision_git_push.rc }}):
+          {{ (provision_git_push.stderr | default('')) | replace(github_push_token, '***REDACTED***') }}
+      when: provision_git_push.rc != 0
 
 - name: Rebalance the cluster now that the new VM has landed on pve1
   hosts: "{{ pve_clone_node }}"
