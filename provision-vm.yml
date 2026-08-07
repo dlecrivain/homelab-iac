@@ -139,7 +139,7 @@
       when: provision_git_push.rc != 0
 
 - name: Rebalance the cluster now that the new VM has landed on pve1
-  hosts: "{{ pve_clone_node }}"
+  hosts: "{{ pve_clone_node | default('pve1') }}"
   gather_facts: false
   run_once: true
   vars:
