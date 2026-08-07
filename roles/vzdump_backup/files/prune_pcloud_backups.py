@@ -5,8 +5,10 @@ import sys
 remote_path = sys.argv[1]
 keep = int(sys.argv[2])
 
-result = subprocess.run(['rclone', 'lsjson', remote_path], capture_output=True, text=True)
-files = json.loads(result.stdout) if result.returncode == 0 else []
+subprocess.run(['rclone', 'mkdir', remote_path], check=True)
+
+raw = subprocess.check_output(['rclone', 'lsjson', remote_path])
+files = json.loads(raw)
 files.sort(key=lambda f: f['ModTime'], reverse=True)
 
 removed = []
