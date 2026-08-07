@@ -26,10 +26,10 @@
   poll: 0
 
 - name: Remove any stale known_hosts entry for the new IP (control node)
-  ansible.posix.known_hosts:
-    name: "{{ resolved_new_ip }}"
-    state: absent
+  ansible.builtin.command: "ssh-keygen -R {{ resolved_new_ip }}"
   delegate_to: localhost
+  changed_when: false
+  failed_when: false
 
 - name: Point this host at its new, real IP
   ansible.builtin.set_fact:
