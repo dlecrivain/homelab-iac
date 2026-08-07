@@ -101,8 +101,8 @@
     - name: Configure a git identity for this commit (harmless if already set)
       ansible.builtin.command: "{{ item }}"
       loop:
-        - git config user.email "provision-vm@semaphore"
-        - git config user.name "Semaphore automation"
+        - git config user.email "d.lecrivain47@gmail.com"
+        - git config user.name "dlecrivain"
       args:
         chdir: "{{ playbook_dir }}"
       changed_when: false
