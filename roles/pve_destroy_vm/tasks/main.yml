@@ -1,0 +1,30 @@
+---
+- name: Shut down the VM gracefully
+  ansible.builtin.command: >
+    qm shutdown {{ destroy_vmid }} --timeout 60
+  delegate_to: "{{ destroy_node }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+
+- name: Confirm the VM is stopped before destroying it
+  ansible.builtin.command: >
+    pvesh get /nodes/{{ destroy_node }}/qemu/{{ destroy_vmid }}/status/current
+    --output-format json
+  register: pve_destroy_status_check
+  retries: 6
+  delay: 5
+  until: (pve_destroy_status_check.stdout | from_json).status == 'stopped'
+  changed_when: false
+  delegate_to: "{{ destroy_node }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+
+- name: Destroy the VM and its disks
+  ansible.builtin.command: >
+    qm destroy {{ destroy_vmid }} --purge
+  delegate_to: "{{ destroy_node }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"

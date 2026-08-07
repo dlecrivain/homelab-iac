@@ -34,6 +34,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 | `update-semaphore-peer.yml` | OS-patches + Podman-updates `{{ peer_host }}` (`semaphore101` or `semaphore102`), auto-bumps its Semaphore image to the latest patch/minor within the same major line (or an explicit `semaphore_image_tag`, for a major jump), then pings its Semaphore web service to confirm it's back up — the mechanism behind item 8 above |
 | `provision-semaphore-peer.yml` | One-time setup: deploys Semaphore via Podman Quadlet onto a fresh `{{ peer_host }}` VM, identically to the existing instance, then waits for its web service to respond |
 | `provision-vm.yml` | Full-clones the (cloud-init-free) golden template, resolves a static IP via phpIPAM, reconfigures the clone's network/hostname/SSH host key, registers it with Katello, updates it and installs Podman+git, then commits its `host_vars` to this repo and rebalances the cluster — see [Provisioning a new fleet VM](#provisioning-a-new-fleet-vm) |
+| `decommission-vm.yml` | The reverse of `provision-vm.yml`: takes a final safety backup, deregisters the host from Katello, removes its IP from phpIPAM, destroys the Proxmox VM, then removes and commits the deletion of its `host_vars` — see [Decommissioning a fleet VM](#decommissioning-a-fleet-vm) |
 
 `vm-updates.yml` and `container-updates.yml` already remove their own snapshot as soon as the post-update health check passes — `cleanup-snapshots.yml` is the backstop for the ones deliberately left behind after a failed health check, run on its own independent schedule (as two separate Semaphore templates, one per `snapshot_label` value) since OS patching and container updates don't necessarily run on the same cadence.
 
@@ -51,6 +52,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 - **`update-semaphore-peer.yml`** — OS-patches + Podman-updates one Semaphore peer, auto-bumps its Semaphore image (patch/minor), and confirms its Semaphore web service is back up
 - **`provision-semaphore-peer.yml`** — One-time deploy of Semaphore (Podman Quadlet) onto a fresh peer VM
 - **`provision-vm.yml`** — Clone-based provisioning for a new generic fleet VM (see [Provisioning a new fleet VM](#provisioning-a-new-fleet-vm))
+- **`decommission-vm.yml`** — Backs up, deregisters and destroys a fleet VM (see [Decommissioning a fleet VM](#decommissioning-a-fleet-vm))
 - **`ansible.cfg`** — Silences interpreter discovery warnings
 - **`requirements.txt`** — Python deps (proxmoxer, requests) for the inventory plugin
 - **`collections/requirements.yml`** — Ansible collections (community.proxmox, ansible.posix, community.general)
@@ -79,10 +81,14 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
   - `pve_rebalance/` — Cluster-wide rebalance calculation and move execution
   - `vzdump_backup/` — Run vzdump, locate the resulting archive, upload it to pCloud, prune the pCloud retention
   - `pcloud_backup_job/` — Run a single `rclone` backup (source/dest/mode/extra_args), used by `pcloud-backups.yml`
+  - `phpipam_login/` — Log in to phpIPAM (`User token` mode) and resolve a subnet ID from its CIDR; shared by every other phpIPAM role
   - `phpipam_next_ip/` — Resolve a free IP from phpIPAM, with a liveness-probe safety net that self-heals phpIPAM's data if it's stale
+  - `phpipam_remove_address/` — Find and delete a phpIPAM address entry by IP (a no-op if it's already gone)
   - `pve_clone_vm/` — Full-clone the golden template, start it, confirm it's running
+  - `pve_destroy_vm/` — Shut down and destroy (`--purge`) a Proxmox VM
   - `provision_vm_reconnect/` — Reconfigure a freshly cloned VM's IP/hostname/SSH host key, then reconnect at its final identity
   - `katello_register_host/` — Generate and run a Katello global registration command for a host
+  - `katello_deregister_host/` — Search Katello by name (failing clearly if not exactly one match), then delete the host
 - **`BACKLOG.md`** — Planned future automation work
 
 ## How it works
@@ -184,8 +190,19 @@ Not handled by this playbook, and needs a short manual checklist once the contai
 6. Rebalance the cluster (`pve_rebalance`), since the clone always lands on `pve_clone_node` first.
 
 **Manual prerequisites, before this playbook can be used at all:**
-- **Golden template rebuild** (Proxmox side, one-time): no cloud-init drive; **BIOS switched to `seabios`** (OVMF/UEFI needs a persistent `efidisk0` for NVRAM, so dropping the EFI disk while keeping `bios: ovmf` isn't viable); `deploy` user pre-created with passwordless sudo and `authorized_keys` already containing the Semaphore automation key, Katello/Foreman's key, and your personal key; SSH host keys generated *once* at template-build time (not a stock/placeholder key); static `192.168.1.200/24` via a real NetworkManager profile (not cloud-init). `qm template <vmid>` once done, then set `pve_template_vmid` (passed as an extra var, or add it to `group_vars/all.yml` once known).
+- **Golden template rebuild** (Proxmox side, one-time): no cloud-init drive; keeps UEFI (`bios: ovmf`) with **`efidisk0` permanently attached to the template** — `qm clone --full` inherits it automatically, so there's no more manual "create an EFI disk" step, without needing the riskier switch to `bios: seabios` (which would mean redoing the disk's boot partition/bootloader entirely, since the OS is already installed for UEFI); `deploy` user pre-created with passwordless sudo and `authorized_keys` already containing the Semaphore automation key, Katello/Foreman's key, and your personal key; SSH host keys generated *once* at template-build time (not a stock/placeholder key); static `192.168.1.200/24` via a NetworkManager profile with **no `connection.interface-name` or `802-3-ethernet.mac-address` binding** — a real incident this session: the template's `eth0-static` connection was bound to both, and cloning gives every VM a fresh MAC (and often a differently-numbered predictable interface name, e.g. `eth0` on the template vs `ens18` on a clone), so the profile silently failed to activate and the clone fell back to a DHCP address outside the intended range. Match by device *type* only (`nmcli con modify eth0-static connection.interface-name "" 802-3-ethernet.mac-address ""`) so it applies regardless of naming/MAC on any future clone. `qm template <vmid>` once done, then set `pve_template_vmid` (passed as an extra var, or add it to `group_vars/all.yml` once known).
 - **phpIPAM API App**: Administration → Server Management → `phpIPAM settings` → enable the **API** module first (it's off by default) → then Administration → API → create an App (`phpipam_api_app_id`, default `ansible`), permissions `Read/Write`, security **`User token`**. Not `SSL with App code token`/`SSL with User token` — both enforce a real HTTPS connection and fail with `503 SSL connection is required for API` over plain HTTP, and phpipam101 is HTTP-only until BunkerWeb fronts it (see `BACKLOG.md`); revisit this once it does. `User token` mode logs in with real phpIPAM credentials (`phpipam_api_username`/`phpipam_api_password` — this repo's phpIPAM Admin account) to obtain a short-lived session token, done once at the start of `phpipam_next_ip`. Confirm `phpipam_subnet_cidr` (`192.168.1.0/24`) already exists as a Subnet object in phpIPAM.
+
+### Decommissioning a fleet VM
+
+`decommission-vm.yml` (`-e new_vm_name=<hostname>`) is the reverse of `provision-vm.yml` — no confirmation flag by design (just the name), but every step is set up to fail loudly rather than guess:
+
+1. Resolve the VM's Proxmox VMID/node and IP from `hostvars` (the dynamic inventory + its `host_vars` file) — fails clearly if the name isn't a known host at all.
+2. Migrate to `vm_backup_node` if it isn't already there, then take a final `vzdump` safety backup to pCloud (`pve_migrate_vm` + `vzdump_backup`, the exact same roles/pattern `vm-backups.yml` uses) — a last-resort rollback if the decommission turns out to be a mistake.
+3. Deregister from Katello (`katello_deregister_host` role): searches by name first and **fails clearly if it finds anything other than exactly one match**, rather than guessing at how Foreman formatted the registered hostname (short name vs FQDN) — only deletes once a single unambiguous match is confirmed.
+4. Remove the IP's address entry from phpIPAM (`phpipam_remove_address` role) — a no-op, not an error, if it's already absent.
+5. Destroy the VM (`pve_destroy_vm` role: graceful `qm shutdown`, confirm stopped, then `qm destroy --purge`).
+6. Remove `host_vars/<new_vm_name>.yml` from this repo (if present) and commit+push the deletion.
 
 ## Requirements
 

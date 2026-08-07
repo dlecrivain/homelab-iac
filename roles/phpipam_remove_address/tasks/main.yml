@@ -1,0 +1,37 @@
+---
+- name: Log in to phpIPAM and resolve the target subnet ID
+  include_role:
+    name: phpipam_login
+
+- name: Get all addresses currently registered in this subnet
+  ansible.builtin.uri:
+    url: "{{ phpipam_base_url }}/subnets/{{ phpipam_subnet_id }}/addresses/"
+    headers:
+      token: "{{ phpipam_session_token }}"
+    status_code: [200, 404]
+  register: phpipam_addresses
+  no_log: true
+
+- name: Find the address entry matching this IP
+  ansible.builtin.set_fact:
+    phpipam_matching_address: >-
+      {{
+        (phpipam_addresses.json.data | default([]))
+        | selectattr('ip', 'equalto', phpipam_remove_ip)
+        | list
+      }}
+
+- name: Warn if the IP has no address entry in phpIPAM (nothing to remove, not an error)
+  ansible.builtin.debug:
+    msg: "phpIPAM: no address entry for {{ phpipam_remove_ip }} - already absent, nothing to remove"
+  when: phpipam_matching_address | length == 0
+
+- name: Delete the address entry from phpIPAM
+  ansible.builtin.uri:
+    url: "{{ phpipam_base_url }}/addresses/{{ phpipam_matching_address[0].id }}/"
+    method: DELETE
+    headers:
+      token: "{{ phpipam_session_token }}"
+    status_code: [200, 201]
+  when: phpipam_matching_address | length > 0
+  no_log: true

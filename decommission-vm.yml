@@ -1,0 +1,125 @@
+---
+- name: Resolve facts and take a safety backup before destroying
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Fail clearly if new_vm_name wasn't provided
+      ansible.builtin.fail:
+        msg: "new_vm_name is required - pass it with -e new_vm_name=<hostname>"
+      when: new_vm_name is not defined
+
+    - name: Fail clearly if this host isn't known to the dynamic Proxmox inventory
+      ansible.builtin.fail:
+        msg: "{{ new_vm_name }} not found in inventory - check the name and that it's a Proxmox-managed VM"
+      when: new_vm_name not in hostvars
+
+    - name: Resolve this VM's Proxmox and network facts
+      ansible.builtin.set_fact:
+        decom_vmid: "{{ hostvars[new_vm_name].proxmox_vmid }}"
+        decom_node: "{{ hostvars[new_vm_name].proxmox_node }}"
+        decom_ip: "{{ hostvars[new_vm_name].ansible_host }}"
+
+    - name: Capture the run start time
+      include_role:
+        name: capture_start_time
+
+    - name: "Migrate to {{ vm_backup_node }} for the safety backup, if not already there"
+      when: decom_node != vm_backup_node
+      block:
+        - name: Migrate VM for backup
+          include_role:
+            name: pve_migrate_vm
+          vars:
+            migrate_vmid: "{{ decom_vmid }}"
+            migrate_target_node: "{{ vm_backup_node }}"
+            migrate_delegate_to: "{{ decom_node }}"
+
+        - name: Update the tracked node after migration
+          ansible.builtin.set_fact:
+            decom_node: "{{ vm_backup_node }}"
+
+    - name: Take a final safety backup before destroying this VM
+      include_role:
+        name: vzdump_backup
+      vars:
+        vzdump_vmid: "{{ decom_vmid }}"
+        vzdump_vm_name: "{{ new_vm_name }}"
+
+- name: Unregister from Katello and phpIPAM
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Remove this host from Katello
+      include_role:
+        name: katello_deregister_host
+      vars:
+        katello_deregister_name: "{{ new_vm_name }}"
+
+    - name: Remove this IP from phpIPAM
+      include_role:
+        name: phpipam_remove_address
+      vars:
+        phpipam_remove_ip: "{{ decom_ip }}"
+
+- name: Destroy the VM and remove it from this repo
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Destroy the Proxmox VM
+      include_role:
+        name: pve_destroy_vm
+      vars:
+        destroy_vmid: "{{ decom_vmid }}"
+        destroy_node: "{{ decom_node }}"
+
+    - name: Check whether host_vars/<new_vm_name>.yml exists in this repo
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/host_vars/{{ new_vm_name }}.yml"
+      register: decom_host_vars_file
+
+    - name: Remove and commit host_vars/<new_vm_name>.yml if it exists
+      when: decom_host_vars_file.stat.exists
+      block:
+        - name: Remove the host_vars file
+          ansible.builtin.command: "git rm host_vars/{{ new_vm_name }}.yml"
+          args:
+            chdir: "{{ playbook_dir }}"
+
+        - name: Configure a git identity for this commit (harmless if already set)
+          ansible.builtin.command: "{{ item }}"
+          loop:
+            - git config user.email "decommission-vm@semaphore"
+            - git config user.name "Semaphore automation"
+          args:
+            chdir: "{{ playbook_dir }}"
+          changed_when: false
+
+        - name: Commit the removal
+          ansible.builtin.command: >-
+            git commit -m "Remove host_vars for {{ new_vm_name }}, decommissioned via decommission-vm.yml"
+          args:
+            chdir: "{{ playbook_dir }}"
+
+        - name: Push the commit to origin/main
+          ansible.builtin.command: "git push https://{{ github_push_token }}@github.com/dlecrivain/homelab-iac main"
+          args:
+            chdir: "{{ playbook_dir }}"
+          no_log: true
+
+- name: Send the decommission report
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Build and send the HTML report email
+      include_role:
+        name: send_report
+      vars:
+        report_subject: "[decommission-vm] {{ new_vm_name }} decommissioned"
+        report_body: |
+          <h2>VM decommission report</h2>
+          <table>
+            <tr><th>Hostname</th><td>{{ new_vm_name }}</td></tr>
+            <tr><th>IP address</th><td>{{ decom_ip }}</td></tr>
+            <tr><th>Proxmox VMID</th><td>{{ decom_vmid }}</td></tr>
+          </table>
+          <p>A final safety backup was taken before destruction. Deregistered from Katello, IP removed from phpIPAM, VM destroyed, host_vars removed from this repo.</p>
