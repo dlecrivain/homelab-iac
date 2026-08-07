@@ -20,7 +20,7 @@
     url: "{{ phpipam_base_url }}/subnets/cidr/{{ phpipam_subnet_cidr | replace('/', '_') }}/"
     headers:
       token: "{{ phpipam_session_token }}"
-    status_code: 200
+    status_code: [200, 404]
   register: phpipam_subnet_lookup
   no_log: true
 
