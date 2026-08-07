@@ -93,7 +93,7 @@
   tasks:
     - name: Write host_vars/<new_vm_name>.yml with the resolved static IP
       ansible.builtin.copy:
-        dest: "/repos/homelab-iac/host_vars/{{ new_vm_name }}.yml"
+        dest: "{{ playbook_dir }}/host_vars/{{ new_vm_name }}.yml"
         content: |
           ansible_host: {{ resolved_new_ip }} # static IP assigned via phpIPAM by provision-vm.yml
           ansible_user: deploy
@@ -104,19 +104,19 @@
         - git config user.email "provision-vm@semaphore"
         - git config user.name "Semaphore automation"
       args:
-        chdir: /repos/homelab-iac
+        chdir: "{{ playbook_dir }}"
       changed_when: false
 
     - name: Commit the new host_vars file
       ansible.builtin.command: >-
         git commit -am "Add host_vars for {{ new_vm_name }} ({{ resolved_new_ip }}), provisioned via provision-vm.yml"
       args:
-        chdir: /repos/homelab-iac
+        chdir: "{{ playbook_dir }}"
 
     - name: Push the commit to origin/main
       ansible.builtin.command: "git push https://{{ github_push_token }}@github.com/dlecrivain/homelab-iac main"
       args:
-        chdir: /repos/homelab-iac
+        chdir: "{{ playbook_dir }}"
       no_log: true
 
 - name: Rebalance the cluster now that the new VM has landed on pve1
