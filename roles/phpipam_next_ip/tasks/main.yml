@@ -15,23 +15,33 @@
     phpipam_session_token: "{{ phpipam_login.json.data.token }}"
   no_log: true
 
-- name: Resolve the subnet ID from its CIDR (once)
+- name: List all subnets (once) to find the one matching our CIDR
   ansible.builtin.uri:
-    url: "{{ phpipam_base_url }}/subnets/cidr/{{ phpipam_subnet_cidr | replace('/', '_') }}/"
+    url: "{{ phpipam_base_url }}/subnets/"
     headers:
       token: "{{ phpipam_session_token }}"
     status_code: [200, 404]
-  register: phpipam_subnet_lookup
+  register: phpipam_subnets_list
   no_log: true
+
+- name: Find subnets matching our CIDR (subnet/mask are separate fields, no combined CIDR lookup endpoint)
+  ansible.builtin.set_fact:
+    phpipam_matching_subnets: >-
+      {{
+        (phpipam_subnets_list.json.data | default([]))
+        | selectattr('subnet', 'equalto', phpipam_subnet_cidr.split('/')[0])
+        | selectattr('mask', 'equalto', phpipam_subnet_cidr.split('/')[1])
+        | list
+      }}
 
 - name: Fail clearly if the subnet isn't registered in phpIPAM
   ansible.builtin.fail:
     msg: "phpIPAM has no subnet matching {{ phpipam_subnet_cidr }} - create it under Subnets first"
-  when: phpipam_subnet_lookup.json.data is not defined or phpipam_subnet_lookup.json.data | length == 0
+  when: phpipam_matching_subnets | length == 0
 
 - name: Save the resolved subnet ID
   ansible.builtin.set_fact:
-    phpipam_subnet_id: "{{ phpipam_subnet_lookup.json.data[0].id }}"
+    phpipam_subnet_id: "{{ phpipam_matching_subnets[0].id }}"
 
 - name: Copy the IP-resolution script
   ansible.builtin.copy:
