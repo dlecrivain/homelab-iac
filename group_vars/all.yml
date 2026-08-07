@@ -23,3 +23,28 @@ vm_backup_storage: Stockage_SSD
 vm_backup_local_retention: 5
 vm_backup_pcloud_retention: 1
 vm_backup_pcloud_base_path: "pcloud:Backups/VM"
+
+# phpIPAM
+phpipam_api_app_id: "ansible"
+phpipam_api_token: "{{ lookup('env', 'PHPIPAM_API_TOKEN') }}"
+phpipam_base_url: "http://192.168.1.116:8080/api/{{ phpipam_api_app_id }}"
+phpipam_subnet_cidr: "192.168.1.0/24"
+phpipam_search_start_ip: "192.168.1.111"
+phpipam_max_retries: 5
+
+# Proxmox VM provisioning (provision-vm.yml)
+pve_template_vmid: 9000
+pve_clone_node: pve1
+pve_clone_storage: nvme_data
+provision_template_ip: "192.168.1.200"
+
+# Fleet static networking (servers only - AdGuard/DHCP is for client devices, never servers)
+fleet_network_prefix: 24
+fleet_network_gateway: "192.168.1.254"
+fleet_network_dns_servers: "192.168.1.254"
+
+# Katello registration (provision-vm.yml) - numeric IDs, distinct from katello_organization (a name string used by hammer content-view commands)
+katello_activation_key: "ak-rocky-10-prod"
+katello_organization_id: 4
+katello_location_id: 2
+katello_operatingsystem_id: 7

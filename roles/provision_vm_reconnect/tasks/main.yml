@@ -1,0 +1,55 @@
+---
+- name: Discover the active NetworkManager connection profile
+  ansible.builtin.command: >
+    nmcli -t -f NAME con show --active
+  register: provision_nm_active_conn
+  changed_when: false
+
+- name: Save the connection profile name
+  ansible.builtin.set_fact:
+    provision_nm_conn_name: "{{ provision_nm_active_conn.stdout_lines | first }}"
+
+- name: Reconfigure IP/hostname and regenerate the SSH host key (fire-and-forget - this connection will not survive)
+  ansible.builtin.shell: >
+    nmcli con mod "{{ provision_nm_conn_name }}"
+    ipv4.method manual
+    ipv4.addresses "{{ resolved_new_ip }}/{{ fleet_network_prefix }}"
+    ipv4.gateway "{{ fleet_network_gateway }}"
+    ipv4.dns "{{ fleet_network_dns_servers }}"
+    && hostnamectl set-hostname "{{ new_vm_name }}"
+    && rm -f /etc/ssh/ssh_host_*
+    && ssh-keygen -A
+    && nmcli con up "{{ provision_nm_conn_name }}"
+    && systemctl restart sshd
+  become: true
+  async: 60
+  poll: 0
+
+- name: Remove any stale known_hosts entry for the new IP (control node)
+  ansible.posix.known_hosts:
+    name: "{{ resolved_new_ip }}"
+    state: absent
+  delegate_to: localhost
+
+- name: Point this host at its new, real IP
+  ansible.builtin.set_fact:
+    ansible_host: "{{ resolved_new_ip }}"
+
+- name: Reset the connection so the next task reconnects fresh
+  ansible.builtin.meta: reset_connection
+
+- name: Wait for SSH to come back up at the new IP with the new host key
+  ansible.builtin.wait_for_connection:
+    delay: 10
+    timeout: 180
+
+- name: Verify the reconnection landed on the fully-reconfigured host
+  ansible.builtin.command: hostname
+  register: provision_hostname_check
+  changed_when: false
+
+- name: Assert the hostname matches what we set
+  ansible.builtin.assert:
+    that:
+      - provision_hostname_check.stdout == new_vm_name
+    fail_msg: "Reconnected to {{ resolved_new_ip }} but hostname is '{{ provision_hostname_check.stdout }}', expected '{{ new_vm_name }}'"

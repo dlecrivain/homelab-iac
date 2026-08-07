@@ -1,0 +1,55 @@
+---
+- name: Get all addresses currently registered in this subnet (fresh each attempt)
+  ansible.builtin.uri:
+    url: "{{ phpipam_base_url }}/subnets/{{ phpipam_subnet_id }}/addresses/"
+    headers:
+      token: "{{ phpipam_api_token }}"
+    status_code: [200, 404]
+  register: phpipam_used_addresses
+  no_log: true
+
+- name: Compute the next candidate IP not already registered as used
+  ansible.builtin.command: "python3 /tmp/compute_next_ip.py {{ phpipam_subnet_cidr }} {{ phpipam_search_start_ip }}"
+  args:
+    stdin: "{{ phpipam_used_addresses.json.data | default([]) | map(attribute='ip') | list | to_json }}"
+  register: phpipam_candidate_result
+  changed_when: false
+
+- name: Fail clearly if the subnet has no free address left at all (not retryable)
+  ansible.builtin.fail:
+    msg: "phpIPAM: subnet {{ phpipam_subnet_cidr }} has no free address >= {{ phpipam_search_start_ip }}"
+  when: (phpipam_candidate_result.stdout | trim) == 'NONE'
+
+- name: Save this attempt's candidate IP
+  ansible.builtin.set_fact:
+    phpipam_candidate_ip: "{{ phpipam_candidate_result.stdout | trim }}"
+
+- name: Probe whether the candidate is actually live (phpIPAM's data may be stale)
+  ansible.builtin.wait_for:
+    host: "{{ phpipam_candidate_ip }}"
+    port: 22
+    timeout: 3
+    state: started
+  register: phpipam_candidate_probe
+  ignore_errors: true
+
+- name: Self-heal phpIPAM if the candidate turned out to be alive despite being marked free
+  ansible.builtin.uri:
+    url: "{{ phpipam_base_url }}/addresses/"
+    method: POST
+    headers:
+      token: "{{ phpipam_api_token }}"
+    body_format: json
+    body:
+      subnetId: "{{ phpipam_subnet_id }}"
+      ip: "{{ phpipam_candidate_ip }}"
+      hostname: "unregistered-live-host"
+      description: "Auto-registered by provision-vm.yml: found live but marked free in phpIPAM"
+    status_code: [200, 201]
+  when: phpipam_candidate_probe is succeeded
+  no_log: true
+
+- name: Accept this candidate as the resolved IP (only if it was genuinely unreachable)
+  ansible.builtin.set_fact:
+    resolved_new_ip: "{{ phpipam_candidate_ip }}"
+  when: phpipam_candidate_probe is failed

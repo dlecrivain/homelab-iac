@@ -33,6 +33,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 | `full-updates.yml` | Runs `container-updates.yml`, then `vm-updates.yml`, then `pve-updates.yml` in one go — each stage only runs if the previous one had no problem, otherwise later stages report as `SKIPPED`; finishes by patching `semaphore102` back |
 | `update-semaphore-peer.yml` | OS-patches + Podman-updates `{{ peer_host }}` (`semaphore101` or `semaphore102`), auto-bumps its Semaphore image to the latest patch/minor within the same major line (or an explicit `semaphore_image_tag`, for a major jump), then pings its Semaphore web service to confirm it's back up — the mechanism behind item 8 above |
 | `provision-semaphore-peer.yml` | One-time setup: deploys Semaphore via Podman Quadlet onto a fresh `{{ peer_host }}` VM, identically to the existing instance, then waits for its web service to respond |
+| `provision-vm.yml` | Full-clones the (cloud-init-free) golden template, resolves a static IP via phpIPAM, reconfigures the clone's network/hostname/SSH host key, registers it with Katello, updates it and installs Podman+git, then commits its `host_vars` to this repo and rebalances the cluster — see [Provisioning a new fleet VM](#provisioning-a-new-fleet-vm) |
 
 `vm-updates.yml` and `container-updates.yml` already remove their own snapshot as soon as the post-update health check passes — `cleanup-snapshots.yml` is the backstop for the ones deliberately left behind after a failed health check, run on its own independent schedule (as two separate Semaphore templates, one per `snapshot_label` value) since OS patching and container updates don't necessarily run on the same cadence.
 
@@ -49,6 +50,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 - **`full-updates.yml`** — Chains `container-updates.yml` → `vm-updates.yml` → `pve-updates.yml` → patches `semaphore102` back, gated on each stage's outcome
 - **`update-semaphore-peer.yml`** — OS-patches + Podman-updates one Semaphore peer, auto-bumps its Semaphore image (patch/minor), and confirms its Semaphore web service is back up
 - **`provision-semaphore-peer.yml`** — One-time deploy of Semaphore (Podman Quadlet) onto a fresh peer VM
+- **`provision-vm.yml`** — Clone-based provisioning for a new generic fleet VM (see [Provisioning a new fleet VM](#provisioning-a-new-fleet-vm))
 - **`ansible.cfg`** — Silences interpreter discovery warnings
 - **`requirements.txt`** — Python deps (proxmoxer, requests) for the inventory plugin
 - **`collections/requirements.yml`** — Ansible collections (community.proxmox, ansible.posix, community.general)
@@ -77,6 +79,10 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
   - `pve_rebalance/` — Cluster-wide rebalance calculation and move execution
   - `vzdump_backup/` — Run vzdump, locate the resulting archive, upload it to pCloud, prune the pCloud retention
   - `pcloud_backup_job/` — Run a single `rclone` backup (source/dest/mode/extra_args), used by `pcloud-backups.yml`
+  - `phpipam_next_ip/` — Resolve a free IP from phpIPAM, with a liveness-probe safety net that self-heals phpIPAM's data if it's stale
+  - `pve_clone_vm/` — Full-clone the golden template, start it, confirm it's running
+  - `provision_vm_reconnect/` — Reconfigure a freshly cloned VM's IP/hostname/SSH host key, then reconnect at its final identity
+  - `katello_register_host/` — Generate and run a Katello global registration command for a host
 - **`BACKLOG.md`** — Planned future automation work
 
 ## How it works
@@ -166,6 +172,21 @@ Not handled by this playbook, and needs a short manual checklist once the contai
 - Recreating Semaphore's own data (projects/templates/environments/credentials — these live in `semaphore102`'s own Postgres DB, not in anything this repo touches): the SSH key in the Key Store (same key as `semaphore101`'s), the Proxmox/SMTP Variable Group, the repo connection (pointing at `/repos/homelab-iac`), and at minimum the two templates this design needs — "Update semaphore101" (`update-semaphore-peer.yml -e peer_host=semaphore101`) on its own schedule, and (on `semaphore101`) "Full updates" (`full-updates.yml`) timed to run after it.
 - Changing `SEMAPHORE_ADMIN_PASSWORD` from its generated value via Semaphore's own UI on first login (same as should be done for `semaphore101`'s `changeme` default while at it).
 
+### Provisioning a new fleet VM
+
+`provision-vm.yml` (`-e new_vm_name=<hostname>`) replaces the old cloud-init-based cloning flow, which regenerated the SSH host key on *every boot* (not just the first) and caused constant `known_hosts` churn. The golden template no longer has cloud-init or an EFI disk at all — everything it used to do at boot now happens once, in this playbook, right after cloning:
+
+1. Resolve a free IP via phpIPAM (`phpipam_next_ip` role) starting from `phpipam_search_start_ip`, with a TCP:22 liveness probe as a safety net — phpIPAM's own data isn't assumed to be current, so a candidate that's actually alive gets self-healed back into phpIPAM and the search retries (`phpipam_max_retries`) before failing loudly.
+2. Full-clone the template on `pve_clone_node` (`pve_clone_vm` role: `qm clone --full --storage pve_clone_storage`), start it, and connect to it at its baked-in default IP (`provision_template_ip`, `192.168.1.200` — every fresh clone boots here since the template's static config never changes).
+3. Reconfigure the clone (`provision_vm_reconnect` role): switch its network config to the resolved IP via `nmcli`, set the hostname, and regenerate its SSH host key — the key regenerates exactly **once**, at this point, not on every future boot like cloud-init used to do, so each VM still gets its own stable identity without the churn. This is the one genuinely delicate part: the IP change and the host-key change both invalidate the current SSH session, so it's done as a single fire-and-forget async command, followed by clearing just that IP's stale `known_hosts` entry on the control node (`ansible_ssh_common_args`'s `accept-new` only covers hosts never seen before, not a *changed* key at an IP that's been reused), then `meta: reset_connection` + `wait_for_connection` to land back on the same host at its new identity.
+4. Register with Katello (`katello_register_host` role) via `hammer host-registration generate-command`, apply OS updates, install `podman`+`git`.
+5. Register the resolved IP as officially used in phpIPAM, then write `host_vars/<new_vm_name>.yml` (`ansible_host: <resolved IP>`) into this repo and commit+push it — servers are **never** resolved via AdGuard (that's DHCP clients only) or any other DNS, so this is how every later fleet-wide playbook finds the new VM, the same pattern already used for `semaphore101`/`semaphore102`.
+6. Rebalance the cluster (`pve_rebalance`), since the clone always lands on `pve_clone_node` first.
+
+**Manual prerequisites, before this playbook can be used at all:**
+- **Golden template rebuild** (Proxmox side, one-time): no cloud-init drive; **BIOS switched to `seabios`** (OVMF/UEFI needs a persistent `efidisk0` for NVRAM, so dropping the EFI disk while keeping `bios: ovmf` isn't viable); `deploy` user pre-created with passwordless sudo and `authorized_keys` already containing the Semaphore automation key, Katello/Foreman's key, and your personal key; SSH host keys generated *once* at template-build time (not a stock/placeholder key); static `192.168.1.200/24` via a real NetworkManager profile (not cloud-init). `qm template <vmid>` once done, then set `pve_template_vmid` (passed as an extra var, or add it to `group_vars/all.yml` once known).
+- **phpIPAM API App**: Administration → Server Management → `phpIPAM settings` → enable the **API** module first (it's off by default) → then Administration → API → create an App (`phpipam_api_app_id`, default `ansible`), permissions `Read/Write`, security **`SSL with App code token`** (a static token, no login call needed — if only `SSL with User token` is available in your version, the design needs an extra login-exchange step this playbook doesn't currently have). The generated App code is `PHPIPAM_API_TOKEN`. Confirm `phpipam_subnet_cidr` (`192.168.1.0/24`) already exists as a Subnet object in phpIPAM.
+
 ## Requirements
 
 - SemaphoreUI (or plain `ansible-playbook`) with the following installed:
@@ -179,7 +200,9 @@ Not handled by this playbook, and needs a short manual checklist once the contai
 
 No credentials are stored in this repository. The Proxmox API token is read via `lookup('env', 'PROXMOX_TOKEN_SECRET')` in `inventory/proxmox.yml`, injected by Semaphore through a Variable Group. SSH keys live exclusively in Semaphore's Key Store. `GITHUB_PUSH_TOKEN` (a GitHub PAT with write access, used only by `update-semaphore-peer.yml` to push its own Semaphore version-bump commit) follows the same env-var-via-Variable-Group pattern.
 
-`katello_promote` and `cv-retention.yml` pass `KATELLO_HAMMER_USERNAME`/`KATELLO_HAMMER_PASSWORD` explicitly on every `hammer` command (`no_log: true`, since the password would otherwise appear in the command's argv in Semaphore's task log) rather than relying on lpkat101's local hammer CLI config file — its automatic/interactive credential loading proved unreliable (a real production incident: correct credentials in `/root/.hammer/cli_config.yml`, confirmed byte-for-byte via `-u`/`-p`, still got rejected through the config-driven `InteractiveBasicAuth` path) and explicit `-u`/`-p` never failed once confirmed working. Rotate the Foreman admin password by updating this env var in Semaphore's Variable Group — no need to touch lpkat101 itself.
+`katello_promote` and `cv-retention.yml` pass `KATELLO_HAMMER_USERNAME`/`KATELLO_HAMMER_PASSWORD` explicitly on every `hammer` command (`no_log: true`, since the password would otherwise appear in the command's argv in Semaphore's task log) rather than relying on lpkat101's local hammer CLI config file — its automatic/interactive credential loading proved unreliable (a real production incident: correct credentials in `/root/.hammer/cli_config.yml`, confirmed byte-for-byte via `-u`/`-p`, still got rejected through the config-driven `InteractiveBasicAuth` path) and explicit `-u`/`-p` never failed once confirmed working. Rotate the Foreman admin password by updating this env var in Semaphore's Variable Group — no need to touch lpkat101 itself. `katello_register_host` (used by `provision-vm.yml`) reuses the same two vars.
+
+`PHPIPAM_API_TOKEN` (phpIPAM's "App code" for the `ansible` App, security mode `SSL with App code token` — see [Provisioning a new fleet VM](#provisioning-a-new-fleet-vm)) follows the same env-var-via-Variable-Group pattern, read via `phpipam_api_token` in `group_vars/all.yml`.
 
 ## Roadmap
 

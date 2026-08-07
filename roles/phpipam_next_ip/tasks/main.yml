@@ -1,0 +1,41 @@
+---
+- name: Resolve the subnet ID from its CIDR (once)
+  ansible.builtin.uri:
+    url: "{{ phpipam_base_url }}/subnets/cidr/{{ phpipam_subnet_cidr | replace('/', '_') }}/"
+    headers:
+      token: "{{ phpipam_api_token }}"
+    status_code: 200
+  register: phpipam_subnet_lookup
+  no_log: true
+
+- name: Fail clearly if the subnet isn't registered in phpIPAM
+  ansible.builtin.fail:
+    msg: "phpIPAM has no subnet matching {{ phpipam_subnet_cidr }} - create it under Subnets first"
+  when: phpipam_subnet_lookup.json.data is not defined or phpipam_subnet_lookup.json.data | length == 0
+
+- name: Save the resolved subnet ID
+  ansible.builtin.set_fact:
+    phpipam_subnet_id: "{{ phpipam_subnet_lookup.json.data[0].id }}"
+
+- name: Copy the IP-resolution script
+  ansible.builtin.copy:
+    src: compute_next_ip.py
+    dest: /tmp/compute_next_ip.py
+    mode: '0755'
+
+- name: Try candidates until a genuinely free one is found
+  ansible.builtin.include_tasks: attempt_candidate.yml
+  loop: "{{ range(1, (phpipam_max_retries | default(5)) + 1) | list }}"
+  loop_control:
+    loop_var: phpipam_attempt
+  when: resolved_new_ip is not defined
+
+- name: Fail loudly if every attempt found a live host instead of a free one
+  ansible.builtin.fail:
+    msg: "phpIPAM: exhausted {{ phpipam_max_retries }} attempts without finding a genuinely free IP in {{ phpipam_subnet_cidr }}"
+  when: resolved_new_ip is not defined
+
+- name: Clean up the IP-resolution script
+  ansible.builtin.file:
+    path: /tmp/compute_next_ip.py
+    state: absent

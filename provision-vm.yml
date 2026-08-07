@@ -1,0 +1,153 @@
+---
+- name: Resolve networking and clone the golden template
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Fail clearly if new_vm_name wasn't provided
+      ansible.builtin.fail:
+        msg: "new_vm_name is required - pass it with -e new_vm_name=<hostname>"
+      when: new_vm_name is not defined
+
+    - name: Capture the run start time
+      include_role:
+        name: capture_start_time
+
+    - name: Resolve the next free IP via phpIPAM (with liveness self-heal)
+      include_role:
+        name: phpipam_next_ip
+
+    - name: Clone and start the VM from the golden template
+      include_role:
+        name: pve_clone_vm
+
+    - name: Register the freshly-started VM as a temporary inventory host
+      ansible.builtin.add_host:
+        name: new_vm_staging
+        groups: provision_target
+        ansible_host: "{{ provision_template_ip }}"
+        ansible_user: deploy
+        resolved_new_ip: "{{ resolved_new_ip }}"
+        new_vmid: "{{ new_vmid }}"
+
+- name: Reconfigure the new VM (IP, hostname, SSH host key) and provision its software
+  hosts: new_vm_staging
+  gather_facts: false
+  tasks:
+    - name: Wait for the freshly cloned VM to answer SSH at its default staging IP
+      ansible.builtin.wait_for_connection:
+        delay: 10
+        timeout: 300
+
+    - name: Change IP/hostname and regenerate the SSH host key, then reconnect at the real IP
+      include_role:
+        name: provision_vm_reconnect
+
+    - name: Gather facts now that the host is stable at its final identity
+      ansible.builtin.setup:
+
+    - name: Apply OS updates
+      include_role:
+        name: apply_updates
+
+    - name: Ensure podman and git are installed (dnf/yum)
+      ansible.builtin.dnf:
+        name:
+          - podman
+          - git
+        state: present
+      become: true
+      when: ansible_facts['pkg_mgr'] in ['dnf', 'yum']
+
+    - name: Ensure podman and git are installed (apt)
+      ansible.builtin.apt:
+        name:
+          - podman
+          - git
+        state: present
+      become: true
+      when: ansible_facts['pkg_mgr'] == 'apt'
+
+    - name: Register this host with Katello
+      include_role:
+        name: katello_register_host
+
+    - name: Register the assigned IP as officially used in phpIPAM
+      ansible.builtin.uri:
+        url: "{{ phpipam_base_url }}/addresses/"
+        method: POST
+        headers:
+          token: "{{ phpipam_api_token }}"
+        body_format: json
+        body:
+          subnetId: "{{ hostvars['localhost'].phpipam_subnet_id }}"
+          ip: "{{ resolved_new_ip }}"
+          hostname: "{{ new_vm_name }}"
+          description: "Provisioned by provision-vm.yml"
+        status_code: [200, 201]
+      delegate_to: localhost
+      no_log: true
+
+- name: Record the new VM's static ansible_host in this repo
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Write host_vars/<new_vm_name>.yml with the resolved static IP
+      ansible.builtin.copy:
+        dest: "/repos/homelab-iac/host_vars/{{ new_vm_name }}.yml"
+        content: |
+          ansible_host: {{ resolved_new_ip }} # static IP assigned via phpIPAM by provision-vm.yml
+          ansible_user: deploy
+
+    - name: Configure a git identity for this commit (harmless if already set)
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - git config user.email "provision-vm@semaphore"
+        - git config user.name "Semaphore automation"
+      args:
+        chdir: /repos/homelab-iac
+      changed_when: false
+
+    - name: Commit the new host_vars file
+      ansible.builtin.command: >-
+        git commit -am "Add host_vars for {{ new_vm_name }} ({{ resolved_new_ip }}), provisioned via provision-vm.yml"
+      args:
+        chdir: /repos/homelab-iac
+
+    - name: Push the commit to origin/main
+      ansible.builtin.command: "git push https://{{ github_push_token }}@github.com/dlecrivain/homelab-iac main"
+      args:
+        chdir: /repos/homelab-iac
+      no_log: true
+
+- name: Rebalance the cluster now that the new VM has landed on pve1
+  hosts: "{{ pve_clone_node }}"
+  gather_facts: false
+  run_once: true
+  vars:
+    pve_all_nodes:
+      - pve1
+      - pve2
+      - pve3
+  tasks:
+    - name: Rebalance the whole cluster
+      include_role:
+        name: pve_rebalance
+
+- name: Send the provisioning report
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Build and send the HTML report email
+      include_role:
+        name: send_report
+      vars:
+        report_subject: "[provision-vm] {{ new_vm_name }} provisioned"
+        report_body: |
+          <h2>VM provisioning report</h2>
+          <table>
+            <tr><th>Hostname</th><td>{{ new_vm_name }}</td></tr>
+            <tr><th>IP address</th><td>{{ resolved_new_ip }}</td></tr>
+            <tr><th>Proxmox VMID</th><td>{{ new_vmid }}</td></tr>
+            <tr><th>Node</th><td>{{ pve_clone_node }}</td></tr>
+          </table>
+          <p>Registered with Katello, updated, Podman + git installed, host_vars committed and pushed to this repo.</p>

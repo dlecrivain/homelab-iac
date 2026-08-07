@@ -1,0 +1,20 @@
+---
+- name: Generate a Katello global registration command
+  ansible.builtin.command: >
+    hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
+    host-registration generate-command
+    --activation-keys {{ katello_activation_key }}
+    --organization-id {{ katello_organization_id }}
+    --location-id {{ katello_location_id }}
+    --operatingsystem-id {{ katello_operatingsystem_id }}
+    --insecure true
+  register: katello_registration_command_result
+  changed_when: false
+  delegate_to: "{{ lpkat_host }}"
+  become: true
+  no_log: true
+
+- name: Run the registration command on this host
+  ansible.builtin.shell: "{{ katello_registration_command_result.stdout }}"
+  become: true
+  no_log: true
