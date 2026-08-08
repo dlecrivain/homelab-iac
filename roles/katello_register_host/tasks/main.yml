@@ -10,20 +10,52 @@
     --insecure true
   register: katello_registration_command_result
   changed_when: false
+  failed_when: false
   delegate_to: "{{ lpkat_host }}"
   become: true
   no_log: true
 
+- name: Fail with a password-redacted error if generating the registration command failed
+  ansible.builtin.fail:
+    msg: >-
+      hammer host-registration generate-command failed (rc={{ katello_registration_command_result.rc }}):
+      {{
+        (katello_registration_command_result.stderr | default('')) | replace(katello_hammer_password, '***REDACTED***')
+        if (katello_hammer_password | default('') | length > 0)
+        else (katello_registration_command_result.stderr | default(''))
+      }}
+  when: katello_registration_command_result.rc != 0
+
 - name: Run the registration command on this host
   ansible.builtin.shell: "{{ katello_registration_command_result.stdout }}"
+  register: katello_registration_run_result
+  failed_when: false
   become: true
   no_log: true
+
+- name: Fail if running the registration command failed (stderr withheld - it may embed the registration bearer token)
+  ansible.builtin.fail:
+    msg: "Registration command failed on this host (rc={{ katello_registration_run_result.rc }}) - check this host and lpkat101 manually; error details withheld since they may contain the registration token"
+  when: katello_registration_run_result.rc != 0
 
 - name: Confirm Katello registered this host under its exact hostname (so decommission-vm.yml can find it by exact name later)
   ansible.builtin.command: >
     hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
     host info --name {{ new_vm_name }}
+  register: katello_register_confirm_result
+  failed_when: false
   delegate_to: "{{ lpkat_host }}"
   become: true
   changed_when: false
   no_log: true
+
+- name: Fail with a password-redacted error if the exact-name confirmation failed
+  ansible.builtin.fail:
+    msg: >-
+      Katello registration confirmation failed for {{ new_vm_name }} (rc={{ katello_register_confirm_result.rc }}):
+      {{
+        (katello_register_confirm_result.stderr | default('')) | replace(katello_hammer_password, '***REDACTED***')
+        if (katello_hammer_password | default('') | length > 0)
+        else (katello_register_confirm_result.stderr | default(''))
+      }}
+  when: katello_register_confirm_result.rc != 0

@@ -1,51 +1,97 @@
 ---
-- name: Get the latest content view version
-  ansible.builtin.include_tasks: get_version_id.yml
+- name: "Promote and publish {{ content_view_name }}, recording success or failure for the report instead of aborting the whole run"
+  block:
+    - name: Get the latest content view version
+      ansible.builtin.include_tasks: get_version_id.yml
 
-- name: Remember the version about to be promoted to Production
-  ansible.builtin.set_fact:
-    katello_promoted_version: "{{ cv_version_number }}"
+    - name: Remember the version about to be promoted to Production
+      ansible.builtin.set_fact:
+        katello_promoted_version: "{{ cv_version_number }}"
 
-- name: Promote the latest version to Production
-  ansible.builtin.command: >
-    hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
-    content-view version promote
-    --id {{ cv_version_id }}
-    --organization "{{ katello_organization }}"
-    --to-lifecycle-environment Production
-  delegate_to: "{{ lpkat_host }}"
-  become: true
-  no_log: true
+    - name: Promote the latest version to Production
+      ansible.builtin.command: >
+        hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
+        content-view version promote
+        --id {{ cv_version_id }}
+        --organization "{{ katello_organization }}"
+        --to-lifecycle-environment Production
+      register: katello_promote_prod_result
+      failed_when: false
+      delegate_to: "{{ lpkat_host }}"
+      become: true
+      no_log: true
 
-- name: Publish a new version
-  ansible.builtin.command: >
-    hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
-    content-view publish
-    --name {{ content_view_name }}
-    --organization "{{ katello_organization }}"
-    --description "Automatic publish via Semaphore"
-  delegate_to: "{{ lpkat_host }}"
-  become: true
-  no_log: true
+    - name: Fail with a password-redacted error if promoting to Production failed
+      ansible.builtin.fail:
+        msg: >-
+          hammer content-view version promote (Production) failed for {{ content_view_name }} (rc={{ katello_promote_prod_result.rc }}):
+          {{
+            (katello_promote_prod_result.stderr | default('')) | replace(katello_hammer_password, '***REDACTED***')
+            if (katello_hammer_password | default('') | length > 0)
+            else (katello_promote_prod_result.stderr | default(''))
+          }}
+      when: katello_promote_prod_result.rc != 0
 
-- name: Get the newly published content view version
-  ansible.builtin.include_tasks: get_version_id.yml
+    - name: Publish a new version
+      ansible.builtin.command: >
+        hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
+        content-view publish
+        --name {{ content_view_name }}
+        --organization "{{ katello_organization }}"
+        --description "Automatic publish via Semaphore"
+      register: katello_publish_result
+      failed_when: false
+      delegate_to: "{{ lpkat_host }}"
+      become: true
+      no_log: true
 
-- name: Remember the version that was just published
-  ansible.builtin.set_fact:
-    katello_published_version: "{{ cv_version_number }}"
+    - name: Fail with a password-redacted error if publishing failed
+      ansible.builtin.fail:
+        msg: >-
+          hammer content-view publish failed for {{ content_view_name }} (rc={{ katello_publish_result.rc }}):
+          {{
+            (katello_publish_result.stderr | default('')) | replace(katello_hammer_password, '***REDACTED***')
+            if (katello_hammer_password | default('') | length > 0)
+            else (katello_publish_result.stderr | default(''))
+          }}
+      when: katello_publish_result.rc != 0
 
-- name: Promote the new version to Test only
-  ansible.builtin.command: >
-    hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
-    content-view version promote
-    --id {{ cv_version_id }}
-    --organization "{{ katello_organization }}"
-    --to-lifecycle-environment Test
-  delegate_to: "{{ lpkat_host }}"
-  become: true
-  no_log: true
+    - name: Get the newly published content view version
+      ansible.builtin.include_tasks: get_version_id.yml
 
-- name: Record this content view's promote/publish result
-  ansible.builtin.set_fact:
-    katello_publish_results: "{{ (katello_publish_results | default([])) + [{'name': content_view_name, 'promoted_version': katello_promoted_version, 'published_version': katello_published_version}] }}"
+    - name: Remember the version that was just published
+      ansible.builtin.set_fact:
+        katello_published_version: "{{ cv_version_number }}"
+
+    - name: Promote the new version to Test only
+      ansible.builtin.command: >
+        hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
+        content-view version promote
+        --id {{ cv_version_id }}
+        --organization "{{ katello_organization }}"
+        --to-lifecycle-environment Test
+      register: katello_promote_test_result
+      failed_when: false
+      delegate_to: "{{ lpkat_host }}"
+      become: true
+      no_log: true
+
+    - name: Fail with a password-redacted error if promoting to Test failed
+      ansible.builtin.fail:
+        msg: >-
+          hammer content-view version promote (Test) failed for {{ content_view_name }} (rc={{ katello_promote_test_result.rc }}):
+          {{
+            (katello_promote_test_result.stderr | default('')) | replace(katello_hammer_password, '***REDACTED***')
+            if (katello_hammer_password | default('') | length > 0)
+            else (katello_promote_test_result.stderr | default(''))
+          }}
+      when: katello_promote_test_result.rc != 0
+
+    - name: Record this content view's promote/publish result
+      ansible.builtin.set_fact:
+        katello_publish_results: "{{ (katello_publish_results | default([])) + [{'name': content_view_name, 'status': 'OK', 'promoted_version': katello_promoted_version, 'published_version': katello_published_version}] }}"
+
+  rescue:
+    - name: Record this content view's failure for the report (does not abort the run - the remaining content views in the loop still get processed)
+      ansible.builtin.set_fact:
+        katello_publish_results: "{{ (katello_publish_results | default([])) + [{'name': content_view_name, 'status': 'PROBLEM', 'promoted_version': (ansible_failed_result.msg | default('Unknown error')), 'published_version': ''}] }}"

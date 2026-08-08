@@ -3,15 +3,41 @@
   ansible.builtin.command: >
     hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
     host info --name {{ katello_deregister_name }}
+  register: katello_deregister_confirm_result
+  failed_when: false
   delegate_to: "{{ lpkat_host }}"
   become: true
   changed_when: false
   no_log: true
 
+- name: Fail with a password-redacted error if the host lookup failed (not found, ambiguous, or Katello unreachable)
+  ansible.builtin.fail:
+    msg: >-
+      Katello lookup failed for {{ katello_deregister_name }} (rc={{ katello_deregister_confirm_result.rc }}):
+      {{
+        (katello_deregister_confirm_result.stderr | default('')) | replace(katello_hammer_password, '***REDACTED***')
+        if (katello_hammer_password | default('') | length > 0)
+        else (katello_deregister_confirm_result.stderr | default(''))
+      }}
+  when: katello_deregister_confirm_result.rc != 0
+
 - name: Delete the host from Katello
   ansible.builtin.command: >
     hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
     host delete --name {{ katello_deregister_name }}
+  register: katello_deregister_delete_result
+  failed_when: false
   delegate_to: "{{ lpkat_host }}"
   become: true
   no_log: true
+
+- name: Fail with a password-redacted error if the delete failed
+  ansible.builtin.fail:
+    msg: >-
+      Katello delete failed for {{ katello_deregister_name }} (rc={{ katello_deregister_delete_result.rc }}):
+      {{
+        (katello_deregister_delete_result.stderr | default('')) | replace(katello_hammer_password, '***REDACTED***')
+        if (katello_hammer_password | default('') | length > 0)
+        else (katello_deregister_delete_result.stderr | default(''))
+      }}
+  when: katello_deregister_delete_result.rc != 0

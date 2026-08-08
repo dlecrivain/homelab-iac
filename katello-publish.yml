@@ -20,22 +20,28 @@
   hosts: localhost
   gather_facts: false
   tasks:
+    - name: Determine if any content view had a problem
+      ansible.builtin.set_fact:
+        katello_publish_any_problem: "{{ hostvars[lpkat_host | default('lpkat101')].katello_publish_results | selectattr('status', 'equalto', 'PROBLEM') | list | length > 0 }}"
+
     - name: Build and send the HTML report email
       include_role:
         name: send_report
       vars:
-        report_subject: "[katello-publish] Content views promoted and published"
+        report_subject: "[katello-publish] {{ 'PROBLEM detected' if katello_publish_any_problem else 'Content views promoted and published' }}"
         report_body: |
           <h2>Katello publish report</h2>
           <table>
             <tr>
               <th>Content View</th>
+              <th>Status</th>
               <th>Promoted to Production</th>
               <th>Published (now in Test)</th>
             </tr>
             {% for r in hostvars[lpkat_host | default('lpkat101')].katello_publish_results %}
-            <tr>
+            <tr class="{{ 'status-problem' if r.status == 'PROBLEM' else 'status-ok' }}">
               <td>{{ r.name }}</td>
+              <td>{{ r.status }}</td>
               <td>{{ r.promoted_version }}</td>
               <td>{{ r.published_version }}</td>
             </tr>

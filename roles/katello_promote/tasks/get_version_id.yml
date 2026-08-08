@@ -9,9 +9,21 @@
     --fields id,version
   register: cv_version_list
   changed_when: false
+  failed_when: false
   delegate_to: "{{ lpkat_host }}"
   become: true
   no_log: true
+
+- name: Fail with a password-redacted error if listing the content view version failed
+  ansible.builtin.fail:
+    msg: >-
+      hammer content-view version list failed for {{ content_view_name }} (rc={{ cv_version_list.rc }}):
+      {{
+        (cv_version_list.stderr | default('')) | replace(katello_hammer_password, '***REDACTED***')
+        if (katello_hammer_password | default('') | length > 0)
+        else (cv_version_list.stderr | default(''))
+      }}
+  when: cv_version_list.rc != 0
 
 - name: Extract the version ID and number from command output
   vars:
