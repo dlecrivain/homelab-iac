@@ -3,6 +3,16 @@
   hosts: "{{ peer_host }}"
   gather_facts: true
   tasks:
+    - name: Capture the run start time
+      include_role:
+        name: capture_start_time
+
+    - name: Capture this stage's own start time
+      include_role:
+        name: capture_start_time
+      vars:
+        capture_start_time_fact_name: semaphore_peer_start_epoch
+
     - name: Patch this peer (skipped if an earlier stage in an orchestrated run had a problem)
       when: hostvars['localhost'].orchestration_should_run | default(true)
       block:
@@ -250,40 +260,62 @@
             chdir: /repos/homelab-iac
           no_log: true
 
-- name: Check whether a newer Postgres major version is available (informational only - a major-version bump needs a real data migration, never applied automatically)
-  hosts: "{{ peer_host }}"
+- name: Determine this stage's status and send its report (only when run standalone - the combined full-updates.yml email covers it otherwise)
+  hosts: localhost
   gather_facts: false
   tasks:
-    - name: Get the currently running Postgres image reference
-      ansible.builtin.command: podman inspect semaphore_db --format '{{ '{{' }}.ImageName{{ '}}' }}'
-      register: postgres_current_image_ref
-      changed_when: false
-      become: true
-
-    - name: Query available Postgres tags on Docker Hub
-      ansible.builtin.uri:
-        url: "https://hub.docker.com/v2/repositories/library/postgres/tags?page_size=100"
-        return_content: true
-      register: postgres_tags_response
-      delegate_to: localhost
-      ignore_errors: true
-
-    - name: Determine the current and latest published Postgres major version
+    - name: Record whether this stage was allowed to run
       ansible.builtin.set_fact:
-        postgres_current_major: "{{ postgres_current_image_ref.stdout.split(':')[-1] | int }}"
-        postgres_latest_major: "{{ postgres_tags_response.json.results | map(attribute='name') | select('match', '^[0-9]+$') | map('int') | list | max }}"
-      when: postgres_tags_response is succeeded
+        semaphore_peer_was_allowed_to_run: "{{ hostvars['localhost'].orchestration_should_run | default(true) }}"
 
-    - name: Notify by email that a newer Postgres major version is available
+    - name: Record whether the reference host was healthy enough to align images from
+      ansible.builtin.set_fact:
+        semaphore_peer_alignment_skipped: "{{ image_reference_host is defined and hostvars['localhost'].reference_image_digests is not defined }}"
+
+    - name: Determine this stage's status label
+      ansible.builtin.set_fact:
+        semaphore_peer_stage_status: >-
+          {{
+            'SKIPPED' if not semaphore_peer_was_allowed_to_run
+            else ('PROBLEM' if (hostvars[peer_host].host_overall_status | default('OK')) == 'PROBLEM'
+            else ('SKIPPED' if semaphore_peer_alignment_skipped
+            else 'OK'))
+          }}
+
+    - name: Compute this stage's own duration
+      ansible.builtin.set_fact:
+        semaphore_peer_duration_seconds: "{{ (now(fmt='%s') | int) - (hostvars['localhost'].semaphore_peer_start_epoch | int) }}"
+      when: hostvars['localhost'].semaphore_peer_start_epoch is defined
+
+    - name: Format this stage's duration for display
+      ansible.builtin.set_fact:
+        semaphore_peer_duration_display: "{{ (semaphore_peer_duration_seconds | int // 3600) }}h {{ ((semaphore_peer_duration_seconds | int % 3600) // 60) }}m {{ (semaphore_peer_duration_seconds | int % 60) }}s"
+      when: semaphore_peer_duration_seconds is defined
+
+    - name: Capture this stage's report body
+      ansible.builtin.set_fact:
+        semaphore_peer_report_body: |
+          <h2>Semaphore peer alignment report ({{ peer_host }})</h2>
+          {% if not semaphore_peer_was_allowed_to_run %}
+          <p class="alert-warning">
+            <strong>Skipped.</strong> An earlier stage in this orchestrated run reported a problem, so {{ peer_host }} was not patched.
+          </p>
+          {% elif semaphore_peer_stage_status == 'PROBLEM' %}
+          <p class="alert-danger">
+            <strong>Problem on {{ peer_host }}:</strong> {{ hostvars[peer_host].host_update_failure_reason | default('see host_overall_status for details') }}
+          </p>
+          {% elif semaphore_peer_alignment_skipped %}
+          <p class="alert-warning">
+            <strong>Image alignment skipped.</strong> {{ peer_host }} was patched (OS + its own container updates), but its images could not be aligned to {{ image_reference_host }} because {{ image_reference_host }} wasn't healthy at the time this ran.
+          </p>
+          {% else %}
+          <p>{{ peer_host }} patched and healthy{% if image_reference_host is defined %}, images aligned to {{ image_reference_host }}{% endif %}.</p>
+          {% endif %}
+
+    - name: Build and send the HTML report email (skipped when part of an orchestrated run; the combined email covers it instead)
       include_role:
         name: send_report
       vars:
-        report_subject: "[update-semaphore-peer] Newer Postgres major version available: {{ postgres_latest_major }}"
-        report_body: |
-          <h2>Postgres version check</h2>
-          <p>{{ peer_host }} is running Postgres major version <strong>{{ postgres_current_major }}</strong>. The latest published major version on Docker Hub is <strong>{{ postgres_latest_major }}</strong>.</p>
-          <p>Semaphore has been reported working with Postgres versions up to 17 (not confirmed beyond that) — check Semaphore's own release notes/docs before upgrading.</p>
-          <p><strong>This is informational only — nothing is applied automatically, and this is not a simple image swap like Semaphore's own image:</strong> Postgres refuses to start against a data directory from a different major version, so a bump needs a real migration (<code>pg_upgrade</code> or dump/restore), planned and tested manually — not just editing <code>Image=</code> in semaphore-db.container.</p>
-      when:
-        - postgres_tags_response is succeeded
-        - (postgres_current_major | int) != (postgres_latest_major | int)
+        report_subject: "[update-semaphore-peer] {{ peer_host }} {{ semaphore_peer_stage_status }}"
+        report_body: "{{ semaphore_peer_report_body }}"
+      when: not (hostvars['localhost'].is_orchestrated_run | default(false))

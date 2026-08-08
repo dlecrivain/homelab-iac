@@ -10,14 +10,18 @@
 - import_playbook: container-updates.yml
 - import_playbook: vm-updates.yml
 - import_playbook: pve-updates.yml
+- import_playbook: update-semaphore-peer.yml
+  vars:
+    peer_host: semaphore102
+    image_reference_host: semaphore101
 
 - name: Send the combined full-updates report
   hosts: localhost
   gather_facts: false
   tasks:
-    - name: Determine overall status across all 3 stages
+    - name: Determine overall status across all 4 stages
       ansible.builtin.set_fact:
-        full_run_any_problem: "{{ 'PROBLEM' in [hostvars['localhost'].container_updates_stage_status, hostvars['localhost'].vm_updates_stage_status, hostvars['localhost'].pve_updates_stage_status] }}"
+        full_run_any_problem: "{{ 'PROBLEM' in [hostvars['localhost'].container_updates_stage_status, hostvars['localhost'].vm_updates_stage_status, hostvars['localhost'].pve_updates_stage_status, hostvars['localhost'].semaphore_peer_stage_status] }}"
 
     - name: Build and send the combined HTML report email
       include_role:
@@ -35,7 +39,8 @@
             {% for stage in [
               {'name': 'container-updates', 'status': hostvars['localhost'].container_updates_stage_status, 'duration': hostvars['localhost'].container_updates_duration_display},
               {'name': 'vm-updates', 'status': hostvars['localhost'].vm_updates_stage_status, 'duration': hostvars['localhost'].vm_updates_duration_display},
-              {'name': 'pve-updates', 'status': hostvars['localhost'].pve_updates_stage_status, 'duration': hostvars['localhost'].pve_updates_duration_display}
+              {'name': 'pve-updates', 'status': hostvars['localhost'].pve_updates_stage_status, 'duration': hostvars['localhost'].pve_updates_duration_display},
+              {'name': 'semaphore-peer (semaphore102)', 'status': hostvars['localhost'].semaphore_peer_stage_status, 'duration': hostvars['localhost'].semaphore_peer_duration_display}
             ] %}
             {% if stage.status == 'PROBLEM' %}
             {% set row_class = 'status-problem' %}
@@ -54,8 +59,4 @@
           {{ hostvars['localhost'].container_updates_report_body }}
           {{ hostvars['localhost'].vm_updates_report_body }}
           {{ hostvars['localhost'].pve_updates_report_body }}
-
-- import_playbook: update-semaphore-peer.yml
-  vars:
-    peer_host: semaphore102
-    image_reference_host: semaphore101
+          {{ hostvars['localhost'].semaphore_peer_report_body }}
