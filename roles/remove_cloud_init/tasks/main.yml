@@ -92,11 +92,12 @@
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
 
-- name: Determine which slot (if any) holds the cloud-init drive
+- name: Determine which slot (if any) holds the cloud-init drive (restricted to actual drive-slot keys - "cloudinit" can also appear as a substring of an unrelated field, e.g. the "parent" snapshot-tracking key when a snapshot happens to be named ansible_cloudinit_removal)
   ansible.builtin.set_fact:
     rci_cloudinit_slot: >-
       {{
         (rci_vm_config.stdout | from_json | dict2items)
+        | selectattr('key', 'match', '^(ide|sata|scsi|virtio)[0-9]+$')
         | selectattr('value', 'string')
         | selectattr('value', 'search', 'cloudinit')
         | map(attribute='key')
