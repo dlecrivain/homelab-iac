@@ -45,12 +45,13 @@
           ansible.builtin.set_fact:
             decom_node: "{{ vm_backup_node }}"
 
-    - name: Take a final safety backup before destroying this VM
+    - name: Take a final safety backup before destroying this VM, then purge every older pCloud backup for it (only once this last one is confirmed uploaded - the VM won't exist to need them after this)
       include_role:
         name: vzdump_backup
       vars:
         vzdump_vmid: "{{ decom_vmid }}"
         vzdump_vm_name: "{{ new_vm_name }}"
+        vzdump_purge_all_others_after_upload: true
 
 - name: Unregister from Katello and phpIPAM
   hosts: localhost

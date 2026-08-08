@@ -10,7 +10,23 @@
   changed_when: false
   no_log: true
 
-- name: Fail with a password-redacted error if the host lookup failed (not found, ambiguous, or Katello unreachable)
+- name: Determine whether the lookup failed simply because the host isn't registered (not an error - nothing to deregister, same philosophy as phpipam_remove_address)
+  ansible.builtin.set_fact:
+    katello_deregister_not_found: >-
+      {{
+        katello_deregister_confirm_result.rc != 0
+        and (
+          'not found' in (katello_deregister_confirm_result.stderr | default('') | lower)
+          or 'non trouvé' in (katello_deregister_confirm_result.stderr | default('') | lower)
+        )
+      }}
+
+- name: Skip deregistration - this host isn't registered in Katello (nothing to remove, not an error)
+  ansible.builtin.debug:
+    msg: "{{ katello_deregister_name }} not found in Katello - already absent, nothing to deregister"
+  when: katello_deregister_not_found
+
+- name: Fail with a password-redacted error if the host lookup failed for an unexpected reason (ambiguous match, Katello unreachable, auth failure - anything other than a clean not-found)
   ansible.builtin.fail:
     msg: >-
       Katello lookup failed for {{ katello_deregister_name }} (rc={{ katello_deregister_confirm_result.rc }}):
@@ -19,7 +35,9 @@
         if (katello_hammer_password | default('') | length > 0)
         else (katello_deregister_confirm_result.stderr | default(''))
       }}
-  when: katello_deregister_confirm_result.rc != 0
+  when:
+    - katello_deregister_confirm_result.rc != 0
+    - not katello_deregister_not_found
 
 - name: Delete the host from Katello
   ansible.builtin.command: >
@@ -30,6 +48,7 @@
   delegate_to: "{{ lpkat_host }}"
   become: true
   no_log: true
+  when: not katello_deregister_not_found
 
 - name: Fail with a password-redacted error if the delete failed
   ansible.builtin.fail:
@@ -40,4 +59,7 @@
         if (katello_hammer_password | default('') | length > 0)
         else (katello_deregister_delete_result.stderr | default(''))
       }}
-  when: katello_deregister_delete_result.rc != 0
+  when:
+    - not katello_deregister_not_found
+    - katello_deregister_delete_result.rc is defined
+    - katello_deregister_delete_result.rc != 0

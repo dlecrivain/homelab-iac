@@ -86,20 +86,34 @@
   remote_user: "{{ proxmox_ssh_user }}"
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
-
-- name: Clean up the pCloud retention script
-  ansible.builtin.file:
-    path: /tmp/prune_pcloud_backups.py
-    state: absent
-  delegate_to: "{{ vm_backup_node }}"
-  remote_user: "{{ proxmox_ssh_user }}"
-  vars:
-    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+  when: not (vzdump_purge_all_others_after_upload | default(false))
 
 - name: Upload the backup archive to pCloud
   ansible.builtin.command: >
     rclone copy {{ vzdump_path_result.stdout | trim }} {{ vm_backup_pcloud_base_path }}/{{ vzdump_vm_name }}/
   changed_when: true
+  delegate_to: "{{ vm_backup_node }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+
+- name: "Purge every other pCloud backup for this VM now that the new one is confirmed uploaded (only reached if the upload above succeeded)"
+  ansible.builtin.command: >
+    python3 /tmp/prune_pcloud_backups.py
+    {{ vm_backup_pcloud_base_path }}/{{ vzdump_vm_name }}
+    1
+  register: pcloud_purge_all_result
+  changed_when: "'removed:0' not in pcloud_purge_all_result.stdout"
+  delegate_to: "{{ vm_backup_node }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+  when: vzdump_purge_all_others_after_upload | default(false)
+
+- name: Clean up the pCloud retention script
+  ansible.builtin.file:
+    path: /tmp/prune_pcloud_backups.py
+    state: absent
   delegate_to: "{{ vm_backup_node }}"
   remote_user: "{{ proxmox_ssh_user }}"
   vars:
