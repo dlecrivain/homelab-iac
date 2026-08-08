@@ -1,6 +1,6 @@
 ---
 - name: Strip cloud-init from legacy fleet VMs, one at a time (SSH host key regenerates on every boot otherwise)
-  hosts: "{{ target_hosts | default('adguard101,patchmon101,phpipam101,lpkat101,immich101') }}"
+  hosts: "{{ target_hosts | default('adguard101,patchmon101,phpipam101,lpkat101,immich101,semaphore102,smb101') }}"
   gather_facts: false
   serial: 1
   tasks:
