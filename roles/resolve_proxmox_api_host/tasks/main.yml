@@ -1,0 +1,30 @@
+---
+- name: Resolve a reachable Proxmox node to use for delegate_to (once), preferring pve1, falling back to pve2 then pve3
+  when: hostvars['localhost'].resolved_proxmox_api_host is not defined
+  delegate_to: localhost
+  delegate_facts: true
+  run_once: true
+  block:
+    - name: Probe each candidate node's SSH port in order
+      ansible.builtin.wait_for:
+        host: "{{ hostvars[item].ansible_host }}"
+        port: 22
+        timeout: 5
+        state: started
+      register: proxmox_api_probe
+      loop:
+        - pve1
+        - pve2
+        - pve3
+      loop_control:
+        label: "{{ item }}"
+      ignore_errors: true
+
+    - name: Fail clearly if none of pve1/pve2/pve3 are reachable
+      ansible.builtin.fail:
+        msg: "None of pve1/pve2/pve3 answered on SSH port 22 - cannot resolve a Proxmox node for delegate_to"
+      when: proxmox_api_probe.results | rejectattr('failed') | list | length == 0
+
+    - name: Save the first reachable node's IP as the resolved API host
+      ansible.builtin.set_fact:
+        resolved_proxmox_api_host: "{{ hostvars[(proxmox_api_probe.results | rejectattr('failed') | map(attribute='item') | first)].ansible_host }}"

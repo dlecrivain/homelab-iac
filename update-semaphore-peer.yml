@@ -3,6 +3,11 @@
   hosts: localhost
   gather_facts: false
   tasks:
+    - name: Fail clearly if peer_host wasn't provided
+      ansible.builtin.fail:
+        msg: "peer_host is required - pass it with -e peer_host=<hostname>"
+      when: peer_host is not defined
+
     - name: Remember whether this run was already orchestrated by something bigger (e.g. full-updates.yml), before forcing the flag below
       ansible.builtin.set_fact:
         semaphore_peer_run_standalone: "{{ not (hostvars['localhost'].is_orchestrated_run | default(false)) }}"

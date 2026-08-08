@@ -1,4 +1,4 @@
-proxmox_api_host: 192.168.1.101
+proxmox_api_host: "{{ hostvars['localhost'].resolved_proxmox_api_host | default('192.168.1.101') }}"
 proxmox_ssh_user: root
 lpkat_host: lpkat101
 katello_organization: "Production"

@@ -9,6 +9,10 @@
   vars:
     snapshot_label: ansible_patching
   tasks:
+    - name: Resolve a reachable Proxmox node for delegate_to (falls back to pve2/pve3 if pve1 is down)
+      include_role:
+        name: resolve_proxmox_api_host
+
     - name: "Remove the {{ snapshot_label }} snapshot if it exists"
       include_role:
         name: cleanup_snapshot

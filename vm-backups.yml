@@ -4,6 +4,10 @@
   gather_facts: false
   serial: 3
   tasks:
+    - name: Resolve a reachable Proxmox node for delegate_to (falls back to pve2/pve3 if pve1 is down)
+      include_role:
+        name: resolve_proxmox_api_host
+
     - name: Capture the run start time
       include_role:
         name: capture_start_time
