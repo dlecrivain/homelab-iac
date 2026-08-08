@@ -106,11 +106,11 @@
         | default('')
       }}
 
-- name: Remove the cloud-init drive from this VM's config (if present)
+- name: "Remove the cloud-init drive from this VM's config (if present) - delegated to proxmox_node (the VM's actual host), not proxmox_api_host: unlike pvesh, raw qm commands aren't cluster-aware and only work run from the node that's actually hosting the VM"
   ansible.builtin.command: >
     qm set {{ proxmox_vmid }} --delete {{ rci_cloudinit_slot }}
   when: rci_cloudinit_slot | length > 0
-  delegate_to: "{{ proxmox_api_host }}"
+  delegate_to: "{{ proxmox_node }}"
   remote_user: "{{ proxmox_ssh_user }}"
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
@@ -119,7 +119,7 @@
   ansible.builtin.command: >
     qm shutdown {{ proxmox_vmid }} --timeout 60
   when: rci_cloudinit_slot | length > 0
-  delegate_to: "{{ proxmox_api_host }}"
+  delegate_to: "{{ proxmox_node }}"
   remote_user: "{{ proxmox_ssh_user }}"
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
@@ -134,7 +134,7 @@
   until: (rci_stop_check.stdout | from_json).status == 'stopped'
   changed_when: false
   when: rci_cloudinit_slot | length > 0
-  delegate_to: "{{ proxmox_api_host }}"
+  delegate_to: "{{ proxmox_node }}"
   remote_user: "{{ proxmox_ssh_user }}"
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
@@ -142,7 +142,7 @@
 - name: Start the VM back up
   ansible.builtin.command: qm start {{ proxmox_vmid }}
   when: rci_cloudinit_slot | length > 0
-  delegate_to: "{{ proxmox_api_host }}"
+  delegate_to: "{{ proxmox_node }}"
   remote_user: "{{ proxmox_ssh_user }}"
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
@@ -157,7 +157,7 @@
   until: (rci_start_check.stdout | from_json).status == 'running'
   changed_when: false
   when: rci_cloudinit_slot | length > 0
-  delegate_to: "{{ proxmox_api_host }}"
+  delegate_to: "{{ proxmox_node }}"
   remote_user: "{{ proxmox_ssh_user }}"
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
