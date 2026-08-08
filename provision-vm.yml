@@ -71,6 +71,12 @@
       include_role:
         name: katello_register_host
 
+    - name: Disable the default vendor repos now that Katello manages package sources (avoids selinux-policy-targeted version conflicts between baseos/appstream and the Katello content view)
+      ansible.builtin.command: dnf config-manager --set-disabled appstream baseos extras epel
+      become: true
+      changed_when: false
+      when: ansible_facts['pkg_mgr'] in ['dnf', 'yum']
+
     - name: Register the assigned IP as officially used in phpIPAM
       ansible.builtin.uri:
         url: "{{ phpipam_base_url }}/addresses/"
