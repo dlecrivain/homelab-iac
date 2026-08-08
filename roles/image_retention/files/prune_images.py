@@ -19,7 +19,8 @@ for repo, imgs in by_repo.items():
         continue
     imgs.sort(key=lambda i: i.get('Created', 0), reverse=True)
     for old in imgs[2:]:
-        subprocess.run(['podman', 'rmi', old['Id']], capture_output=True)
-        removed.append(old['Id'])
+        result = subprocess.run(['podman', 'rmi', old['Id']], capture_output=True)
+        if result.returncode == 0:
+            removed.append(old['Id'])
 
 print(f"removed:{len(removed)}")

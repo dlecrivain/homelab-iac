@@ -13,7 +13,8 @@ files.sort(key=lambda f: f['ModTime'], reverse=True)
 
 removed = []
 for f in files[keep:]:
-    subprocess.run(['rclone', 'deletefile', f"{remote_path}/{f['Name']}"], capture_output=True)
-    removed.append(f['Name'])
+    result = subprocess.run(['rclone', 'deletefile', f"{remote_path}/{f['Name']}"], capture_output=True)
+    if result.returncode == 0:
+        removed.append(f['Name'])
 
 print(f"removed:{len(removed)}")
