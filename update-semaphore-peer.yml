@@ -227,17 +227,19 @@
   vars:
     semaphore_bumped_tag: "{{ hostvars[peer_host].semaphore_image_tag | default('') }}"
   tasks:
-    - name: Read the version currently recorded in this repo's provisioning template
-      ansible.builtin.command: >-
-        grep -oP '(?<=semaphoreui/semaphore:).*'
-        {{ playbook_dir }}/roles/semaphore_provision/files/semaphore.container
-      register: semaphore_repo_recorded_tag
-      changed_when: false
+    - name: Read this repo's provisioning template
+      ansible.builtin.slurp:
+        src: "{{ playbook_dir }}/roles/semaphore_provision/files/semaphore.container"
+      register: semaphore_repo_template_content
+
+    - name: Extract the version currently recorded in this repo's provisioning template (regex evaluated on the controller, not the target's shell - avoids BusyBox grep's lack of -P support)
+      ansible.builtin.set_fact:
+        semaphore_repo_recorded_tag: "{{ (semaphore_repo_template_content.content | b64decode) | regex_search('(?<=semaphoreui/semaphore:).*') | default('', true) | trim }}"
 
     - name: Update, commit and push if the repo's recorded version differs from what the peer is actually running (self-healing - not just "did a bump just happen in this run", so an interrupted previous sync still gets caught)
       when:
         - semaphore_bumped_tag != ''
-        - semaphore_bumped_tag != (semaphore_repo_recorded_tag.stdout | trim)
+        - semaphore_bumped_tag != semaphore_repo_recorded_tag
       block:
         - name: Update the Image= line in this repo's provisioning template
           ansible.builtin.replace:
