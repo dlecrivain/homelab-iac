@@ -13,11 +13,18 @@
         msg: "{{ new_vm_name }} not found in inventory - check the name and that it's a Proxmox-managed VM"
       when: new_vm_name not in hostvars
 
-    - name: Resolve this VM's Proxmox and network facts
+    - name: Resolve this VM's Proxmox facts
       ansible.builtin.set_fact:
         decom_vmid: "{{ hostvars[new_vm_name].proxmox_vmid }}"
         decom_node: "{{ hostvars[new_vm_name].proxmox_node }}"
-        decom_ip: "{{ hostvars[new_vm_name].ansible_host }}"
+
+    - name: "Resolve this VM's IP (host_vars' ansible_host if set - provision-vm.yml always sets one; falls back to health_check_url for older hosts that predate that convention)"
+      ansible.builtin.set_fact:
+        decom_ip: >-
+          {{
+            hostvars[new_vm_name]['ansible_host'] | default('', true)
+            or (hostvars[new_vm_name]['health_check_url'] | default('') | regex_replace('^https?://([^:/]+).*$', '\1'))
+          }}
 
     - name: Capture the run start time
       include_role:
