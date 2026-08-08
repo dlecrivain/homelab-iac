@@ -80,9 +80,10 @@
   become: true
   when: rci_cloud_init_check.rc == 0
 
-- name: Get this VM's current Proxmox config
+- name: Get this VM's actually-running Proxmox config (--current, not the pending one - a previous "qm set --delete" already mutates the pending config immediately, before any restart actually applies it)
   ansible.builtin.command: >
     pvesh get /nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/config
+    --current 1
     --output-format json
   register: rci_vm_config
   changed_when: false
