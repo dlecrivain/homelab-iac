@@ -1,0 +1,160 @@
+---
+- name: Resolve a reachable Proxmox node for delegate_to (falls back to pve2/pve3 if pve1 is down)
+  include_role:
+    name: resolve_proxmox_api_host
+
+- name: Take a safety snapshot before touching network/cloud-init on this host
+  include_role:
+    name: proxmox_snapshot
+  vars:
+    snapshot_label: ansible_cloudinit_removal
+
+- name: "Resolve this host's IP (ansible_host if set, else extracted from health_check_url - these 5 hosts predate provision-vm.yml's host_vars convention)"
+  ansible.builtin.set_fact:
+    rci_ip: >-
+      {{
+        hostvars[inventory_hostname]['ansible_host'] | default('', true)
+        or (hostvars[inventory_hostname]['health_check_url'] | default('') | regex_replace('^https?://([^:/]+).*$', '\1'))
+      }}
+
+- name: Fail clearly if no IP could be resolved
+  ansible.builtin.fail:
+    msg: "Could not resolve an IP for {{ inventory_hostname }} - no ansible_host and no health_check_url to fall back to"
+  when: rci_ip | length == 0
+
+- name: Capture the current SSH host key fingerprint (proves later whether the reboot regenerates it)
+  ansible.builtin.command: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+  register: rci_hostkey_before
+  changed_when: false
+  become: true
+
+- name: Discover the active NetworkManager connection profile
+  ansible.builtin.command: nmcli -t -f NAME con show --active
+  register: rci_active_conn
+  changed_when: false
+
+- name: Save the connection profile name
+  ansible.builtin.set_fact:
+    rci_conn_name: "{{ rci_active_conn.stdout_lines | first }}"
+
+- name: Make this connection a persistent static profile independent of cloud-init (fire-and-forget - bringing it up can drop the current SSH control connection even though the IP itself isn't changing)
+  ansible.builtin.shell: >
+    nmcli con mod "{{ rci_conn_name }}"
+    ipv4.method manual
+    ipv4.addresses "{{ rci_ip }}/{{ fleet_network_prefix }}"
+    ipv4.gateway "{{ fleet_network_gateway }}"
+    ipv4.dns "{{ fleet_network_dns_servers }}"
+    connection.autoconnect yes
+    && nmcli con up "{{ rci_conn_name }}"
+  become: true
+  async: 60
+  poll: 0
+
+- name: Remove any stale known_hosts entry for this IP (control node)
+  ansible.builtin.command: "ssh-keygen -R {{ rci_ip }}"
+  delegate_to: localhost
+  changed_when: false
+  failed_when: false
+
+- name: Reset the connection so the next task reconnects fresh
+  ansible.builtin.meta: reset_connection
+
+- name: Wait for SSH to come back up after the network change
+  ansible.builtin.wait_for_connection:
+    delay: 10
+    timeout: 180
+
+- name: Check whether cloud-init is installed
+  ansible.builtin.command: rpm -q cloud-init
+  register: rci_cloud_init_check
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Remove cloud-init entirely (safe to re-run - a no-op if it's already gone)
+  ansible.builtin.dnf:
+    name:
+      - cloud-init
+      - cloud-utils-growpart
+    state: absent
+  become: true
+  when: rci_cloud_init_check.rc == 0
+
+- name: Get this VM's current Proxmox config
+  ansible.builtin.command: >
+    pvesh get /nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/config
+    --output-format json
+  register: rci_vm_config
+  changed_when: false
+  delegate_to: "{{ proxmox_api_host }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+
+- name: Determine which slot (if any) holds the cloud-init drive
+  ansible.builtin.set_fact:
+    rci_cloudinit_slot: >-
+      {{
+        (rci_vm_config.stdout | from_json | dict2items)
+        | selectattr('value', 'string')
+        | selectattr('value', 'search', 'cloudinit')
+        | map(attribute='key')
+        | list
+        | first
+        | default('')
+      }}
+
+- name: Remove the cloud-init drive from this VM's config (if present)
+  ansible.builtin.command: >
+    qm set {{ proxmox_vmid }} --delete {{ rci_cloudinit_slot }}
+  when: rci_cloudinit_slot | length > 0
+  delegate_to: "{{ proxmox_api_host }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+
+- name: Reboot and wait for the host to come back
+  include_role:
+    name: reboot_and_wait
+
+- name: Capture the SSH host key fingerprint again after the reboot
+  ansible.builtin.command: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+  register: rci_hostkey_after
+  changed_when: false
+  become: true
+
+- name: Assert the SSH host key did not change across the reboot
+  ansible.builtin.assert:
+    that:
+      - rci_hostkey_after.stdout == rci_hostkey_before.stdout
+    fail_msg: "SSH host key changed across the reboot - cloud-init is still regenerating it. Before: {{ rci_hostkey_before.stdout }} After: {{ rci_hostkey_after.stdout }}"
+    success_msg: "SSH host key stable across the reboot - cloud-init is no longer regenerating it"
+
+- name: Confirm the network connection is still a manual (static) profile after the reboot
+  ansible.builtin.command: nmcli -t -f ipv4.method con show "{{ rci_conn_name }}"
+  register: rci_method_after
+  changed_when: false
+
+- name: Assert the connection is still static (not reverted to an ephemeral config)
+  ansible.builtin.assert:
+    that:
+      - "'manual' in rci_method_after.stdout"
+    fail_msg: "Connection '{{ rci_conn_name }}' is no longer set to manual/static after the reboot: {{ rci_method_after.stdout }}"
+
+- name: Check services after the reboot
+  include_role:
+    name: health_check
+  vars:
+    health_check_fail_on_unhealthy: true
+    health_check_containers: "{{ hostvars[inventory_hostname].health_check_containers | default([]) }}"
+    health_check_url: "{{ hostvars[inventory_hostname].health_check_url | default('') }}"
+    health_check_podman_user: "{{ hostvars[inventory_hostname].health_check_podman_user | default('root') }}"
+    health_check_validate_certs: "{{ hostvars[inventory_hostname].health_check_validate_certs | default(true) }}"
+    health_check_retries: "{{ hostvars[inventory_hostname].health_check_retries | default(5) }}"
+    health_check_delay: "{{ hostvars[inventory_hostname].health_check_delay | default(10) }}"
+
+- name: Remove the safety snapshot now that the host is confirmed healthy
+  include_role:
+    name: cleanup_snapshot
+  vars:
+    snapshot_label: ansible_cloudinit_removal

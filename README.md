@@ -35,6 +35,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
 | `provision-semaphore-peer.yml` | One-time setup: deploys Semaphore via Podman Quadlet onto a fresh `{{ peer_host }}` VM, identically to the existing instance, then waits for its web service to respond |
 | `provision-vm.yml` | Full-clones the (cloud-init-free) golden template, resolves a static IP via phpIPAM, reconfigures the clone's network/hostname/SSH host key, registers it with Katello, updates it and installs Podman+git, then commits its `host_vars` to this repo and rebalances the cluster — see [Provisioning a new fleet VM](#provisioning-a-new-fleet-vm) |
 | `decommission-vm.yml` | The reverse of `provision-vm.yml`: takes a final safety backup, deregisters the host from Katello, removes its IP from phpIPAM, destroys the Proxmox VM, then removes and commits the deletion of its `host_vars` — see [Decommissioning a fleet VM](#decommissioning-a-fleet-vm) |
+| `remove-cloud-init.yml` | One-time cleanup for the 5 legacy VMs that predate `provision-vm.yml` (`adguard101`, `patchmon101`, `phpipam101`, `lpkat101`, `immich101`): converts their network config to a persistent static NetworkManager profile, removes cloud-init and its Proxmox drive, then asserts the SSH host key survives the reboot unchanged — see [Removing cloud-init from a legacy VM](#removing-cloud-init-from-a-legacy-vm) |
 
 `vm-updates.yml` and `container-updates.yml` already remove their own snapshot as soon as the post-update health check passes — `cleanup-snapshots.yml` is the backstop for the ones deliberately left behind after a failed health check, run on its own independent schedule (as two separate Semaphore templates, one per `snapshot_label` value) since OS patching and container updates don't necessarily run on the same cadence.
 
@@ -90,6 +91,7 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
   - `katello_register_host/` — Generate and run a Katello global registration command for a host
   - `katello_deregister_host/` — Confirm the host exists in Katello under its exact name, then delete it
   - `resolve_proxmox_api_host/` — Probe pve1/pve2/pve3 in order (SSH:22) and save the first reachable one as `proxmox_api_host`, so a down `pve1` doesn't take out every Proxmox-dependent playbook
+  - `remove_cloud_init/` — Convert a live host's network to a persistent static NetworkManager profile, remove cloud-init and its Proxmox drive, then assert the SSH host key and network config survive a reboot unchanged
 
 ## How it works
 
@@ -212,6 +214,14 @@ Not handled by this playbook, and needs a short manual checklist once the contai
 4. Remove the IP's address entry from phpIPAM (`phpipam_remove_address` role) — a no-op, not an error, if it's already absent.
 5. Destroy the VM (`pve_destroy_vm` role: graceful `qm shutdown`, confirm stopped, then `qm destroy --purge`).
 6. Remove `host_vars/<new_vm_name>.yml` from this repo (if present) and commit+push the deletion.
+
+### Removing cloud-init from a legacy VM
+
+`remove-cloud-init.yml` (`-e target_hosts=<hostname>`, defaults to all 5 legacy hosts, `serial: 1`) is a one-time cleanup for `adguard101`, `patchmon101`, `phpipam101`, `lpkat101` and `immich101` — VMs that predate `provision-vm.yml`'s cloud-init-free golden template and still regenerate their SSH host key on *every* reboot, not just the first. This has caused real incidents: a `decommission-vm.yml` failure on `patchmon101` and a phpIPAM API 503 investigation on `phpipam101`, both traced back to a stale/changed SSH host key after a routine reboot.
+
+Per host, in order: take a Proxmox snapshot (`ansible_cloudinit_removal` label, distinct from `ansible_patching`/`ansible_container` so it can't collide with a concurrent patch run — sweepable later with `cleanup-snapshots.yml -e snapshot_label=ansible_cloudinit_removal` if one is ever left behind) → resolve the IP the same way `decommission-vm.yml` does (`ansible_host` if set, else extracted from `health_check_url`) → capture the current SSH host key fingerprint → convert the active NetworkManager connection to a persistent static profile (fire-and-forget + `meta: reset_connection` + `wait_for_connection`, the same disruptive-change pattern `provision_vm_reconnect` uses, even though the IP itself isn't changing — bringing the connection up can still drop the current SSH session) → remove the `cloud-init`/`cloud-utils-growpart` packages → remove the VM's cloud-init drive from its Proxmox config (found via `pvesh ... --output-format json` + `dict2items`/`selectattr`, not text-parsing `qm config`) → reboot → assert the SSH host key fingerprint is *identical* to before the reboot (the actual proof, not an inference) and that the NetworkManager connection is still `manual` → run this host's own `health_check` → remove the safety snapshot only once all of that passes.
+
+Each host is wrapped in `block`/`rescue`: a failure records the reason and calls `meta: end_play`, stopping the run before touching the next (unrelated) service, but still reaching the final report play — matching `pve-updates.yml`'s "halt the whole run, don't cascade" posture rather than `vm-updates.yml`'s "skip this one, continue to the next." A snapshot left behind after a failure is the rollback path. Recommended rollout: run against one host at a time (`-e target_hosts=patchmon101` first — nothing else in this repo depends on it; avoid `adguard101`, LAN-wide DNS, and `lpkat101`, which every other playbook's Katello registration depends on, as the first test) before trusting the default of all 5 at once.
 
 ## Requirements
 

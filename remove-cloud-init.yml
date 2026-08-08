@@ -1,0 +1,76 @@
+---
+- name: Strip cloud-init from legacy fleet VMs, one at a time (SSH host key regenerates on every boot otherwise)
+  hosts: "{{ target_hosts | default('adguard101,patchmon101,phpipam101,lpkat101,immich101') }}"
+  gather_facts: false
+  serial: 1
+  tasks:
+    - name: Capture the run start time
+      include_role:
+        name: capture_start_time
+
+    - name: Capture the full list of targeted hosts (once)
+      include_role:
+        name: capture_host_list
+      vars:
+        capture_host_list_fact_name: cloudinit_removal_host_list
+
+    - name: "Convert this host, stopping the whole run on any failure (unrelated services - don't cascade a bad conversion into the next one)"
+      block:
+        - name: Remove cloud-init from this host
+          include_role:
+            name: remove_cloud_init
+
+        - name: Mark this host as successfully converted
+          ansible.builtin.set_fact:
+            cloudinit_removal_status: OK
+
+      rescue:
+        - name: Mark this host as failed, and record why
+          ansible.builtin.set_fact:
+            cloudinit_removal_status: FAILED
+            cloudinit_removal_failure_reason: "{{ ansible_failed_result.msg | default('Unknown error') }}"
+
+        - name: Stop the entire run - no further hosts will be touched
+          ansible.builtin.meta: end_play
+
+- name: Send the cloud-init removal report
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Build and send the HTML report email
+      include_role:
+        name: send_report
+      vars:
+        report_subject: "[remove-cloud-init] {{ 'PROBLEM detected' if (hostvars['localhost'].cloudinit_removal_host_list | map('extract', hostvars) | map(attribute='cloudinit_removal_status', default='NOT_PROCESSED') | select('equalto', 'FAILED') | list | length > 0) else 'All OK' }}"
+        report_body: |
+          <h2>Cloud-init removal report</h2>
+          <table>
+            <tr>
+              <th>Host</th>
+              <th>Status</th>
+              <th>Details</th>
+            </tr>
+            {% for h in hostvars['localhost'].cloudinit_removal_host_list %}
+            {% set st = hostvars[h].cloudinit_removal_status | default('NOT_PROCESSED') %}
+            {% if st == 'OK' %}
+            {% set row_class = 'status-ok' %}
+            {% elif st == 'FAILED' %}
+            {% set row_class = 'status-problem' %}
+            {% else %}
+            {% set row_class = 'status-neutral' %}
+            {% endif %}
+            <tr class="{{ row_class }}">
+              <td>{{ h }}</td>
+              <td>{{ st }}</td>
+              <td>
+                {% if st == 'FAILED' %}
+                {{ hostvars[h].cloudinit_removal_failure_reason | default('Unknown error') }}
+                {% elif st == 'OK' %}
+                SSH host key confirmed stable across reboot, network confirmed static, health check passed. A safety snapshot (ansible_cloudinit_removal) was taken and removed on success.
+                {% else %}
+                Skipped - run was stopped before reaching this host
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </table>
