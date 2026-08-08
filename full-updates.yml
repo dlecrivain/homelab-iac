@@ -8,6 +8,17 @@
         is_orchestrated_run: true
 
 - import_playbook: container-updates.yml
+
+- name: Snapshot the fleet-wide container-updates results (update-semaphore-peer.yml, imported below, runs its own nested container-updates.yml against semaphore102 and would otherwise overwrite these same fact names)
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Save this stage's status/duration/report body under fleet-scoped names
+      ansible.builtin.set_fact:
+        fleet_container_updates_stage_status: "{{ hostvars['localhost'].container_updates_stage_status }}"
+        fleet_container_updates_duration_display: "{{ hostvars['localhost'].container_updates_duration_display }}"
+        fleet_container_updates_report_body: "{{ hostvars['localhost'].container_updates_report_body }}"
+
 - import_playbook: vm-updates.yml
 - import_playbook: pve-updates.yml
 - import_playbook: update-semaphore-peer.yml
@@ -21,7 +32,7 @@
   tasks:
     - name: Determine overall status across all 4 stages
       ansible.builtin.set_fact:
-        full_run_any_problem: "{{ 'PROBLEM' in [hostvars['localhost'].container_updates_stage_status, hostvars['localhost'].vm_updates_stage_status, hostvars['localhost'].pve_updates_stage_status, hostvars['localhost'].semaphore_peer_stage_status] }}"
+        full_run_any_problem: "{{ 'PROBLEM' in [hostvars['localhost'].fleet_container_updates_stage_status, hostvars['localhost'].vm_updates_stage_status, hostvars['localhost'].pve_updates_stage_status, hostvars['localhost'].semaphore_peer_stage_status] }}"
 
     - name: Build and send the combined HTML report email
       include_role:
@@ -37,7 +48,7 @@
               <th>Duration</th>
             </tr>
             {% for stage in [
-              {'name': 'container-updates', 'status': hostvars['localhost'].container_updates_stage_status, 'duration': hostvars['localhost'].container_updates_duration_display},
+              {'name': 'container-updates', 'status': hostvars['localhost'].fleet_container_updates_stage_status, 'duration': hostvars['localhost'].fleet_container_updates_duration_display},
               {'name': 'vm-updates', 'status': hostvars['localhost'].vm_updates_stage_status, 'duration': hostvars['localhost'].vm_updates_duration_display},
               {'name': 'pve-updates', 'status': hostvars['localhost'].pve_updates_stage_status, 'duration': hostvars['localhost'].pve_updates_duration_display},
               {'name': 'semaphore-peer (semaphore102)', 'status': hostvars['localhost'].semaphore_peer_stage_status, 'duration': hostvars['localhost'].semaphore_peer_duration_display}
@@ -56,7 +67,7 @@
             </tr>
             {% endfor %}
           </table>
-          {{ hostvars['localhost'].container_updates_report_body }}
+          {{ hostvars['localhost'].fleet_container_updates_report_body }}
           {{ hostvars['localhost'].vm_updates_report_body }}
           {{ hostvars['localhost'].pve_updates_report_body }}
           {{ hostvars['localhost'].semaphore_peer_report_body }}

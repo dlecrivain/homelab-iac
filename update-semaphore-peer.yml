@@ -1,4 +1,16 @@
 ---
+- name: Mark this as an orchestrated run so the nested container-updates.yml import doesn't send its own separate email
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Remember whether this run was already orchestrated by something bigger (e.g. full-updates.yml), before forcing the flag below
+      ansible.builtin.set_fact:
+        semaphore_peer_run_standalone: "{{ not (hostvars['localhost'].is_orchestrated_run | default(false)) }}"
+
+    - name: Force the orchestration flag (container-updates.yml, imported below, must not send its own email - this playbook's own final report covers it)
+      ansible.builtin.set_fact:
+        is_orchestrated_run: true
+
 - name: OS-patch this Semaphore peer (no Katello promotion - this VM isn't Katello-managed content)
   hosts: "{{ peer_host }}"
   gather_facts: true
@@ -332,6 +344,7 @@
           {% else %}
           <p>{{ peer_host }} patched and healthy{% if image_reference_host is defined %}, images aligned to {{ image_reference_host }}{% endif %}.</p>
           {% endif %}
+          {{ hostvars['localhost'].container_updates_report_body | default('') }}
 
     - name: Build and send the HTML report email (skipped when part of an orchestrated run; the combined email covers it instead)
       include_role:
@@ -339,4 +352,4 @@
       vars:
         report_subject: "[update-semaphore-peer] {{ peer_host }} {{ semaphore_peer_stage_status }}"
         report_body: "{{ semaphore_peer_report_body }}"
-      when: not (hostvars['localhost'].is_orchestrated_run | default(false))
+      when: hostvars['localhost'].semaphore_peer_run_standalone | default(true)
