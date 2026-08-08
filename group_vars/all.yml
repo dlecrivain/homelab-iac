@@ -24,10 +24,15 @@ vm_backup_local_retention: 5
 vm_backup_pcloud_retention: 1
 vm_backup_pcloud_base_path: "pcloud:Backups/VM"
 
+# update-semaphore-peer.yml: defaults to patching semaphore101 only (OS + containers), never
+# touching semaphore102, when run with no extra vars at all. The semaphore102-facing direction
+# (image alignment) still requires explicit -e peer_host=semaphore102 -e image_reference_host=semaphore101.
+peer_host: semaphore101
+
 # phpIPAM
 # "User token" security mode (not "SSL with ..."): those two require a real HTTPS connection and
-# 503 with "SSL connection is required for API" over plain HTTP - phpipam101 is HTTP-only until
-# BunkerWeb fronts it (see BACKLOG.md). "User token" does a login exchange for a session token instead.
+# 503 with "SSL connection is required for API" over plain HTTP - phpipam101 is HTTP-only for now.
+# "User token" does a login exchange for a session token instead.
 phpipam_api_app_id: "ansible"
 phpipam_api_username: "{{ lookup('env', 'PHPIPAM_API_USERNAME') }}"
 phpipam_api_password: "{{ lookup('env', 'PHPIPAM_API_PASSWORD') }}"

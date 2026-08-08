@@ -3,11 +3,6 @@
   hosts: localhost
   gather_facts: false
   tasks:
-    - name: Fail clearly if peer_host wasn't provided
-      ansible.builtin.fail:
-        msg: "peer_host is required - pass it with -e peer_host=<hostname>"
-      when: peer_host is not defined
-
     - name: Remember whether this run was already orchestrated by something bigger (e.g. full-updates.yml), before forcing the flag below
       ansible.builtin.set_fact:
         semaphore_peer_run_standalone: "{{ not (hostvars['localhost'].is_orchestrated_run | default(false)) }}"
@@ -17,7 +12,7 @@
         is_orchestrated_run: true
 
 - name: OS-patch this Semaphore peer (no Katello promotion - this VM isn't Katello-managed content)
-  hosts: "{{ peer_host }}"
+  hosts: "{{ peer_host | default('semaphore101') }}"
   gather_facts: true
   tasks:
     - name: Capture the run start time
@@ -86,10 +81,10 @@
   # gather-then-align plays needed here anymore. reference_image_digests ends up set on localhost
   # exactly as before, so semaphore_peer_alignment_skipped below still works unchanged.
   vars:
-    target_hosts: "{{ peer_host }}"
+    target_hosts: "{{ peer_host | default('semaphore101') }}"
 
 - name: Bump this peer's Semaphore image if a newer patch/minor is available (skipped in the image_reference_host direction, which uses exact-digest alignment above instead)
-  hosts: "{{ peer_host }}"
+  hosts: "{{ peer_host | default('semaphore101') }}"
   gather_facts: false
   tasks:
     - name: Auto-bump (or apply an explicit semaphore_image_tag) Semaphore's image
