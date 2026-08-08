@@ -117,7 +117,7 @@
 
 - name: Shut down the VM gracefully (a soft in-guest reboot doesn't cycle QEMU itself, so the pending cloud-init drive removal above would never actually apply - a real stop/start is required)
   ansible.builtin.command: >
-    qm shutdown {{ proxmox_vmid }} --timeout 60
+    qm shutdown {{ proxmox_vmid }} --timeout 300
   when: rci_cloudinit_slot | length > 0
   delegate_to: "{{ proxmox_node }}"
   remote_user: "{{ proxmox_ssh_user }}"
