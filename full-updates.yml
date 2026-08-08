@@ -8,6 +8,12 @@
         is_orchestrated_run: true
 
 - import_playbook: container-updates.yml
+  vars:
+    # Explicit override, still excluding semaphore102 here specifically: container-updates.yml's
+    # own default now includes it (for standalone/ad-hoc visibility), but update-semaphore-peer.yml
+    # (imported below) already runs its own nested container-updates.yml against semaphore102 after
+    # its OS patch/reboot - without this override it would get processed (and aligned) twice per run.
+    target_hosts: "proxmox_all_qemu:!lpkat101:!semaphore101:!semaphore102"
 
 - name: Snapshot the fleet-wide container-updates results (update-semaphore-peer.yml, imported below, runs its own nested container-updates.yml against semaphore102 and would otherwise overwrite these same fact names)
   hosts: localhost

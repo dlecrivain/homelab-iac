@@ -8,6 +8,12 @@
       register: image_before
       changed_when: false
 
+    - name: Get current image version label
+      ansible.builtin.command: >
+        podman inspect {{ unit.name }} --format '{{ '{{' }} index .Config.Labels "org.opencontainers.image.version" {{ '}}' }}'
+      register: version_before
+      changed_when: false
+
     - name: Get the currently configured image tag
       ansible.builtin.command: "podman inspect {{ unit.name }} --format '{{ '{{' }}.ImageName{{ '}}' }}'"
       register: image_tag_before
@@ -28,6 +34,12 @@
     - name: Get image ID after aligning
       ansible.builtin.command: "podman inspect {{ podman_align_reference_tags[unit.name] }} --format '{{ '{{' }}.Id{{ '}}' }}'"
       register: image_after
+      changed_when: false
+
+    - name: Get new image version label
+      ansible.builtin.command: >
+        podman inspect {{ podman_align_reference_tags[unit.name] }} --format '{{ '{{' }} index .Config.Labels "org.opencontainers.image.version" {{ '}}' }}'
+      register: version_after
       changed_when: false
 
     - name: Determine whether this unit actually needs realigning (image content changed, or just the visible tag is stale)
@@ -58,3 +70,13 @@
       ansible.builtin.pause:
         seconds: 5
       when: unit_needs_realign | bool
+
+- name: Record update summary for this unit
+  ansible.builtin.set_fact:
+    podman_update_summary: >-
+      {{ podman_update_summary + [{
+        'name': unit.name,
+        'updated': (unit_needs_realign | bool),
+        'old_version': (version_before.stdout | trim) or image_before.stdout[:12],
+        'new_version': (version_after.stdout | trim) or image_after.stdout[:12]
+      }] }}

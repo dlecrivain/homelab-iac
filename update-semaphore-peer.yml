@@ -80,79 +80,13 @@
             - host_overall_status == 'OK'
 
 - import_playbook: container-updates.yml
+  # For the semaphore102 direction, this nested call now handles image alignment to semaphore101
+  # internally (container-updates.yml's own Step 3 branches on inventory_hostname == 'semaphore102'
+  # and its own leading plays gather semaphore101's reference digests) - no separate
+  # gather-then-align plays needed here anymore. reference_image_digests ends up set on localhost
+  # exactly as before, so semaphore_peer_alignment_skipped below still works unchanged.
   vars:
     target_hosts: "{{ peer_host }}"
-
-- name: Capture the reference host's current image versions, only if it's healthy (used to align the peer's images to match)
-  hosts: "{{ image_reference_host | default('localhost') }}"
-  gather_facts: false
-  tasks:
-    - name: Gather and validate the reference host's image versions
-      when: image_reference_host is defined
-      block:
-        - name: Check services on the reference host
-          include_role:
-            name: health_check
-
-        - name: Determine the reference host's overall status
-          include_role:
-            name: host_status
-
-        - name: Get each unit's current image ID on the reference host
-          ansible.builtin.command: "podman inspect {{ item.name }} --format '{{ '{{' }}.Image{{ '}}' }}'"
-          become: true
-          loop: "{{ podman_units }}"
-          loop_control:
-            label: "{{ item.name }}"
-          register: reference_image_ids
-          changed_when: false
-          when: host_overall_status == 'OK'
-
-        - name: Resolve each image ID to a pullable digest reference
-          ansible.builtin.command: "podman inspect {{ item.stdout }} --format '{{ '{{' }} index .RepoDigests 0 {{ '}}' }}'"
-          become: true
-          loop: "{{ reference_image_ids.results }}"
-          loop_control:
-            label: "{{ item.item.name }}"
-          register: reference_digest_refs
-          changed_when: false
-          when: host_overall_status == 'OK'
-
-        - name: Save the reference host's image digests, keyed by unit name
-          ansible.builtin.set_fact:
-            reference_image_digests: "{{ dict(podman_units | map(attribute='name') | zip(reference_digest_refs.results | map(attribute='stdout'))) }}"
-          delegate_to: localhost
-          delegate_facts: true
-          when: host_overall_status == 'OK'
-
-        - name: Get each unit's current image tag on the reference host
-          ansible.builtin.command: "podman inspect {{ item.name }} --format '{{ '{{' }}.ImageName{{ '}}' }}'"
-          become: true
-          loop: "{{ podman_units }}"
-          loop_control:
-            label: "{{ item.name }}"
-          register: reference_image_refs
-          changed_when: false
-          when: host_overall_status == 'OK'
-
-        - name: Save the reference host's image tags, keyed by unit name
-          ansible.builtin.set_fact:
-            reference_image_tags: "{{ dict(podman_units | map(attribute='name') | zip(reference_image_refs.results | map(attribute='stdout'))) }}"
-          delegate_to: localhost
-          delegate_facts: true
-          when: host_overall_status == 'OK'
-
-- name: Align this peer's images to the reference host's exact versions (only if a reference host was provided and confirmed healthy)
-  hosts: "{{ peer_host }}"
-  gather_facts: false
-  tasks:
-    - name: Align Postgres/Semaphore images to the reference host
-      include_role:
-        name: podman_align_image
-      vars:
-        podman_align_reference_digests: "{{ hostvars['localhost'].reference_image_digests }}"
-        podman_align_reference_tags: "{{ hostvars['localhost'].reference_image_tags }}"
-      when: hostvars['localhost'].reference_image_digests is defined
 
 - name: Bump this peer's Semaphore image if a newer patch/minor is available (skipped in the image_reference_host direction, which uses exact-digest alignment above instead)
   hosts: "{{ peer_host }}"

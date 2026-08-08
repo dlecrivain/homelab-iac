@@ -1,11 +1,86 @@
 ---
+- name: Determine whether semaphore102 is actually being targeted this run
+  # Avoids opening an unnecessary connection to semaphore101 below when it isn't (a scoped
+  # -e target_hosts=<other host> run, or update-semaphore-peer.yml's semaphore101-facing
+  # nested call) - ansible.builtin.inventory_hostnames resolves a host pattern against the
+  # loaded inventory without needing a real play against those hosts.
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Check membership
+      ansible.builtin.set_fact:
+        container_updates_targets_semaphore102: >-
+          {{
+            'semaphore102' in query('ansible.builtin.inventory_hostnames', target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101'))
+          }}
+
+- name: "Capture semaphore101's current image versions, only if semaphore102 is actually being targeted this run (used to align semaphore102's images to match)"
+  hosts: semaphore101
+  gather_facts: false
+  tasks:
+    - name: Gather and validate semaphore101's image versions
+      when: hostvars['localhost'].container_updates_targets_semaphore102
+      block:
+        - name: Check services on semaphore101
+          include_role:
+            name: health_check
+
+        - name: Determine semaphore101's overall status
+          include_role:
+            name: host_status
+
+        - name: Get each unit's current image ID on semaphore101
+          ansible.builtin.command: "podman inspect {{ item.name }} --format '{{ '{{' }}.Image{{ '}}' }}'"
+          become: true
+          loop: "{{ podman_units }}"
+          loop_control:
+            label: "{{ item.name }}"
+          register: reference_image_ids
+          changed_when: false
+          when: host_overall_status == 'OK'
+
+        - name: Resolve each image ID to a pullable digest reference
+          ansible.builtin.command: "podman inspect {{ item.stdout }} --format '{{ '{{' }} index .RepoDigests 0 {{ '}}' }}'"
+          become: true
+          loop: "{{ reference_image_ids.results }}"
+          loop_control:
+            label: "{{ item.item.name }}"
+          register: reference_digest_refs
+          changed_when: false
+          when: host_overall_status == 'OK'
+
+        - name: Save semaphore101's image digests, keyed by unit name
+          ansible.builtin.set_fact:
+            reference_image_digests: "{{ dict(podman_units | map(attribute='name') | zip(reference_digest_refs.results | map(attribute='stdout'))) }}"
+          delegate_to: localhost
+          delegate_facts: true
+          when: host_overall_status == 'OK'
+
+        - name: Get each unit's current image tag on semaphore101
+          ansible.builtin.command: "podman inspect {{ item.name }} --format '{{ '{{' }}.ImageName{{ '}}' }}'"
+          become: true
+          loop: "{{ podman_units }}"
+          loop_control:
+            label: "{{ item.name }}"
+          register: reference_image_refs
+          changed_when: false
+          when: host_overall_status == 'OK'
+
+        - name: Save semaphore101's image tags, keyed by unit name
+          ansible.builtin.set_fact:
+            reference_image_tags: "{{ dict(podman_units | map(attribute='name') | zip(reference_image_refs.results | map(attribute='stdout'))) }}"
+          delegate_to: localhost
+          delegate_facts: true
+          when: host_overall_status == 'OK'
+
 - name: Update Podman containers on Quadlet-managed hosts
-  # semaphore101/102 are excluded: they're covered end-to-end (OS + container images) by
-  # update-semaphore-peer.yml, which pulls by exact digest against a reference host instead of
-  # by tag - running this generic pass on them too re-pulls their currently configured tag and
-  # can silently undo that alignment (a real regression seen in production: semaphore102 got
-  # reverted from an aligned v2.18.29 back to the stale v2.18.27 tag before realignment ran).
-  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101:!semaphore102') }}"
+  # semaphore101 is excluded: it's the reference other hosts (semaphore102) align to, never
+  # itself force-aligned to anything, and it's covered end-to-end (OS + containers) by
+  # update-semaphore-peer.yml. semaphore102 is included below, but Step 3 gives it
+  # align-to-semaphore101-by-digest treatment instead of the normal tag pull every other host
+  # gets - a normal pull here risks drift (a real regression seen in production: semaphore102
+  # got reverted from an aligned v2.18.29 back to the stale v2.18.27 tag before realignment ran).
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101') }}"
   gather_facts: false
   serial: 1
   tasks:
@@ -46,10 +121,34 @@
             name: proxmox_snapshot
           when: podman_units is defined
 
-        - name: Step 3 - Update Podman containers
+        - name: Step 3 - Update Podman containers (normal tag pull)
           include_role:
             name: podman_update
-          when: podman_units is defined and not (snapshot_already_exists | default(false))
+          when:
+            - podman_units is defined
+            - not (snapshot_already_exists | default(false))
+            - inventory_hostname != 'semaphore102'
+
+        - name: Step 3 (semaphore102 only) - Align images to semaphore101's exact digest instead of pulling independently
+          include_role:
+            name: podman_align_image
+          vars:
+            podman_align_reference_digests: "{{ hostvars['localhost'].reference_image_digests }}"
+            podman_align_reference_tags: "{{ hostvars['localhost'].reference_image_tags }}"
+          when:
+            - podman_units is defined
+            - not (snapshot_already_exists | default(false))
+            - inventory_hostname == 'semaphore102'
+            - hostvars['localhost'].reference_image_digests is defined
+
+        - name: Record why semaphore102 was skipped if semaphore101 wasn't healthy enough to align against (otherwise it would silently get no row at all in the report)
+          ansible.builtin.set_fact:
+            host_update_failure_reason: "Alignment skipped - reference host semaphore101 wasn't healthy"
+          when:
+            - podman_units is defined
+            - not (snapshot_already_exists | default(false))
+            - inventory_hostname == 'semaphore102'
+            - hostvars['localhost'].reference_image_digests is not defined
 
         - name: Step 4 - Check services after update
           include_role:
