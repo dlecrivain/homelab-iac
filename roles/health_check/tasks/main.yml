@@ -45,20 +45,23 @@
     health_check_url_status: "{{ 'OK' if (url_check.status | default(0)) == 200 else 'FAILED' }}"
   when: (health_check_url | default('')) | length > 0
 
-- name: Fail if any container is down (only when explicitly requested)
-  ansible.builtin.fail:
-    msg: "Container {{ item.name }} is not up."
-  loop: "{{ health_check_container_results | default([]) }}"
-  loop_control:
-    label: "{{ item.name }}"
-  when:
-    - health_check_fail_on_unhealthy | default(false) | bool
-    - item.status == 'DOWN'
+- name: Determine all health problems for this host (if any)
+  ansible.builtin.set_fact:
+    health_check_problems: >-
+      {%- set problems = [] -%}
+      {%- for c in (health_check_container_results | default([])) -%}
+        {%- if c.status == 'DOWN' -%}
+          {%- set _ = problems.append('Container ' + c.name + ' is not up') -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {%- if (health_check_url | default('')) | length > 0 and health_check_url_status | default('OK') == 'FAILED' -%}
+        {%- set _ = problems.append('URL check failed for ' + health_check_url) -%}
+      {%- endif -%}
+      {{ problems | join('; ') }}
 
-- name: Fail if URL check failed (only when explicitly requested)
+- name: Fail with every health problem found for this host (only when explicitly requested)
   ansible.builtin.fail:
-    msg: "URL check failed for {{ health_check_url }}."
+    msg: "{{ health_check_problems }}"
   when:
     - health_check_fail_on_unhealthy | default(false) | bool
-    - (health_check_url | default('')) | length > 0
-    - health_check_url_status == 'FAILED'
+    - health_check_problems | length > 0

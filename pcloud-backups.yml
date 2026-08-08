@@ -51,10 +51,21 @@
       ignore_errors: true
       when: pcloud_backup_source is not defined
 
+    - name: Determine all pCloud backup failures (if any)
+      ansible.builtin.set_fact:
+        pcloud_backup_failures: >-
+          {%- set failures = [] -%}
+          {%- for r in (pcloud_wait.results | default([])) -%}
+            {%- if r.rc is defined and r.rc != 0 -%}
+              {%- set _ = failures.append(r.item.item.name + ': ' + (r.stderr | default('unknown error'))) -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ failures | join(' | ') }}
+      when: pcloud_backup_source is not defined
+
     - name: Fail clearly if any pCloud backup failed
       ansible.builtin.fail:
-        msg: "pCloud backup '{{ item.item.item.name }}' failed: {{ item.stderr | default('unknown error') }}"
-      loop: "{{ pcloud_wait.results | default([]) }}"
-      loop_control:
-        label: "{{ item.item.item.name }}"
-      when: pcloud_backup_source is not defined and item.rc is defined and item.rc != 0
+        msg: "pCloud backup failure(s): {{ pcloud_backup_failures }}"
+      when:
+        - pcloud_backup_source is not defined
+        - pcloud_backup_failures | default('') | length > 0
