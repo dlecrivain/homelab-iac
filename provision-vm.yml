@@ -8,6 +8,37 @@
         msg: "new_vm_name is required - pass it with -e new_vm_name=<hostname>"
       when: new_vm_name is not defined
 
+    - name: Fail clearly if a Proxmox VM with this name already exists
+      ansible.builtin.fail:
+        msg: "A Proxmox VM named '{{ new_vm_name }}' already exists (vmid {{ hostvars[new_vm_name].proxmox_vmid | default('?') }} on {{ hostvars[new_vm_name].proxmox_node | default('?') }}) - choose a different name, or decommission it first"
+      when: new_vm_name in hostvars
+
+    - name: Check whether host_vars/<new_vm_name>.yml already exists in this repo
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/host_vars/{{ new_vm_name }}.yml"
+      register: provision_existing_host_vars
+
+    - name: Fail clearly if host_vars/<new_vm_name>.yml already exists in this repo
+      ansible.builtin.fail:
+        msg: "host_vars/{{ new_vm_name }}.yml already exists in this repo - choose a different name, or this VM was already provisioned (or only partially cleaned up)"
+      when: provision_existing_host_vars.stat.exists
+
+    - name: Check whether this name is already registered in Katello
+      ansible.builtin.command: >
+        hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
+        host info --name {{ new_vm_name }}
+      register: provision_existing_katello_check
+      changed_when: false
+      failed_when: false
+      delegate_to: "{{ lpkat_host }}"
+      become: true
+      no_log: true
+
+    - name: Fail clearly if this name is already registered in Katello
+      ansible.builtin.fail:
+        msg: "'{{ new_vm_name }}' is already registered in Katello - choose a different name, or deregister it first"
+      when: provision_existing_katello_check.rc == 0
+
     - name: Capture the run start time
       include_role:
         name: capture_start_time
