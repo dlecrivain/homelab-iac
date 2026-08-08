@@ -221,21 +221,27 @@
       delay: 10
       until: (peer_semaphore_ping.status | default(0)) == 200
 
-- name: Keep this repo's provisioning template in sync with any Semaphore version bump that was just applied
+- name: Keep this repo's provisioning template in sync with whatever Semaphore version the peer is actually running
   hosts: localhost
   gather_facts: false
   vars:
     semaphore_bumped_tag: "{{ hostvars[peer_host].semaphore_image_tag | default('') }}"
-    semaphore_previous_tag: "{{ hostvars[peer_host].semaphore_current_version | default('') }}"
   tasks:
-    - name: Update, commit and push the new version to roles/semaphore_provision/files/semaphore.container
+    - name: Read the version currently recorded in this repo's provisioning template
+      ansible.builtin.command: >-
+        grep -oP '(?<=semaphoreui/semaphore:).*'
+        {{ playbook_dir }}/roles/semaphore_provision/files/semaphore.container
+      register: semaphore_repo_recorded_tag
+      changed_when: false
+
+    - name: Update, commit and push if the repo's recorded version differs from what the peer is actually running (self-healing - not just "did a bump just happen in this run", so an interrupted previous sync still gets caught)
       when:
         - semaphore_bumped_tag != ''
-        - semaphore_bumped_tag != semaphore_previous_tag
+        - semaphore_bumped_tag != (semaphore_repo_recorded_tag.stdout | trim)
       block:
         - name: Update the Image= line in this repo's provisioning template
           ansible.builtin.replace:
-            path: /repos/homelab-iac/roles/semaphore_provision/files/semaphore.container
+            path: "{{ playbook_dir }}/roles/semaphore_provision/files/semaphore.container"
             regexp: '^Image=docker\.io/semaphoreui/semaphore:.*$'
             replace: "Image=docker.io/semaphoreui/semaphore:{{ semaphore_bumped_tag }}"
 
@@ -245,20 +251,33 @@
             - git config user.email "d.lecrivain47@gmail.com"
             - git config user.name "dlecrivain"
           args:
-            chdir: /repos/homelab-iac
+            chdir: "{{ playbook_dir }}"
           changed_when: false
 
         - name: Commit the version bump
           ansible.builtin.command: >-
             git commit -am "Bump provisioned Semaphore image to {{ semaphore_bumped_tag }} (applied to {{ peer_host }} by update-semaphore-peer.yml)"
           args:
-            chdir: /repos/homelab-iac
+            chdir: "{{ playbook_dir }}"
 
         - name: Push the commit to origin/main
           ansible.builtin.command: "git push https://{{ github_push_token }}@github.com/dlecrivain/homelab-iac main"
           args:
-            chdir: /repos/homelab-iac
+            chdir: "{{ playbook_dir }}"
+          register: semaphore_peer_git_push
+          failed_when: false
           no_log: true
+
+        - name: Fail with a token-redacted error if the push failed
+          ansible.builtin.fail:
+            msg: >-
+              git push failed (rc={{ semaphore_peer_git_push.rc }}):
+              {{
+                (semaphore_peer_git_push.stderr | default('')) | replace(github_push_token, '***REDACTED***')
+                if (github_push_token | default('') | length > 0)
+                else (semaphore_peer_git_push.stderr | default('')) + ' (github_push_token is empty - GITHUB_PUSH_TOKEN missing from this template''s Variable Group)'
+              }}
+          when: semaphore_peer_git_push.rc != 0
 
 - name: Determine this stage's status and send its report (only when run standalone - the combined full-updates.yml email covers it otherwise)
   hosts: localhost
