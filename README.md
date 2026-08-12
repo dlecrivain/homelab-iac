@@ -78,8 +78,8 @@ VM target hosts are discovered automatically from the Proxmox cluster via a dyna
   - `send_report/` — Shared HTML email skeleton + CSS; sends the per-playbook report body
   - `pve_evacuate_host/` — Compute placement, then live-migrate every VM off a Proxmox node
   - `pve_migrate_vm/` — Live-migrate a single VM between Proxmox nodes (residual snapshot cleanup, async wait, health check)
-  - `pve_placement/` — Memory-aware placement calculation for evacuating one node
-  - `pve_rebalance/` — Cluster-wide rebalance calculation and move execution
+  - `pve_placement/` — Memory- and disk-space-aware placement calculation for evacuating one node
+  - `pve_rebalance/` — Cluster-wide rebalance calculation (memory and disk space) and move execution
   - `vzdump_backup/` — Run vzdump, locate the resulting archive, upload it to pCloud, prune the pCloud retention
   - `pcloud_backup_job/` — Run a single `rclone` backup (source/dest/mode/extra_args), used by `pcloud-backups.yml`
   - `phpipam_login/` — Log in to phpIPAM (`User token` mode) and resolve a subnet ID from its CIDR; shared by every other phpIPAM role

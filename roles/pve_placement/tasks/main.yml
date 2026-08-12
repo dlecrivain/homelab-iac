@@ -11,6 +11,7 @@
     {{ inventory_hostname }}
     {{ pve_other_nodes | join(',') }}
     {{ pve_safety_threshold }}
+    {{ pve_clone_storage }}
   register: placement_result
   changed_when: false
 
