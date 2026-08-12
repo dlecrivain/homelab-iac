@@ -1,2 +1,15 @@
 ansible_host: 192.168.1.114 # static IP assigned via phpIPAM by provision-vm.yml
 ansible_user: deploy
+
+health_check_url: "http://192.168.1.114"
+health_check_podman_user: root
+health_check_containers:
+  - bunkerweb-aio
+
+# ContainerName is bunkerweb-aio (the all-in-one image), but the Quadlet file is
+# bunkerweb.container, so the generated systemd unit is bunkerweb.service - hence the
+# service_name override (podman_update restarts {{ service_name | default(name) }}.service).
+podman_units:
+  - name: bunkerweb-aio
+    service_name: bunkerweb
+    scope: root
