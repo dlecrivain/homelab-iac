@@ -106,11 +106,45 @@
       include_role:
         name: katello_register_host
 
-    - name: Disable the default vendor repos now that Katello manages package sources (avoids selinux-policy-targeted version conflicts between baseos/appstream and the Katello content view)
-      ansible.builtin.command: dnf config-manager --set-disabled appstream baseos extras epel
-      become: true
+    - name: Get the Katello-managed repo IDs (defined in redhat.repo by the registration script)
+      ansible.builtin.command: grep -oP '^\[\K[^\]]+' /etc/yum.repos.d/redhat.repo
+      register: provision_katello_repo_ids
+      changed_when: false
+      failed_when: false
+      when: ansible_facts['pkg_mgr'] in ['dnf', 'yum']
+
+    - name: Fail clearly if no Katello-managed repos were found (redhat.repo missing or empty - registration may not have worked as expected, don't blindly disable everything below)
+      ansible.builtin.fail:
+        msg: "No repos found in /etc/yum.repos.d/redhat.repo - Katello registration may not have configured repos as expected"
+      when:
+        - ansible_facts['pkg_mgr'] in ['dnf', 'yum']
+        - provision_katello_repo_ids.stdout_lines | default([]) | length == 0
+
+    - name: Get the full repo list with status
+      ansible.builtin.command: dnf repolist all
+      register: provision_repo_list
       changed_when: false
       when: ansible_facts['pkg_mgr'] in ['dnf', 'yum']
+
+    - name: "Determine which enabled repos aren't managed by Katello (varies by template/version - e.g. epel isn't always present, so a fixed list would be wrong either way)"
+      ansible.builtin.set_fact:
+        provision_non_katello_repos: >-
+          {{
+            provision_repo_list.stdout_lines
+            | select('match', '^\S+.*\senabled\s*$')
+            | map('regex_replace', '^(\S+)\s.*$', '\1')
+            | reject('in', provision_katello_repo_ids.stdout_lines)
+            | list
+          }}
+      when: ansible_facts['pkg_mgr'] in ['dnf', 'yum']
+
+    - name: Disable every enabled repo that isn't managed by Katello (avoids selinux-policy-targeted version conflicts between the vendor repos and the Katello content view - a real incident on patchmon101)
+      ansible.builtin.command: "dnf config-manager --set-disabled {{ provision_non_katello_repos | join(' ') }}"
+      become: true
+      changed_when: false
+      when:
+        - ansible_facts['pkg_mgr'] in ['dnf', 'yum']
+        - provision_non_katello_repos | length > 0
 
     - name: Register the assigned IP as officially used in phpIPAM
       ansible.builtin.uri:
