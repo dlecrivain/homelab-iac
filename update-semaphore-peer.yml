@@ -28,6 +28,26 @@
     - name: Patch this peer (skipped if an earlier stage in an orchestrated run had a problem)
       when: hostvars['localhost'].orchestration_should_run | default(true)
       block:
+        - name: "Look up this peer's actual current Proxmox node (its inventory-cached proxmox_node can be stale - pve-updates.yml, running earlier in the same full-updates.yml orchestration, may have evacuated or rebalanced it onto a different node since the inventory was loaded)"
+          ansible.builtin.command: >
+            pvesh get /cluster/resources --type vm --output-format json
+          register: semaphore_peer_vm_resources
+          changed_when: false
+          delegate_to: "{{ proxmox_api_host }}"
+          remote_user: "{{ proxmox_ssh_user }}"
+          vars:
+            ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+
+        - name: Override the stale inventory node with this peer's actual current node (cluster/resources is cluster-wide and cluster-aware, unlike the per-node paths cleanup_snapshot/proxmox_snapshot query below)
+          ansible.builtin.set_fact:
+            proxmox_node: >-
+              {{
+                (semaphore_peer_vm_resources.stdout | from_json)
+                | selectattr('vmid', 'equalto', proxmox_vmid | int)
+                | map(attribute='node')
+                | first
+              }}
+
         - name: Step 1 - Remove any leftover patching snapshot from a previous run
           include_role:
             name: cleanup_snapshot
