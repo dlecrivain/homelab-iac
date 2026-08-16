@@ -47,10 +47,10 @@
     label: "{{ item.name }}"
   register: grafana_dashboard_download_result
 
-- name: "Fix up datasource placeholders in downloaded dashboards (grafana.com exports reference their datasource as a literal ${DS_xxx} template token, only ever substituted by Grafana's interactive import wizard - never resolved by file-based provisioning, so every panel would otherwise fail with 'datasource not found')"
+- name: "Fix up datasource placeholders in downloaded dashboards. Two distinct issues: (1) grafana.com exports reference their datasource as a literal ${DS_xxx} template token, only ever substituted by Grafana's interactive import wizard, never by file-based provisioning; (2) some dashboards instead use a real ${datasource} template variable (type: datasource, auto-discovery), which also doesn't reliably resolve for a file-provisioned dashboard (stays empty - confirmed live: panels using it stayed blank while sibling panels hardcoding the uid directly worked fine). Since this repo only ever provisions one Prometheus datasource, hardcoding its uid everywhere removes both failure modes at once."
   ansible.builtin.replace:
     path: "/etc/grafana/dashboards/{{ item.name }}.json"
-    regexp: '\$\{DS_[A-Za-z0-9_]+\}'
+    regexp: '\$\{(DS_[A-Za-z0-9_]+|datasource)\}'
     replace: "prometheus"
   become: true
   loop:
@@ -59,6 +59,20 @@
     - { id: 22381, name: smartctl-exporter }
   loop_control:
     label: "{{ item.name }}"
+
+- name: "Fix the Proxmox dashboard's Storage usage panel to distinguish nodes (pve_disk_usage_bytes/pve_disk_size_bytes only join pve_storage_info's 'storage' label by default, so nvme_data on pve1/pve2/pve3 all show as an identical, indistinguishable 'nvme_data' legend entry - group_left also pulling pve_storage_info's 'node' label fixes it)"
+  ansible.builtin.replace:
+    path: /etc/grafana/dashboards/proxmox-pve-exporter.json
+    regexp: "{{ item.regexp }}"
+    replace: "{{ item.replace }}"
+  become: true
+  loop:
+    - regexp: 'group_left\(storage\) pve_storage_info'
+      replace: 'group_left(storage, node) pve_storage_info'
+    - regexp: '"\{\{storage\}\}"'
+      replace: '"{{ "{{" }}node{{ "}}" }} - {{ "{{" }}storage{{ "}}" }}"'
+  loop_control:
+    label: "{{ item.regexp }}"
 
 - name: Deploy the admin secrets env file
   ansible.builtin.template:
