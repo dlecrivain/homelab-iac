@@ -1,2 +1,0 @@
-ansible_host: 192.168.1.119 # static IP assigned via phpIPAM by provision-vm.yml
-ansible_user: deploy
