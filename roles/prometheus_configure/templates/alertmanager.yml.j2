@@ -1,0 +1,16 @@
+route:
+  group_by: ['alertname', 'instance']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: email
+
+receivers:
+  - name: email
+    email_configs:
+      - to: "{{ notify_email_to }}"
+        from: "{{ smtp_user }}"
+        smarthost: "{{ smtp_host }}:{{ smtp_port }}"
+        auth_username: "{{ smtp_user }}"
+        auth_password: "{{ smtp_password }}"
+        require_tls: true

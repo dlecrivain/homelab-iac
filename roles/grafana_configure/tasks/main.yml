@@ -1,0 +1,105 @@
+---
+- name: Ensure Grafana's config directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+  loop:
+    - /etc/grafana/provisioning/datasources
+    - /etc/grafana/provisioning/dashboards
+    - /etc/grafana/dashboards
+
+- name: Deploy the Prometheus datasource provisioning file
+  ansible.builtin.template:
+    src: datasource.yml.j2
+    dest: /etc/grafana/provisioning/datasources/prometheus.yml
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  register: grafana_datasource_result
+
+- name: Deploy the dashboard provider config
+  ansible.builtin.copy:
+    src: dashboards.yml
+    dest: /etc/grafana/provisioning/dashboards/dashboards.yml
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  register: grafana_provider_result
+
+- name: "Download the community dashboards from grafana.com (fetched at deploy time, not vendored in git - keeps large upstream JSON out of this repo and always current)"
+  ansible.builtin.get_url:
+    url: "https://grafana.com/api/dashboards/{{ item.id }}/revisions/latest/download"
+    dest: "/etc/grafana/dashboards/{{ item.name }}.json"
+    mode: '0644'
+    force: true
+  become: true
+  loop:
+    - { id: 1860, name: node-exporter-full }
+    - { id: 10347, name: proxmox-pve-exporter }
+    - { id: 22381, name: smartctl-exporter }
+  loop_control:
+    label: "{{ item.name }}"
+  register: grafana_dashboard_download_result
+
+- name: Deploy the admin secrets env file
+  ansible.builtin.template:
+    src: grafana.env.j2
+    dest: /etc/grafana/grafana.env
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+  no_log: true
+  register: grafana_secrets_result
+
+- name: Ensure /etc/containers/systemd exists
+  ansible.builtin.file:
+    path: /etc/containers/systemd
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Deploy the Grafana Quadlet unit and data volume
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/containers/systemd/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  loop:
+    - grafana.container
+    - grafana_data.volume
+  register: grafana_quadlet_result
+
+- name: Determine whether anything actually changed
+  ansible.builtin.set_fact:
+    grafana_config_changed: >-
+      {{
+        grafana_datasource_result is changed
+        or grafana_provider_result is changed
+        or grafana_secrets_result is changed
+        or grafana_quadlet_result is changed
+      }}
+
+- name: Reload systemd to pick up any config/unit change
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
+  when: grafana_config_changed
+
+- name: Restart Grafana to pick up any config/unit change
+  ansible.builtin.systemd:
+    name: grafana.service
+    state: restarted
+    enabled: true
+  become: true
+  when: grafana_config_changed

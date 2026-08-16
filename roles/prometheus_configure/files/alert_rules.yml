@@ -1,0 +1,56 @@
+groups:
+  - name: fleet
+    rules:
+      - alert: NodeDown
+        expr: up{job=~"node_exporter.*"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} is down"
+          description: "node_exporter on {{ $labels.instance }} has been unreachable for 5 minutes."
+
+      - alert: DiskAlmostFull
+        expr: 100 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} * 100 / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) > 90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }} mountpoint {{ $labels.mountpoint }} is over 90% full"
+          description: "Filesystem usage on {{ $labels.instance }}:{{ $labels.mountpoint }} has been above 90% for 10 minutes."
+
+      - alert: RootMountLowSpace
+        expr: node_filesystem_avail_bytes{mountpoint="/"} * 100 / node_filesystem_size_bytes{mountpoint="/"} < 10
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} root mountpoint has less than 10% free"
+          description: "Root filesystem free space on {{ $labels.instance }} has been below 10% for 10 minutes."
+
+      - alert: TrackedContainerDown
+        expr: node_systemd_unit_state{state="failed"} == 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.name }} failed on {{ $labels.instance }}"
+          description: "Tracked systemd unit {{ $labels.name }} on {{ $labels.instance }} has been in a failed state for 2 minutes."
+
+      - alert: SmartctlDeviceFailing
+        expr: smartctl_device_smart_status == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SMART failure on {{ $labels.instance }} device {{ $labels.device }}"
+          description: "smartctl reports overall SMART health as FAILED for {{ $labels.device }} on {{ $labels.instance }}."
+
+      - alert: NvmeDataStorageAlmostFull
+        expr: pve_disk_usage_bytes{id="nvme_data"} / pve_disk_size_bytes{id="nvme_data"} > 0.9
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "nvme_data on {{ $labels.node }} is over 90% full"
+          description: "nvme_data storage usage on {{ $labels.node }} has been above 90% for 15 minutes - pve_placement/pve_rebalance may struggle to find room for new VMs."

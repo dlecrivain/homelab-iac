@@ -1,0 +1,28 @@
+---
+- name: Configure Grafana
+  hosts: grafana101
+  gather_facts: false
+  tasks:
+    - name: Install node_exporter (self-monitoring)
+      include_role:
+        name: node_exporter_install
+
+    - name: Deploy Grafana via Podman Quadlet
+      include_role:
+        name: grafana_configure
+
+    - name: Register this host as a Prometheus scrape target
+      include_role:
+        name: prometheus_target
+      vars:
+        prometheus_target_name: grafana101
+        prometheus_target_ip: "{{ ansible_host }}"
+        prometheus_target_job: node_exporter
+        prometheus_target_role_label: vm
+        prometheus_target_state: present
+
+    - name: Check services after config deploy
+      include_role:
+        name: health_check
+      vars:
+        health_check_fail_on_unhealthy: true

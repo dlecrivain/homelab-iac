@@ -65,3 +65,20 @@ bunkerweb_ovh_application_key: "{{ lookup('env', 'BUNKERWEB_OVH_APPLICATION_KEY'
 bunkerweb_ovh_application_secret: "{{ lookup('env', 'BUNKERWEB_OVH_APPLICATION_SECRET') }}"
 bunkerweb_ovh_consumer_key: "{{ lookup('env', 'BUNKERWEB_OVH_CONSUMER_KEY') }}"
 bunkerweb_admin_password: "{{ lookup('env', 'BUNKERWEB_ADMIN_PASSWORD') }}"
+
+# Monitoring (configure-prometheus.yml, configure-grafana.yml, configure-monitoring.yml,
+# prometheus_target role) - mirrors lpkat_host's exact pattern for the delegate_to target.
+prometheus_host: prometheus101
+grafana_host: grafana101
+node_exporter_version: "1.12.1"
+smartctl_exporter_version: "0.14.0"
+
+# Reuses the same PROXMOX_TOKEN_SECRET env var inventory/proxmox.yml already requires, exposed
+# as a normal var here so prometheus_pve_exporter_configure can consume it. user/token_id match
+# inventory/proxmox.yml's own hardcoded values exactly - same Proxmox API token, same identity.
+proxmox_token_secret: "{{ lookup('env', 'PROXMOX_TOKEN_SECRET') }}"
+proxmox_api_user: "ansible@pve"
+proxmox_api_token_id: "automation"
+
+# New secret: must be set in Semaphore's Variable Group before the first configure-grafana.yml run.
+grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') }}"

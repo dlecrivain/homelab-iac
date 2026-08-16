@@ -1,0 +1,19 @@
+[Unit]
+Description=Alertmanager
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+ContainerName=alertmanager
+Image=docker.io/prom/alertmanager:v0.33.1
+Volume=/etc/alertmanager:/etc/alertmanager:Z,ro
+Volume=alertmanager_data.volume:/alertmanager:Z
+PublishPort=9093:9093
+Exec=--config.file=/etc/alertmanager/alertmanager.yml --storage.path=/alertmanager
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

@@ -102,6 +102,10 @@
       become: true
       when: ansible_facts['pkg_mgr'] == 'apt'
 
+    - name: Install node_exporter for fleet monitoring
+      include_role:
+        name: node_exporter_install
+
     - name: Register this host with Katello
       include_role:
         name: katello_register_host
@@ -161,6 +165,17 @@
         status_code: [200, 201]
       delegate_to: localhost
       no_log: true
+
+    - name: "Register this VM as a Prometheus scrape target (no-op on prometheus101's own provisioning run, before it exists in inventory yet - configure-prometheus.yml handles that bootstrap case itself)"
+      include_role:
+        name: prometheus_target
+      vars:
+        prometheus_target_name: "{{ new_vm_name }}"
+        prometheus_target_ip: "{{ resolved_new_ip }}"
+        prometheus_target_job: node_exporter
+        prometheus_target_role_label: vm
+        prometheus_target_state: present
+      when: "'prometheus101' in hostvars"
 
 - name: Record the new VM's static ansible_host in this repo
   hosts: localhost
@@ -244,4 +259,4 @@
             <tr><th>Proxmox VMID</th><td>{{ new_vmid }}</td></tr>
             <tr><th>Node</th><td>{{ pve_clone_node }}</td></tr>
           </table>
-          <p>Registered with Katello, updated, Podman + git installed, host_vars committed and pushed to this repo.</p>
+          <p>Registered with Katello, updated, Podman + git installed, host_vars committed and pushed to this repo, node_exporter installed and registered with Prometheus.</p>

@@ -1,0 +1,29 @@
+---
+- name: Fail clearly if prometheus_target_state isn't present or absent
+  ansible.builtin.fail:
+    msg: "prometheus_target_state must be 'present' or 'absent', got '{{ prometheus_target_state | default('(undefined)') }}'"
+  when: prometheus_target_state | default('') not in ['present', 'absent']
+
+- name: Determine the exporter port for this target's job
+  ansible.builtin.set_fact:
+    prometheus_target_port: "{{ {'node_exporter': 9100, 'smartctl_exporter': 9633}[prometheus_target_job] }}"
+  when: prometheus_target_state == 'present'
+
+- name: Register this host as a Prometheus scrape target
+  ansible.builtin.template:
+    src: target.json.j2
+    dest: "/etc/prometheus/file_sd/{{ prometheus_target_job }}_targets.d/{{ prometheus_target_name }}.json"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  delegate_to: "{{ prometheus_host }}"
+  when: prometheus_target_state == 'present'
+
+- name: Remove this host as a Prometheus scrape target (no-op if already absent)
+  ansible.builtin.file:
+    path: "/etc/prometheus/file_sd/{{ prometheus_target_job }}_targets.d/{{ prometheus_target_name }}.json"
+    state: absent
+  become: true
+  delegate_to: "{{ prometheus_host }}"
+  when: prometheus_target_state == 'absent'

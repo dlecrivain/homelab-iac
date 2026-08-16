@@ -1,0 +1,60 @@
+---
+- name: One-time (or reconciliation) fleet monitoring backfill - every VM
+  hosts: "{{ target_hosts | default('proxmox_all_qemu') }}"
+  gather_facts: false
+  tasks:
+    - name: Install node_exporter
+      include_role:
+        name: node_exporter_install
+
+    - name: "Resolve this VM's real IP (ansible_host is a real IP for hosts provisioned by provision-vm.yml, but the 5 legacy hosts that predate it resolve ansible_host to their own hostname via /etc/hosts on semaphore101 only - not usable from prometheus101, so fall back to extracting the IP from health_check_url the same way decommission-vm.yml/remove-cloud-init.yml already do)"
+      ansible.builtin.set_fact:
+        monitoring_target_ip: >-
+          {{
+            ansible_host
+            if (ansible_host | regex_search('^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'))
+            else (health_check_url | default('') | regex_replace('^https?://([^:/]+).*$', '\1'))
+          }}
+
+    - name: Register this host as a Prometheus scrape target
+      include_role:
+        name: prometheus_target
+      vars:
+        prometheus_target_name: "{{ inventory_hostname }}"
+        prometheus_target_ip: "{{ monitoring_target_ip }}"
+        prometheus_target_job: node_exporter
+        prometheus_target_role_label: vm
+        prometheus_target_state: present
+      when: monitoring_target_ip | length > 0
+
+- name: One-time (or reconciliation) fleet monitoring backfill - Proxmox nodes
+  hosts: pve1,pve2,pve3
+  gather_facts: false
+  tasks:
+    - name: Install node_exporter
+      include_role:
+        name: node_exporter_install
+
+    - name: Install smartctl_exporter
+      include_role:
+        name: smartctl_exporter_install
+
+    - name: Register this node's node_exporter as a Prometheus scrape target
+      include_role:
+        name: prometheus_target
+      vars:
+        prometheus_target_name: "{{ inventory_hostname }}"
+        prometheus_target_ip: "{{ ansible_host }}"
+        prometheus_target_job: node_exporter
+        prometheus_target_role_label: pve_node
+        prometheus_target_state: present
+
+    - name: Register this node's smartctl_exporter as a Prometheus scrape target
+      include_role:
+        name: prometheus_target
+      vars:
+        prometheus_target_name: "{{ inventory_hostname }}"
+        prometheus_target_ip: "{{ ansible_host }}"
+        prometheus_target_job: smartctl_exporter
+        prometheus_target_role_label: pve_node
+        prometheus_target_state: present

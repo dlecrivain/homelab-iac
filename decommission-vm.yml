@@ -72,6 +72,15 @@
       vars:
         phpipam_remove_ip: "{{ decom_ip }}"
 
+    - name: Remove this host as a Prometheus scrape target
+      include_role:
+        name: prometheus_target
+      vars:
+        prometheus_target_name: "{{ new_vm_name }}"
+        prometheus_target_job: node_exporter
+        prometheus_target_state: absent
+      when: "'prometheus101' in hostvars"
+
 - name: Destroy the VM and remove it from this repo
   hosts: localhost
   gather_facts: false
@@ -152,5 +161,6 @@
             {% else %}
             A final safety backup was taken before destruction.
             {% endif %}
-            Deregistered from Katello, IP removed from phpIPAM, VM destroyed, host_vars removed from this repo.
+            Deregistered from Katello, IP removed from phpIPAM, removed from Prometheus monitoring,
+            VM destroyed, host_vars removed from this repo.
           </p>

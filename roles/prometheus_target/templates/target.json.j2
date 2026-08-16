@@ -1,0 +1,9 @@
+[
+  {
+    "targets": ["{{ prometheus_target_ip }}:{{ prometheus_target_port }}"],
+    "labels": {
+      "instance": "{{ prometheus_target_name }}",
+      "role": "{{ prometheus_target_role_label }}"
+    }
+  }
+]

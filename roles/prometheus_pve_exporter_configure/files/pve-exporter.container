@@ -1,0 +1,17 @@
+[Unit]
+Description=Prometheus PVE Exporter
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+ContainerName=pve-exporter
+Image=docker.io/prompve/prometheus-pve-exporter:3.10.0
+Volume=/etc/pve-exporter/pve.yml:/etc/prometheus/pve.yml:Z,ro
+PublishPort=9221:9221
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

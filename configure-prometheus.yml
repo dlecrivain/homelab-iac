@@ -1,0 +1,36 @@
+---
+- name: Configure Prometheus, Alertmanager and the PVE exporter
+  hosts: prometheus101
+  gather_facts: false
+  tasks:
+    - name: Resolve a reachable Proxmox node (used by the pve_exporter scrape target)
+      include_role:
+        name: resolve_proxmox_api_host
+
+    - name: Install node_exporter (self-monitoring)
+      include_role:
+        name: node_exporter_install
+
+    - name: Register this host as its own Prometheus scrape target
+      include_role:
+        name: prometheus_target
+      vars:
+        prometheus_target_name: prometheus101
+        prometheus_target_ip: "{{ ansible_host }}"
+        prometheus_target_job: node_exporter
+        prometheus_target_role_label: vm
+        prometheus_target_state: present
+
+    - name: Deploy Prometheus and Alertmanager via Podman Quadlet
+      include_role:
+        name: prometheus_configure
+
+    - name: Deploy the PVE exporter via Podman Quadlet
+      include_role:
+        name: prometheus_pve_exporter_configure
+
+    - name: Check services after config deploy
+      include_role:
+        name: health_check
+      vars:
+        health_check_fail_on_unhealthy: true

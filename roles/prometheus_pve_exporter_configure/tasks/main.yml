@@ -1,0 +1,53 @@
+---
+- name: Ensure /etc/pve-exporter exists
+  ansible.builtin.file:
+    path: /etc/pve-exporter
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  become: true
+
+- name: Deploy the pve-exporter config (embeds the Proxmox API token - not committed anywhere)
+  ansible.builtin.template:
+    src: pve.yml.j2
+    dest: /etc/pve-exporter/pve.yml
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+  no_log: true
+  register: pve_exporter_config_result
+
+- name: Ensure /etc/containers/systemd exists
+  ansible.builtin.file:
+    path: /etc/containers/systemd
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Deploy the pve-exporter Quadlet unit
+  ansible.builtin.copy:
+    src: pve-exporter.container
+    dest: /etc/containers/systemd/pve-exporter.container
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  register: pve_exporter_quadlet_result
+
+- name: Reload systemd and restart pve-exporter if anything changed
+  become: true
+  when: pve_exporter_config_result is changed or pve_exporter_quadlet_result is changed
+  block:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Restart pve-exporter
+      ansible.builtin.systemd:
+        name: pve-exporter.service
+        state: restarted
+        enabled: true

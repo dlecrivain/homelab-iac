@@ -1,0 +1,114 @@
+---
+- name: Ensure /etc/prometheus and its file_sd subdirectories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+  loop:
+    - /etc/prometheus
+    - /etc/prometheus/file_sd
+    - /etc/prometheus/file_sd/node_exporter_targets.d
+    - /etc/prometheus/file_sd/smartctl_exporter_targets.d
+
+- name: Ensure /etc/alertmanager exists
+  ansible.builtin.file:
+    path: /etc/alertmanager
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  become: true
+
+- name: Deploy the static alert rules
+  ansible.builtin.copy:
+    src: alert_rules.yml
+    dest: /etc/prometheus/alert_rules.yml
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  register: prometheus_alert_rules_result
+
+- name: Deploy the Prometheus config
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: /etc/prometheus/prometheus.yml
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  register: prometheus_config_result
+
+- name: Deploy the Alertmanager config (embeds the SMTP password - not committed anywhere, templated from group_vars/all.yml's lookup('env', ...) values)
+  ansible.builtin.template:
+    src: alertmanager.yml.j2
+    dest: /etc/alertmanager/alertmanager.yml
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+  no_log: true
+  register: alertmanager_config_result
+
+- name: Ensure /etc/containers/systemd exists
+  ansible.builtin.file:
+    path: /etc/containers/systemd
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Deploy the data volume Quadlet definitions
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/containers/systemd/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  loop:
+    - prometheus_data.volume
+    - alertmanager_data.volume
+
+- name: Deploy the Prometheus and Alertmanager Quadlet units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/containers/systemd/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  loop:
+    - prometheus.container
+    - alertmanager.container
+  register: prometheus_quadlet_result
+
+- name: Determine whether anything actually changed
+  ansible.builtin.set_fact:
+    prometheus_config_changed: >-
+      {{
+        prometheus_alert_rules_result is changed
+        or prometheus_config_result is changed
+        or alertmanager_config_result is changed
+        or prometheus_quadlet_result is changed
+      }}
+
+- name: Reload systemd to pick up any config/unit change
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
+  when: prometheus_config_changed
+
+- name: Restart Prometheus and Alertmanager to pick up any config/unit change
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: restarted
+  become: true
+  loop:
+    - prometheus.service
+    - alertmanager.service
+  when: prometheus_config_changed
