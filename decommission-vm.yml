@@ -30,8 +30,10 @@
       include_role:
         name: capture_start_time
 
-    - name: "Migrate to {{ vm_backup_node }} for the safety backup, if not already there"
-      when: decom_node != vm_backup_node
+    - name: "Migrate to {{ vm_backup_node }} for the safety backup, if not already there (skipped entirely along with the backup itself when decom_skip_backup is set - no point moving it for a backup that won't happen)"
+      when:
+        - decom_node != vm_backup_node
+        - not (decom_skip_backup | default(false) | bool)
       block:
         - name: Migrate VM for backup
           include_role:
@@ -52,6 +54,7 @@
         vzdump_vmid: "{{ decom_vmid }}"
         vzdump_vm_name: "{{ new_vm_name }}"
         vzdump_purge_all_others_after_upload: true
+      when: not (decom_skip_backup | default(false) | bool)
 
 - name: Unregister from Katello and phpIPAM
   hosts: localhost
@@ -143,4 +146,11 @@
             <tr><th>IP address</th><td>{{ decom_ip }}</td></tr>
             <tr><th>Proxmox VMID</th><td>{{ decom_vmid }}</td></tr>
           </table>
-          <p>A final safety backup was taken before destruction. Deregistered from Katello, IP removed from phpIPAM, VM destroyed, host_vars removed from this repo.</p>
+          <p>
+            {% if decom_skip_backup | default(false) | bool %}
+            No safety backup was taken (decom_skip_backup was set).
+            {% else %}
+            A final safety backup was taken before destruction.
+            {% endif %}
+            Deregistered from Katello, IP removed from phpIPAM, VM destroyed, host_vars removed from this repo.
+          </p>
