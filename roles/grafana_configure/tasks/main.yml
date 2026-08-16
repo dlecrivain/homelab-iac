@@ -74,6 +74,19 @@
   loop_control:
     label: "{{ item.regexp }}"
 
+- name: "Default every dashboard to the last hour (grafana.com exports keep whatever default range their author picked - smartctl_exporter's was 'now-1y', which with a monitoring stack only running a few hours produces a 12h query step where almost none of the sample points land inside the narrow window that actually has data, rendering as empty panels even though the data itself is fine)"
+  ansible.builtin.replace:
+    path: "/etc/grafana/dashboards/{{ item.name }}.json"
+    regexp: '"from": "now-[^"]*"'
+    replace: '"from": "now-1h"'
+  become: true
+  loop:
+    - { id: 1860, name: node-exporter-full }
+    - { id: 10347, name: proxmox-pve-exporter }
+    - { id: 22381, name: smartctl-exporter }
+  loop_control:
+    label: "{{ item.name }}"
+
 - name: Deploy the admin secrets env file
   ansible.builtin.template:
     src: grafana.env.j2
