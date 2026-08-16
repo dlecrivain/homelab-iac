@@ -28,6 +28,16 @@
     mode: '0755'
   become: true
 
+- name: "Deploy the shared monitoring network Quadlet (own copy, in case this role ever runs before prometheus_configure - identical, idempotent content)"
+  ansible.builtin.copy:
+    src: monitoring-network.network
+    dest: /etc/containers/systemd/monitoring-network.network
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  register: pve_exporter_network_result
+
 - name: Deploy the pve-exporter Quadlet unit
   ansible.builtin.copy:
     src: pve-exporter.container
@@ -40,7 +50,7 @@
 
 - name: Reload systemd and restart pve-exporter if anything changed
   become: true
-  when: pve_exporter_config_result is changed or pve_exporter_quadlet_result is changed
+  when: pve_exporter_config_result is changed or pve_exporter_network_result is changed or pve_exporter_quadlet_result is changed
   block:
     - name: Reload systemd
       ansible.builtin.systemd:

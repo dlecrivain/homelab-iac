@@ -81,6 +81,16 @@
     - prometheus_data.volume
     - alertmanager_data.volume
 
+- name: "Deploy the shared monitoring network Quadlet (lets these containers resolve each other by name - PublishPort= only exposes a port to the LAN, it does NOT make sibling containers reachable via 127.0.0.1/localhost, since each container gets its own isolated network namespace by default; same pattern semaphore_provision already uses for semaphore/semaphore-db)"
+  ansible.builtin.copy:
+    src: monitoring-network.network
+    dest: /etc/containers/systemd/monitoring-network.network
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  register: prometheus_network_result
+
 - name: Deploy the Prometheus and Alertmanager Quadlet units
   ansible.builtin.copy:
     src: "{{ item }}"
@@ -101,6 +111,7 @@
         prometheus_alert_rules_result is changed
         or prometheus_config_result is changed
         or alertmanager_config_result is changed
+        or prometheus_network_result is changed
         or prometheus_quadlet_result is changed
       }}
 

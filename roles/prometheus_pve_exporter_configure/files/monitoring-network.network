@@ -1,0 +1,4 @@
+[Network]
+NetworkName=monitoring_network
+Driver=bridge
+DNS=192.168.1.254

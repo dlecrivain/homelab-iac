@@ -7,13 +7,19 @@ rule_files:
 
 alerting:
   alertmanagers:
+    # Container name, not 127.0.0.1/localhost: each Quadlet container gets its own network
+    # namespace by default, so "localhost" from inside Prometheus's container only ever
+    # reaches itself. monitoring-network.network (shared by all 3 containers) gives DNS
+    # resolution by container name instead - the same pattern semaphore_provision already
+    # uses for semaphore -> semaphore_db.
     - static_configs:
-        - targets: ["localhost:9093"]
+        - targets: ["alertmanager:9093"]
 
 scrape_configs:
   - job_name: prometheus
     static_configs:
-      - targets: ["localhost:9090"]
+      # 127.0.0.1 is correct here specifically because this is Prometheus scraping itself.
+      - targets: ["127.0.0.1:9090"]
 
   - job_name: pve_exporter
     metrics_path: /pve
@@ -22,7 +28,7 @@ scrape_configs:
       node: ["1"]
       target: ["{{ proxmox_api_host }}"]
     static_configs:
-      - targets: ["localhost:9221"]
+      - targets: ["pve-exporter:9221"]
 
   - job_name: node_exporter
     file_sd_configs:
