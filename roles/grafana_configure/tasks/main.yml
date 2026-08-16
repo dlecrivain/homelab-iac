@@ -87,6 +87,15 @@
   loop_control:
     label: "{{ item.name }}"
 
+- name: "Deploy the fleet alerts dashboard (custom, not fetched from grafana.com - queries Prometheus's own ALERTS meta-metric, which carries every alert rule's own labels including severity, so this needs no exporter-specific knowledge and stays correct as alert_rules.yml grows)"
+  ansible.builtin.copy:
+    src: fleet-alerts.json
+    dest: /etc/grafana/dashboards/fleet-alerts.json
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
 - name: Deploy the admin secrets env file
   ansible.builtin.template:
     src: grafana.env.j2
