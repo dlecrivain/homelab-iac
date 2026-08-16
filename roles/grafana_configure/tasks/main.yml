@@ -87,6 +87,25 @@
   loop_control:
     label: "{{ item.name }}"
 
+- name: "Switch the smartctl dashboard's NVMe Read/Written panels from cumulative bytes to throughput (rate). A plain regex replace risked also matching the unrelated 'Device Critical Warning' panel, which happens to share the same unit:bytes field elsewhere in the file - a small script targeting the exact panel titles is precise regardless of surrounding structure"
+  block:
+    - name: Copy the throughput-fix script
+      ansible.builtin.copy:
+        src: fix_nvme_throughput.py
+        dest: /tmp/fix_nvme_throughput.py
+        mode: '0755'
+
+    - name: Run the throughput-fix script
+      ansible.builtin.command: python3 /tmp/fix_nvme_throughput.py /etc/grafana/dashboards/smartctl-exporter.json
+      changed_when: "'changed:True' in fix_nvme_throughput_result.stdout"
+      register: fix_nvme_throughput_result
+
+    - name: Clean up the throughput-fix script
+      ansible.builtin.file:
+        path: /tmp/fix_nvme_throughput.py
+        state: absent
+  become: true
+
 - name: "Deploy the fleet alerts dashboard (custom, not fetched from grafana.com - queries Prometheus's own ALERTS meta-metric, which carries every alert rule's own labels including severity, so this needs no exporter-specific knowledge and stays correct as alert_rules.yml grows)"
   ansible.builtin.copy:
     src: fleet-alerts.json
