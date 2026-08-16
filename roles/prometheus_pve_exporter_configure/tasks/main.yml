@@ -8,13 +8,13 @@
     mode: '0700'
   become: true
 
-- name: Deploy the pve-exporter config (embeds the Proxmox API token - not committed anywhere)
+- name: "Deploy the pve-exporter config (embeds the Proxmox API token - not committed anywhere). Group-owned by GID 101 (the 'prometheus' user prompve/prometheus-pve-exporter runs as by default, confirmed via podman inspect) - this is a file-to-file bind mount, so the container's own non-root process reads it directly and needs group-read access, unlike EnvironmentFile= (read by podman-as-root on the host before the container starts)"
   ansible.builtin.template:
     src: pve.yml.j2
     dest: /etc/pve-exporter/pve.yml
     owner: root
-    group: root
-    mode: '0600'
+    group: '101'
+    mode: '0640'
   become: true
   no_log: true
   register: pve_exporter_config_result

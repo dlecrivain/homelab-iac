@@ -1,4 +1,11 @@
 ---
+- name: Disable Cockpit (frees port 9090 for Prometheus - Cockpit's default web console listens there too, and it's enabled by default on the Rocky 10 golden template every fleet VM is cloned from; prometheus101 has no other use for it)
+  ansible.builtin.systemd:
+    name: cockpit.socket
+    state: stopped
+    enabled: false
+  become: true
+
 - name: Ensure /etc/prometheus and its file_sd subdirectories exist
   ansible.builtin.file:
     path: "{{ item }}"
@@ -13,13 +20,13 @@
     - /etc/prometheus/file_sd/node_exporter_targets.d
     - /etc/prometheus/file_sd/smartctl_exporter_targets.d
 
-- name: Ensure /etc/alertmanager exists
+- name: "Ensure /etc/alertmanager exists (group-owned by GID 65534 with search permission - the container's non-root 'nobody' user needs to traverse into this directory to read alertmanager.yml)"
   ansible.builtin.file:
     path: /etc/alertmanager
     state: directory
     owner: root
-    group: root
-    mode: '0700'
+    group: '65534'
+    mode: '0750'
   become: true
 
 - name: Deploy the static alert rules
@@ -42,13 +49,13 @@
   become: true
   register: prometheus_config_result
 
-- name: Deploy the Alertmanager config (embeds the SMTP password - not committed anywhere, templated from group_vars/all.yml's lookup('env', ...) values)
+- name: "Deploy the Alertmanager config (embeds the SMTP password - not committed anywhere, templated from group_vars/all.yml's lookup('env', ...) values). Group-owned by GID 65534 (the 'nobody' user prom/alertmanager runs as by default, confirmed via podman inspect - not root:0600, since the container can't read a root-only file)"
   ansible.builtin.template:
     src: alertmanager.yml.j2
     dest: /etc/alertmanager/alertmanager.yml
     owner: root
-    group: root
-    mode: '0600'
+    group: '65534'
+    mode: '0640'
   become: true
   no_log: true
   register: alertmanager_config_result
