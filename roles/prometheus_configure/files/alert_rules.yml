@@ -47,10 +47,10 @@ groups:
           description: "smartctl reports overall SMART health as FAILED for {{ $labels.device }} on {{ $labels.instance }}."
 
       - alert: NvmeDataStorageAlmostFull
-        expr: pve_disk_usage_bytes{id="nvme_data"} / pve_disk_size_bytes{id="nvme_data"} > 0.9
+        expr: pve_disk_usage_bytes{id=~"storage/.*/nvme_data"} / pve_disk_size_bytes{id=~"storage/.*/nvme_data"} > 0.9
         for: 15m
         labels:
           severity: warning
         annotations:
-          summary: "nvme_data on {{ $labels.node }} is over 90% full"
-          description: "nvme_data storage usage on {{ $labels.node }} has been above 90% for 15 minutes - pve_placement/pve_rebalance may struggle to find room for new VMs."
+          summary: "{{ $labels.id }} is over 90% full"
+          description: "nvme_data storage usage on {{ $labels.id }} has been above 90% for 15 minutes - pve_placement/pve_rebalance may struggle to find room for new VMs."
