@@ -45,3 +45,4 @@
       {{ report_body }}
       </body>
       </html>
+  no_log: true

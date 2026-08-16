@@ -184,6 +184,7 @@
     - name: Write host_vars/<new_vm_name>.yml with the resolved static IP
       ansible.builtin.copy:
         dest: "{{ playbook_dir }}/host_vars/{{ new_vm_name }}.yml"
+        mode: '0644'
         content: |
           ansible_host: {{ resolved_new_ip }} # static IP assigned via phpIPAM by provision-vm.yml
           ansible_user: deploy
