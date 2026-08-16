@@ -47,6 +47,19 @@
     label: "{{ item.name }}"
   register: grafana_dashboard_download_result
 
+- name: "Fix up datasource placeholders in downloaded dashboards (grafana.com exports reference their datasource as a literal ${DS_xxx} template token, only ever substituted by Grafana's interactive import wizard - never resolved by file-based provisioning, so every panel would otherwise fail with 'datasource not found')"
+  ansible.builtin.replace:
+    path: "/etc/grafana/dashboards/{{ item.name }}.json"
+    regexp: '\$\{DS_[A-Za-z0-9_]+\}'
+    replace: "prometheus"
+  become: true
+  loop:
+    - { id: 1860, name: node-exporter-full }
+    - { id: 10347, name: proxmox-pve-exporter }
+    - { id: 22381, name: smartctl-exporter }
+  loop_control:
+    label: "{{ item.name }}"
+
 - name: Deploy the admin secrets env file
   ansible.builtin.template:
     src: grafana.env.j2
