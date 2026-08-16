@@ -1,4 +1,24 @@
 ---
+# Same become/become_user logic podman_update already uses per-unit (roles/podman_update/tasks/update_unit.yml),
+# applied once here since image pruning acts on the whole host's image store, not a single unit. Every
+# podman_units entry on a host shares the same scope/become_user in practice, so the first entry is
+# representative. Without this, podman images/rmi ran as the plain connecting user - invisible to a
+# rootful store (needs root) and to a different rootless user's store alike (real bug: confirmed live,
+# image_retention had been silently pruning nothing at all, on every host, since it was introduced).
+- name: Determine become settings for image retention from this host's own podman_units
+  ansible.builtin.set_fact:
+    image_retention_unit: "{{ podman_units[0] }}"
+
+- name: Get UID for cross-user rootless image retention
+  ansible.builtin.command: "id -u {{ image_retention_unit.become_user }}"
+  register: image_retention_uid
+  changed_when: false
+  when: image_retention_unit.scope == 'user' and image_retention_unit.become_user is defined and image_retention_unit.become_user != ansible_user
+
+- name: Set environment for cross-user rootless podman
+  ansible.builtin.set_fact:
+    image_retention_env: "{{ {'XDG_RUNTIME_DIR': '/run/user/' + image_retention_uid.stdout, 'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/run/user/' + image_retention_uid.stdout + '/bus'} if (image_retention_unit.scope == 'user' and image_retention_unit.become_user is defined and image_retention_unit.become_user != ansible_user) else {} }}"
+
 - name: Copy the image retention script
   ansible.builtin.copy:
     src: prune_images.py
@@ -7,6 +27,9 @@
 
 - name: Run image retention (keep last 2 per repository)
   ansible.builtin.command: python3 /tmp/prune_images.py
+  become: "{{ image_retention_unit.scope == 'root' or (image_retention_unit.become_user is defined and image_retention_unit.become_user != ansible_user) }}"
+  become_user: "{{ 'root' if image_retention_unit.scope == 'root' else (image_retention_unit.become_user | default(omit)) }}"
+  environment: "{{ image_retention_env }}"
   register: retention_result
   changed_when: "'removed:0' not in retention_result.stdout"
 
