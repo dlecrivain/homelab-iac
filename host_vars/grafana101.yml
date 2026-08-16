@@ -1,2 +1,11 @@
 ansible_host: 192.168.1.120 # static IP assigned via phpIPAM by provision-vm.yml
 ansible_user: deploy
+
+health_check_url: "http://192.168.1.120:3000/api/health"
+health_check_podman_user: root
+health_check_containers:
+  - grafana
+
+podman_units:
+  - name: grafana
+    scope: root
