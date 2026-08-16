@@ -11,7 +11,11 @@
       include_role:
         name: node_exporter_install
 
-    - name: Register this host as its own Prometheus scrape target
+    - name: Deploy Prometheus and Alertmanager via Podman Quadlet
+      include_role:
+        name: prometheus_configure
+
+    - name: Register this host as its own Prometheus scrape target (must run after prometheus_configure, which creates /etc/prometheus/file_sd/*)
       include_role:
         name: prometheus_target
       vars:
@@ -20,10 +24,6 @@
         prometheus_target_job: node_exporter
         prometheus_target_role_label: vm
         prometheus_target_state: present
-
-    - name: Deploy Prometheus and Alertmanager via Podman Quadlet
-      include_role:
-        name: prometheus_configure
 
     - name: Deploy the PVE exporter via Podman Quadlet
       include_role:
