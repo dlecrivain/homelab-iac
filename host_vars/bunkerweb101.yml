@@ -113,3 +113,14 @@ bunkerweb_services:
       LIMIT_REQ_RATE: 20r/s
       LIMIT_REQ_BURST: 100
       LIMIT_CONN_MAX_HTTP2: 200
+
+  - name: grafana
+    domain: grafana.lecrivaindaniel.fr
+    extra:
+      REVERSE_PROXY_URL: "/"
+      REVERSE_PROXY_HOST: "http://192.168.1.120:3000"
+      # Grafana Live (dashboard auto-refresh/streaming) needs WebSockets
+      REVERSE_PROXY_WS: "yes"
+      REVERSE_PROXY_SEND_TIMEOUT: 3600s
+      REVERSE_PROXY_READ_TIMEOUT: 3600s
+      MAX_CLIENT_SIZE: 0
