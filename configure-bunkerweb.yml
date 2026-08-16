@@ -1,0 +1,14 @@
+---
+- name: Configure BunkerWeb's global settings and per-service reverse-proxy sites
+  hosts: bunkerweb101
+  gather_facts: false
+  tasks:
+    - name: Deploy BunkerWeb configuration via Podman Quadlet
+      include_role:
+        name: bunkerweb_configure
+
+    - name: Check services after config deploy
+      include_role:
+        name: health_check
+      vars:
+        health_check_fail_on_unhealthy: true

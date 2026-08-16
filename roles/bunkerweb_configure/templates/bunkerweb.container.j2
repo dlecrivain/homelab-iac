@@ -1,0 +1,28 @@
+[Unit]
+Description=BunkerWeb All-In-One (WAF + reverse proxy)
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+ContainerName=bunkerweb-aio
+Image=docker.io/bunkerity/bunkerweb-all-in-one:1.6.13
+Volume=bunkerweb-data.volume:/data:Z
+
+PublishPort=80:8080/tcp
+PublishPort=443:8443/tcp
+
+EnvironmentFile=/etc/bunkerweb/global.env
+EnvironmentFile=/etc/bunkerweb/secrets.env
+{% for service in bunkerweb_services %}
+EnvironmentFile=/etc/bunkerweb/conf.d/{{ service.name }}.env
+{% endfor %}
+
+Timezone=Europe/Paris
+LogDriver=journald
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

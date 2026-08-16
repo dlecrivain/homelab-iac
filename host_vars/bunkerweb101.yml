@@ -13,3 +13,103 @@ podman_units:
   - name: bunkerweb-aio
     service_name: bunkerweb
     scope: root
+
+# One entry per reverse-proxied site (configure-bunkerweb.yml). USE_REVERSE_PROXY=yes is added
+# automatically per service - only put the settings that differ from that baseline in "extra".
+# Adding/removing a service here and re-running configure-bunkerweb.yml is enough: SERVER_NAME
+# is generated from this list, and roles/bunkerweb_configure removes any conf.d/*.env file for a
+# service no longer listed here.
+bunkerweb_services:
+  - name: ui
+    domain: bunkerweb.lecrivaindaniel.fr
+    extra:
+      USE_TEMPLATE: ui
+      REVERSE_PROXY_URL: "/450e0191e6f1c4df03792171"
+      REVERSE_PROXY_HOST: "http://127.0.0.1:7000"
+
+  - name: pve1
+    domain: pve1.lecrivaindaniel.fr
+    extra:
+      REVERSE_PROXY_URL: "/"
+      REVERSE_PROXY_HOST: "https://192.168.1.101:8006"
+      REVERSE_PROXY_WS: "yes"
+      REVERSE_PROXY_SSL_VERIFY: "no"
+      REVERSE_PROXY_SEND_TIMEOUT: 3600s
+      REVERSE_PROXY_READ_TIMEOUT: 3600s
+      MAX_CLIENT_SIZE: 0
+      # CRS 934190 false-positives on /api2/extjs/nodes/localhost/* - same on all 3 PVE UIs
+      MODSECURITY_CRS_PLUGINS: ""
+
+  - name: pve2
+    domain: pve2.lecrivaindaniel.fr
+    extra:
+      REVERSE_PROXY_URL: "/"
+      REVERSE_PROXY_HOST: "https://192.168.1.102:8006"
+      REVERSE_PROXY_WS: "yes"
+      REVERSE_PROXY_SSL_VERIFY: "no"
+      REVERSE_PROXY_SEND_TIMEOUT: 3600s
+      REVERSE_PROXY_READ_TIMEOUT: 3600s
+      MAX_CLIENT_SIZE: 0
+      MODSECURITY_CRS_PLUGINS: ""
+
+  - name: pve3
+    domain: pve3.lecrivaindaniel.fr
+    extra:
+      REVERSE_PROXY_URL: "/"
+      REVERSE_PROXY_HOST: "https://192.168.1.103:8006"
+      REVERSE_PROXY_WS: "yes"
+      REVERSE_PROXY_SSL_VERIFY: "no"
+      REVERSE_PROXY_SEND_TIMEOUT: 3600s
+      REVERSE_PROXY_READ_TIMEOUT: 3600s
+      MAX_CLIENT_SIZE: 0
+      MODSECURITY_CRS_PLUGINS: ""
+
+  - name: semaphore
+    domain: semaphore.lecrivaindaniel.fr
+    extra:
+      REVERSE_PROXY_URL: "/"
+      REVERSE_PROXY_HOST: "http://192.168.1.117:3000"
+      REVERSE_PROXY_WS: "yes"
+      REVERSE_PROXY_SEND_TIMEOUT: 3600s
+      REVERSE_PROXY_READ_TIMEOUT: 3600s
+      MAX_CLIENT_SIZE: 0
+
+  - name: semaphore-bck
+    domain: semaphore-bck.lecrivaindaniel.fr
+    extra:
+      REVERSE_PROXY_URL: "/"
+      REVERSE_PROXY_HOST: "http://192.168.1.118:3000"
+      REVERSE_PROXY_WS: "yes"
+      REVERSE_PROXY_SEND_TIMEOUT: 3600s
+      REVERSE_PROXY_READ_TIMEOUT: 3600s
+      MAX_CLIENT_SIZE: 0
+
+  - name: ipam
+    domain: ipam.lecrivaindaniel.fr
+    extra:
+      REVERSE_PROXY_URL: "/"
+      REVERSE_PROXY_HOST: "http://192.168.1.116:8080"
+      MAX_CLIENT_SIZE: 10m
+      # sub_filter can't rewrite compressed responses
+      USE_GZIP: "no"
+      USE_BROTLI: "no"
+
+  - name: immich
+    domain: immich.lecrivaindaniel.fr
+    extra:
+      REVERSE_PROXY_URL: "/"
+      REVERSE_PROXY_HOST: "http://192.168.1.111:2283"
+      REVERSE_PROXY_WS: "yes"
+      REVERSE_PROXY_SEND_TIMEOUT: 3600s
+      REVERSE_PROXY_READ_TIMEOUT: 3600s
+      REVERSE_PROXY_CONNECT_TIMEOUT: 60s
+      MAX_CLIENT_SIZE: 0
+      REVERSE_PROXY_BUFFERING: "no"
+      # Client cache breaks session-dependent API responses (304 with empty body)
+      USE_CLIENT_CACHE: "no"
+      # The frontend must read immich_is_authenticated from JS
+      COOKIE_FLAGS: "* SameSite=Lax"
+      # The gallery UI issues many parallel requests on load
+      LIMIT_REQ_RATE: 20r/s
+      LIMIT_REQ_BURST: 100
+      LIMIT_CONN_MAX_HTTP2: 200

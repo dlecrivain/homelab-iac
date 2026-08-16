@@ -57,3 +57,11 @@ katello_activation_key: "ak-rocky-10-prod"
 katello_organization_id: 4
 katello_location_id: 2
 katello_operatingsystem_id: 7
+
+# BunkerWeb (configure-bunkerweb.yml) - OVH DNS-01 API credentials for Let's Encrypt, and the
+# admin UI password. Never committed: must be set in Semaphore's Variable Group before the
+# first run, or Let's Encrypt renewal / admin login will fail.
+bunkerweb_ovh_application_key: "{{ lookup('env', 'BUNKERWEB_OVH_APPLICATION_KEY') }}"
+bunkerweb_ovh_application_secret: "{{ lookup('env', 'BUNKERWEB_OVH_APPLICATION_SECRET') }}"
+bunkerweb_ovh_consumer_key: "{{ lookup('env', 'BUNKERWEB_OVH_CONSUMER_KEY') }}"
+bunkerweb_admin_password: "{{ lookup('env', 'BUNKERWEB_ADMIN_PASSWORD') }}"

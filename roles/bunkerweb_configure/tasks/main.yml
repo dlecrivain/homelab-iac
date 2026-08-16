@@ -1,0 +1,113 @@
+---
+- name: Ensure /etc/bunkerweb exists
+  ansible.builtin.file:
+    path: /etc/bunkerweb
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  become: true
+
+- name: Ensure /etc/bunkerweb/conf.d exists
+  ansible.builtin.file:
+    path: /etc/bunkerweb/conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  become: true
+
+- name: Deploy the global settings file
+  ansible.builtin.template:
+    src: global.env.j2
+    dest: /etc/bunkerweb/global.env
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+  register: bunkerweb_global_env_result
+
+- name: Deploy the secrets file (OVH DNS-01 credentials, admin password)
+  ansible.builtin.template:
+    src: secrets.env.j2
+    dest: /etc/bunkerweb/secrets.env
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+  no_log: true
+  register: bunkerweb_secrets_env_result
+
+- name: Deploy each service's reverse-proxy config
+  ansible.builtin.template:
+    src: service.env.j2
+    dest: "/etc/bunkerweb/conf.d/{{ item.name }}.env"
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+  loop: "{{ bunkerweb_services }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: bunkerweb_service_files_result
+
+- name: Find existing per-service config files
+  ansible.builtin.find:
+    paths: /etc/bunkerweb/conf.d
+    patterns: "*.env"
+  become: true
+  register: bunkerweb_existing_service_files
+
+- name: Remove config files for services no longer defined in bunkerweb_services (e.g. a decommissioned VM)
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  become: true
+  loop: "{{ bunkerweb_existing_service_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: (item.path | basename | regex_replace('\\.env$', '')) not in (bunkerweb_services | map(attribute='name') | list)
+  register: bunkerweb_removed_service_files_result
+
+- name: Deploy the data volume Quadlet definition
+  ansible.builtin.copy:
+    src: bunkerweb-data.volume
+    dest: /etc/containers/systemd/bunkerweb-data.volume
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: Deploy the BunkerWeb Quadlet unit
+  ansible.builtin.template:
+    src: bunkerweb.container.j2
+    dest: /etc/containers/systemd/bunkerweb.container
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  register: bunkerweb_quadlet_result
+
+- name: Determine whether anything actually changed
+  ansible.builtin.set_fact:
+    bunkerweb_config_changed: >-
+      {{
+        bunkerweb_global_env_result is changed
+        or bunkerweb_secrets_env_result is changed
+        or bunkerweb_service_files_result is changed
+        or bunkerweb_removed_service_files_result is changed
+        or bunkerweb_quadlet_result is changed
+      }}
+
+- name: Reload systemd to pick up any config/unit change
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
+  when: bunkerweb_config_changed
+
+- name: Restart bunkerweb.service to pick up any config/unit change
+  ansible.builtin.systemd:
+    name: bunkerweb.service
+    state: restarted
+  become: true
+  when: bunkerweb_config_changed
