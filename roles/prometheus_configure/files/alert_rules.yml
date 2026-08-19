@@ -72,3 +72,30 @@ groups:
         annotations:
           summary: "Controller warning on {{ $labels.instance }} device {{ $labels.device }}"
           description: "smartctl reports a non-zero critical_warning bitmask (low spare, degraded reliability, read-only mode, or similar) for {{ $labels.device }} on {{ $labels.instance }} for 5 minutes - can precede an outright SMART failure."
+
+      - alert: NvmeWearLevelHigh
+        expr: smartctl_device_percentage_used > 80
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }} device {{ $labels.device }} is over 80% of its rated write endurance"
+          description: "smartctl reports percentage_used above 80% for {{ $labels.device }} on {{ $labels.instance }} - the NVMe is approaching its manufacturer-rated write endurance limit."
+
+      - alert: NvmeSpareBelowThreshold
+        expr: smartctl_device_available_spare < smartctl_device_available_spare_threshold
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} device {{ $labels.device }} spare blocks below threshold"
+          description: "smartctl reports available_spare below the device's own available_spare_threshold for {{ $labels.device }} on {{ $labels.instance }} - the drive's manufacturer considers this reliability-critical."
+
+      - alert: NvmeMediaErrorsDetected
+        expr: smartctl_device_media_errors > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }} device {{ $labels.device }} has recorded media errors"
+          description: "smartctl reports a non-zero media_errors count for {{ $labels.device }} on {{ $labels.instance }} - indicates unrecoverable NAND errors have occurred."
