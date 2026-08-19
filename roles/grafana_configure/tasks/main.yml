@@ -32,80 +32,20 @@
   become: true
   register: grafana_provider_result
 
-- name: "Download the community dashboards from grafana.com (fetched at deploy time, not vendored in git - keeps large upstream JSON out of this repo and always current)"
-  ansible.builtin.get_url:
-    url: "https://grafana.com/api/dashboards/{{ item.id }}/revisions/latest/download"
-    dest: "/etc/grafana/dashboards/{{ item.name }}.json"
-    mode: '0644'
-    force: true
-  become: true
-  loop:
-    - { id: 1860, name: node-exporter-full }
-    - { id: 22381, name: smartctl-exporter }
-  loop_control:
-    label: "{{ item.name }}"
-  register: grafana_dashboard_download_result
-
-- name: "Fix up datasource placeholders in downloaded dashboards. Two distinct issues: (1) grafana.com exports reference their datasource as a literal ${DS_xxx} template token, only ever substituted by Grafana's interactive import wizard, never by file-based provisioning; (2) some dashboards instead use a real ${datasource} template variable (type: datasource, auto-discovery), which also doesn't reliably resolve for a file-provisioned dashboard (stays empty - confirmed live: panels using it stayed blank while sibling panels hardcoding the uid directly worked fine). Since this repo only ever provisions one Prometheus datasource, hardcoding its uid everywhere removes both failure modes at once."
-  ansible.builtin.replace:
-    path: "/etc/grafana/dashboards/{{ item.name }}.json"
-    regexp: '\$\{(DS_[A-Za-z0-9_]+|datasource)\}'
-    replace: "prometheus"
-  become: true
-  loop:
-    - { id: 1860, name: node-exporter-full }
-    - { id: 22381, name: smartctl-exporter }
-  loop_control:
-    label: "{{ item.name }}"
-
-- name: "Default every downloaded dashboard to the last hour (grafana.com exports keep whatever default range their author picked - smartctl_exporter's was 'now-1y', which with a monitoring stack only running a few hours produces a 12h query step where almost none of the sample points land inside the narrow window that actually has data, rendering as empty panels even though the data itself is fine)"
-  ansible.builtin.replace:
-    path: "/etc/grafana/dashboards/{{ item.name }}.json"
-    regexp: '"from": "now-[^"]*"'
-    replace: '"from": "now-1h"'
-  become: true
-  loop:
-    - { id: 1860, name: node-exporter-full }
-    - { id: 22381, name: smartctl-exporter }
-  loop_control:
-    label: "{{ item.name }}"
-
-- name: "Deploy the Proxmox dashboard (vendored, not fetched from grafana.com - originally patched at deploy time like the other two, but the user then customized the layout by hand in Grafana's UI: dropped two empty placeholder panels and Space allocation, widened CPU/Memory history, merged Current CPU/Current memory/Storage usage onto one row. A get_url+patch pipeline would discard hand edits on every re-run, so this dashboard is now committed as-is - it already carries every earlier fix baked in: hardcoded datasource uid, per-node legend via label_replace, usage-ratio storage query, 1h default range - and deployed as a plain file, same as fleet-alerts.json below"
+- name: "Deploy all dashboards (vendored in git, not fetched from grafana.com at deploy time - originally node-exporter-full/smartctl-exporter were downloaded fresh and patched on every run, but that meant a redeploy could silently discard a hand-edit and pull in unreviewed upstream changes at the same time. All 3 are now committed as-is, already carrying every earlier fix baked in (hardcoded datasource uid, 1h default range, smartctl NVMe throughput panels, Proxmox per-node legends/usage-ratio query/hand-customized layout) - a plain file deploy, same as fleet-alerts.json. Vendoring also caught a real bug: node-exporter-full used a differently-named \\${ds_prometheus} placeholder that the old case-sensitive DS_xxx/datasource regex never matched, so ~127 of its panels had been rendering blank the whole time"
   ansible.builtin.copy:
-    src: proxmox-pve-exporter.json
-    dest: /etc/grafana/dashboards/proxmox-pve-exporter.json
+    src: "{{ item }}"
+    dest: "/etc/grafana/dashboards/{{ item }}"
     owner: root
     group: root
     mode: '0644'
   become: true
-
-- name: "Switch the smartctl dashboard's NVMe Read/Written panels from cumulative bytes to throughput (rate). A plain regex replace risked also matching the unrelated 'Device Critical Warning' panel, which happens to share the same unit:bytes field elsewhere in the file - a small script targeting the exact panel titles is precise regardless of surrounding structure"
-  block:
-    - name: Copy the throughput-fix script
-      ansible.builtin.copy:
-        src: fix_nvme_throughput.py
-        dest: /tmp/fix_nvme_throughput.py
-        mode: '0755'
-
-    - name: Run the throughput-fix script
-      ansible.builtin.command: python3 /tmp/fix_nvme_throughput.py /etc/grafana/dashboards/smartctl-exporter.json
-      changed_when: "'changed:True' in fix_nvme_throughput_result.stdout"
-      register: fix_nvme_throughput_result
-
-    - name: Clean up the throughput-fix script
-      ansible.builtin.file:
-        path: /tmp/fix_nvme_throughput.py
-        state: absent
-  become: true
-
-- name: "Deploy the fleet alerts dashboard (custom, not fetched from grafana.com - queries Prometheus's own ALERTS meta-metric, which carries every alert rule's own labels including severity, so this needs no exporter-specific knowledge and stays correct as alert_rules.yml grows)"
-  ansible.builtin.copy:
-    src: fleet-alerts.json
-    dest: /etc/grafana/dashboards/fleet-alerts.json
-    owner: root
-    group: root
-    mode: '0644'
-  become: true
+  loop:
+    - node-exporter-full.json
+    - proxmox-pve-exporter.json
+    - smartctl-exporter.json
+    - fleet-alerts.json
+  register: grafana_dashboard_deploy_result
 
 - name: Deploy the admin secrets env file
   ansible.builtin.template:
@@ -146,6 +86,7 @@
       {{
         grafana_datasource_result is changed
         or grafana_provider_result is changed
+        or grafana_dashboard_deploy_result is changed
         or grafana_secrets_result is changed
         or grafana_quadlet_result is changed
       }}
