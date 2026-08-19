@@ -41,7 +41,6 @@
   become: true
   loop:
     - { id: 1860, name: node-exporter-full }
-    - { id: 10347, name: proxmox-pve-exporter }
     - { id: 22381, name: smartctl-exporter }
   loop_control:
     label: "{{ item.name }}"
@@ -55,45 +54,11 @@
   become: true
   loop:
     - { id: 1860, name: node-exporter-full }
-    - { id: 10347, name: proxmox-pve-exporter }
     - { id: 22381, name: smartctl-exporter }
   loop_control:
     label: "{{ item.name }}"
 
-- name: "Fix the Proxmox dashboard's Storage usage panel to distinguish nodes (pve_disk_usage_bytes/pve_disk_size_bytes only join pve_storage_info's 'storage' label by default, so nvme_data on pve1/pve2/pve3 all show as an identical, indistinguishable 'nvme_data' legend entry - group_left also pulling pve_storage_info's 'node' label fixes it)"
-  ansible.builtin.replace:
-    path: /etc/grafana/dashboards/proxmox-pve-exporter.json
-    regexp: "{{ item.regexp }}"
-    replace: "{{ item.replace }}"
-  become: true
-  loop:
-    - regexp: 'group_left\(storage\) pve_storage_info'
-      replace: 'group_left(storage, node) pve_storage_info'
-    - regexp: '"\{\{storage\}\}"'
-      replace: '"{{ "{{" }}node{{ "}}" }} - {{ "{{" }}storage{{ "}}" }}"'
-  loop_control:
-    label: "{{ item.regexp }}"
-
-- name: "Fix up the Proxmox dashboard's Current CPU/Current memory/Storage usage/Space allocation panels: (1) enlarge all 4, originally squeezed to 3-4 grid columns wide - moved to their own rows below everything else rather than resized in place, to avoid overlapping neighboring panels that would need repositioning too; (2) Current CPU/memory had no legendFormat, so Grafana displayed the full raw label set (instance=pve-exporter:9221, id=node/pve1, job=...) instead of just the node name - label_replace() extracts pve1/pve2/pve3 from the id label so the legend can show just that; (3) Space allocation showed raw allocated capacity (identical regardless of actual fill level) - switched to the same usage-ratio Storage usage already computes, so it actually reflects how full each storage is"
-  block:
-    - name: Copy the panel-resize script
-      ansible.builtin.copy:
-        src: enlarge_proxmox_panels.py
-        dest: /tmp/enlarge_proxmox_panels.py
-        mode: '0755'
-
-    - name: Run the panel-resize script
-      ansible.builtin.command: python3 /tmp/enlarge_proxmox_panels.py /etc/grafana/dashboards/proxmox-pve-exporter.json
-      changed_when: "'changed:[]' not in enlarge_proxmox_panels_result.stdout"
-      register: enlarge_proxmox_panels_result
-
-    - name: Clean up the panel-resize script
-      ansible.builtin.file:
-        path: /tmp/enlarge_proxmox_panels.py
-        state: absent
-  become: true
-
-- name: "Default every dashboard to the last hour (grafana.com exports keep whatever default range their author picked - smartctl_exporter's was 'now-1y', which with a monitoring stack only running a few hours produces a 12h query step where almost none of the sample points land inside the narrow window that actually has data, rendering as empty panels even though the data itself is fine)"
+- name: "Default every downloaded dashboard to the last hour (grafana.com exports keep whatever default range their author picked - smartctl_exporter's was 'now-1y', which with a monitoring stack only running a few hours produces a 12h query step where almost none of the sample points land inside the narrow window that actually has data, rendering as empty panels even though the data itself is fine)"
   ansible.builtin.replace:
     path: "/etc/grafana/dashboards/{{ item.name }}.json"
     regexp: '"from": "now-[^"]*"'
@@ -101,10 +66,18 @@
   become: true
   loop:
     - { id: 1860, name: node-exporter-full }
-    - { id: 10347, name: proxmox-pve-exporter }
     - { id: 22381, name: smartctl-exporter }
   loop_control:
     label: "{{ item.name }}"
+
+- name: "Deploy the Proxmox dashboard (vendored, not fetched from grafana.com - originally patched at deploy time like the other two, but the user then customized the layout by hand in Grafana's UI: dropped two empty placeholder panels and Space allocation, widened CPU/Memory history, merged Current CPU/Current memory/Storage usage onto one row. A get_url+patch pipeline would discard hand edits on every re-run, so this dashboard is now committed as-is - it already carries every earlier fix baked in: hardcoded datasource uid, per-node legend via label_replace, usage-ratio storage query, 1h default range - and deployed as a plain file, same as fleet-alerts.json below"
+  ansible.builtin.copy:
+    src: proxmox-pve-exporter.json
+    dest: /etc/grafana/dashboards/proxmox-pve-exporter.json
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
 
 - name: "Switch the smartctl dashboard's NVMe Read/Written panels from cumulative bytes to throughput (rate). A plain regex replace risked also matching the unrelated 'Device Critical Warning' panel, which happens to share the same unit:bytes field elsewhere in the file - a small script targeting the exact panel titles is precise regardless of surrounding structure"
   block:
