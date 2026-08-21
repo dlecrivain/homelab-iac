@@ -27,7 +27,7 @@
     # All-jobs mode: no extra vars passed, run every job in pcloud_backup_jobs in parallel.
     # Launched directly (not via the pcloud_backup_job role) because async/poll only apply
     # to a single module invocation, not to include_role.
-    - name: "Start pCloud backup: {{ item.name }}"
+    - name: Start pCloud backup
       ansible.builtin.command: >
         rclone {{ item.mode | default('sync') }} {{ item.source }} {{ item.dest }} {{ item.extra_args | default('') }}
       async: 21600
