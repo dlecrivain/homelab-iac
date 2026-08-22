@@ -101,10 +101,10 @@ grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') }}"
 # Docker Hub and bumps these in place when a same-major-line update is available - it never
 # touches the container itself, the next container-updates run applies it naturally, since it's
 # just a normal config change like any other (that's what container-updates.yml is for).
-prometheus_version: "v3.13.2"
-alertmanager_version: "v0.33.1"
-grafana_version: "13.1.3"
-bunkerweb_version: "1.6.13"
+prometheus_version: "v3.14.0"
+alertmanager_version: "v0.34.0"
+grafana_version: "13.2.0"
+bunkerweb_version: "1.6.14"
 adguard_version: "v0.107.79"
 # phpipam_version itself is already declared above, in the phpIPAM container stack section
 
