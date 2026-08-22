@@ -1,0 +1,14 @@
+---
+- name: Configure AdGuard Home
+  hosts: adguard101
+  gather_facts: false
+  tasks:
+    - name: Deploy AdGuard Home via Podman Quadlet
+      include_role:
+        name: adguard_configure
+
+    - name: Check services after config deploy
+      include_role:
+        name: health_check
+      vars:
+        health_check_fail_on_unhealthy: true

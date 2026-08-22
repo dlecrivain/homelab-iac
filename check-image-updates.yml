@@ -108,14 +108,14 @@
         - image_update_git_push.rc != 0
 
 - name: Check whether each watched image's live container has caught up to its target version yet
-  hosts: "{{ prometheus_host | default('prometheus101') }},{{ grafana_host | default('grafana101') }},{{ phpipam_host | default('phpipam101') }}"
+  hosts: "{{ prometheus_host | default('prometheus101') }},{{ grafana_host | default('grafana101') }},{{ phpipam_host | default('phpipam101') }},bunkerweb101,adguard101"
   gather_facts: false
   tasks:
-    - name: Get the live image tag for each watched container on this host
+    - name: "Get the live image tag for each watched container on this host (no become on adguard101 - it runs rootless as the connecting user itself, root's podman can't see it)"
       vars:
         my_checks: "{{ hostvars['localhost'].image_update_checks | selectattr('host', 'equalto', inventory_hostname) | list }}"
       ansible.builtin.command: "podman inspect {{ item.container_name }} --format '{{ '{{' }}.ImageName{{ '}}' }}'"
-      become: true
+      become: "{{ inventory_hostname != 'adguard101' }}"
       register: image_update_live_tags
       changed_when: false
       loop: "{{ my_checks }}"

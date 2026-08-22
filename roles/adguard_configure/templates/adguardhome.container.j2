@@ -1,0 +1,23 @@
+[Unit]
+Description=AdGuard Home DNS
+After=network-online.target
+
+[Container]
+Image=docker.io/adguard/adguardhome:{{ adguard_version }}
+ContainerName=adguardhome
+
+PublishPort=53:53/tcp
+PublishPort=53:53/udp
+PublishPort=80:80/tcp
+PublishPort=443:443/tcp
+PublishPort=443:443/udp
+PublishPort=3000:3000/tcp
+
+Volume=/var/adguardhome/work:/opt/adguardhome/work:Z
+Volume=/var/adguardhome/conf:/opt/adguardhome/conf:Z
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

@@ -104,6 +104,8 @@ grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') }}"
 prometheus_version: "v3.13.2"
 alertmanager_version: "v0.33.1"
 grafana_version: "13.1.3"
+bunkerweb_version: "1.6.13"
+adguard_version: "v0.107.79"
 # phpipam_version itself is already declared above, in the phpIPAM container stack section
 
 # Docker Hub repos check-image-updates.yml watches, paired with the var it bumps and the host
@@ -140,3 +142,13 @@ image_update_watch_list:
     version_var: phpipam_version
     container_name: phpipam-cron
     host: "{{ phpipam_host }}"
+  - name: bunkerweb
+    docker_repo: bunkerity/bunkerweb-all-in-one
+    version_var: bunkerweb_version
+    container_name: bunkerweb-aio
+    host: bunkerweb101
+  - name: adguard
+    docker_repo: adguard/adguardhome
+    version_var: adguard_version
+    container_name: adguardhome
+    host: adguard101

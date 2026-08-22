@@ -1,0 +1,30 @@
+---
+# Runs rootless as the connecting user itself (host_vars/adguard101.yml: podman_units scope
+# 'user', no become_user - so no become/UID/environment dance is needed here at all, unlike
+# phpipam/immich's cross-user rootless setups; systemctl --user already works against this
+# same session's own runtime dir).
+- name: Ensure the rootless Quadlet directory exists for adguardhome
+  ansible.builtin.file:
+    path: "/home/{{ ansible_user }}/.config/containers/systemd"
+    state: directory
+    mode: '0755'
+
+- name: "Deploy the AdGuard Home Quadlet unit (templated so check-image-updates.yml's version bump has something to change - previously a hand-written file with the tag hardcoded, and not tracked by this repo at all)"
+  ansible.builtin.template:
+    src: adguardhome.container.j2
+    dest: "/home/{{ ansible_user }}/.config/containers/systemd/adguardhome.container"
+    mode: '0644'
+  register: adguard_quadlet_result
+
+- name: Reload the user systemd instance to pick up any unit change
+  ansible.builtin.systemd:
+    daemon_reload: true
+    scope: user
+  when: adguard_quadlet_result is changed
+
+- name: Restart adguardhome.service (user scope) to pick up any unit change
+  ansible.builtin.systemd:
+    name: adguardhome.service
+    state: restarted
+    scope: user
+  when: adguard_quadlet_result is changed
