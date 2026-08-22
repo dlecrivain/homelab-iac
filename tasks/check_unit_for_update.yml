@@ -43,6 +43,18 @@
       failed_when: false
       when: check_unit_image_before.rc == 0
 
+    - name: "Read the Quadlet file's own Image= line as a last-resort tag source (podman inspect can lose the tag entirely once a container is resolved to a pure digest reference, e.g. valkey:9@sha256:... - podman only remembers the digest afterwards, the tag only still exists in the file itself)"
+      ansible.builtin.slurp:
+        src: >-
+          {{
+            ('/etc/containers/systemd/' + (unit.service_name | default(unit.name)) + '.container')
+            if unit.scope == 'root'
+            else ('/home/' + (unit.become_user | default(ansible_user)) + '/.config/containers/systemd/' + (unit.service_name | default(unit.name)) + '.container')
+          }}
+      register: check_unit_quadlet_file
+      failed_when: false
+      when: check_unit_image_before.rc == 0
+
     - name: Pull the image (refreshes the local cache only - the running container keeps using its current image until something explicitly restarts it)
       ansible.builtin.command: "podman pull {{ check_unit_image_ref.stdout }}"
       register: check_unit_pull_result
@@ -76,6 +88,8 @@
     unit_version_label_before: "{{ check_unit_version_before.stdout | default('') | trim }}"
     unit_version_label_after: "{{ check_unit_version_after.stdout | default('') | trim }}"
     unit_image_tag: "{{ check_unit_image_ref.stdout.split('@')[0].split(':')[-1] if (':' in (check_unit_image_ref.stdout | default('')).split('@')[0]) else '' }}"
+    unit_file_image_ref: "{{ ((check_unit_quadlet_file.content | b64decode) | regex_search('(?m)^Image=.*$') | default('')) | regex_replace('^Image=', '') if (check_unit_quadlet_file.content is defined) else '' }}"
+    unit_file_image_tag: "{{ unit_file_image_ref.split('@')[0].split(':')[-1] if ':' in unit_file_image_ref.split('@')[0] else '' }}"
   ansible.builtin.set_fact:
     fleet_image_checks: >-
       {{
@@ -83,8 +97,8 @@
           'name': unit.name,
           'host': inventory_hostname,
           'update_available': (check_unit_image_after.stdout | default('') != '') and (check_unit_image_after.stdout | default('a') != check_unit_image_before.stdout | default('b')),
-          'current_version': (unit_version_label_before if (unit_version_label_before is search('[0-9]')) else (unit_image_tag if (unit_image_tag is search('[0-9]')) else (check_unit_image_before.stdout | default('unknown'))[:12])),
-          'new_version': (unit_version_label_after if (unit_version_label_after is search('[0-9]')) else (unit_image_tag if (unit_image_tag is search('[0-9]')) else (check_unit_image_after.stdout | default('unknown'))[:12])),
+          'current_version': (unit_version_label_before if (unit_version_label_before is search('[0-9]')) else (unit_image_tag if (unit_image_tag is search('[0-9]')) else (unit_file_image_tag if (unit_file_image_tag is search('[0-9]')) else (check_unit_image_before.stdout | default('unknown'))[:12]))),
+          'new_version': (unit_version_label_after if (unit_version_label_after is search('[0-9]')) else (unit_image_tag if (unit_image_tag is search('[0-9]')) else (unit_file_image_tag if (unit_file_image_tag is search('[0-9]')) else (check_unit_image_after.stdout | default('unknown'))[:12]))),
         }]
       }}
   when: check_unit_image_before.rc | default(1) == 0

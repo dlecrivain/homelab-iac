@@ -34,6 +34,17 @@
       register: image_ref
       changed_when: false
 
+    - name: "Read the Quadlet file's own Image= line as a last-resort tag source (podman inspect can lose the tag entirely once a container is resolved to a pure digest reference, e.g. valkey:9@sha256:... - podman only remembers the digest afterwards, the tag only still exists in the file itself)"
+      ansible.builtin.slurp:
+        src: >-
+          {{
+            ('/etc/containers/systemd/' + (unit.service_name | default(unit.name)) + '.container')
+            if unit.scope == 'root'
+            else ('/home/' + (unit.become_user | default(ansible_user)) + '/.config/containers/systemd/' + (unit.service_name | default(unit.name)) + '.container')
+          }}
+      register: unit_quadlet_file
+      failed_when: false
+
     - name: Pull the latest image
       ansible.builtin.command: "podman pull {{ image_ref.stdout }}"
       register: pull_result
@@ -65,16 +76,18 @@
         seconds: 5
       when: image_after.stdout != image_before.stdout
 
-- name: "Record update summary for this unit. Prefers, in order, whichever of these actually looks like a version (contains a digit): the org.opencontainers.image.version label, then the image's own tag, then finally a raw image ID. Neither source can be trusted blindly - some images set the label to a meaningless branch name instead of a version (bunkerweb-all-in-one: 'master'), and some tags are the floating ':latest'/':latest'-equivalent with no digit in it either"
+- name: "Record update summary for this unit. Prefers, in order, whichever of these actually looks like a version (contains a digit): the org.opencontainers.image.version label, then the image's own tag from podman inspect, then the tag as written in the Quadlet file itself (podman inspect loses it entirely for digest-pinned references), then finally a raw image ID. None of these can be trusted blindly - some images set the label to a meaningless branch name instead of a version (bunkerweb-all-in-one: 'master'), and some tags are the floating ':latest'-equivalent with no digit in it either"
   vars:
     unit_version_label_before: "{{ version_before.stdout | trim }}"
     unit_version_label_after: "{{ version_after.stdout | trim }}"
     unit_image_tag: "{{ image_ref.stdout.split('@')[0].split(':')[-1] if ':' in image_ref.stdout.split('@')[0] else '' }}"
+    unit_file_image_ref: "{{ ((unit_quadlet_file.content | b64decode) | regex_search('(?m)^Image=.*$') | default('')) | regex_replace('^Image=', '') if (unit_quadlet_file.content is defined) else '' }}"
+    unit_file_image_tag: "{{ unit_file_image_ref.split('@')[0].split(':')[-1] if ':' in unit_file_image_ref.split('@')[0] else '' }}"
   ansible.builtin.set_fact:
     podman_update_summary: >-
       {{ podman_update_summary + [{
         'name': unit.name,
         'updated': (image_after.stdout != image_before.stdout),
-        'old_version': (unit_version_label_before if (unit_version_label_before is search('[0-9]')) else (unit_image_tag if (unit_image_tag is search('[0-9]')) else image_before.stdout[:12])),
-        'new_version': (unit_version_label_after if (unit_version_label_after is search('[0-9]')) else (unit_image_tag if (unit_image_tag is search('[0-9]')) else image_after.stdout[:12]))
+        'old_version': (unit_version_label_before if (unit_version_label_before is search('[0-9]')) else (unit_image_tag if (unit_image_tag is search('[0-9]')) else (unit_file_image_tag if (unit_file_image_tag is search('[0-9]')) else image_before.stdout[:12]))),
+        'new_version': (unit_version_label_after if (unit_version_label_after is search('[0-9]')) else (unit_image_tag if (unit_image_tag is search('[0-9]')) else (unit_file_image_tag if (unit_file_image_tag is search('[0-9]')) else image_after.stdout[:12])))
       }] }}
