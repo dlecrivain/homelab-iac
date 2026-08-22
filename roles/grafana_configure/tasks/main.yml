@@ -67,18 +67,29 @@
     mode: '0755'
   become: true
 
-- name: Deploy the Grafana Quadlet unit and data volume
-  ansible.builtin.copy:
-    src: "{{ item }}"
-    dest: "/etc/containers/systemd/{{ item }}"
+- name: "Deploy the Grafana Quadlet unit (templated so check-image-updates.yml's version bump has something to change - previously a static file with the tag hardcoded in git)"
+  ansible.builtin.template:
+    src: grafana.container.j2
+    dest: /etc/containers/systemd/grafana.container
     owner: root
     group: root
     mode: '0644'
   become: true
-  loop:
-    - grafana.container
-    - grafana_data.volume
-  register: grafana_quadlet_result
+  register: grafana_container_result
+
+- name: Deploy the Grafana data volume Quadlet
+  ansible.builtin.copy:
+    src: grafana_data.volume
+    dest: /etc/containers/systemd/grafana_data.volume
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  register: grafana_volume_result
+
+- name: Combine the Grafana Quadlet deploy results for change detection
+  ansible.builtin.set_fact:
+    grafana_quadlet_result: "{{ {'changed': (grafana_container_result is changed or grafana_volume_result is changed)} }}"
 
 - name: Determine whether anything actually changed
   ansible.builtin.set_fact:

@@ -94,3 +94,34 @@ proxmox_api_token_id: "automation"
 
 # New secret: must be set in Semaphore's Variable Group before the first configure-grafana.yml run.
 grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') }}"
+
+# Pinned versions for images with no dedicated auto-bump mechanism of their own (unlike Semaphore
+# and phpIPAM, which self-heal via their own playbooks). check-image-updates.yml checks Docker Hub
+# and bumps these in place when a same-major-line update is available - the next container-updates
+# run then applies it naturally, since it's just a normal config change like any other.
+prometheus_version: "v3.13.2"
+alertmanager_version: "v0.33.1"
+grafana_version: "13.1.3"
+
+# Docker Hub repos check-image-updates.yml watches, paired with the var it bumps and the host
+# whose live container it compares against to know whether a detected bump has actually been
+# applied yet (vs. still pending the next container-updates run). Semaphore and phpIPAM aren't
+# here - they already have their own dedicated bump playbooks. Immich is excluded entirely (not
+# Ansible-managed, uses GHCR + digest pins + a floating "release" tag) - check-image-updates.yml
+# instead just compares Immich's own reported version against its GitHub releases, informational only.
+image_update_watch_list:
+  - name: prometheus
+    docker_repo: prom/prometheus
+    version_var: prometheus_version
+    container_name: prometheus
+    host: "{{ prometheus_host }}"
+  - name: alertmanager
+    docker_repo: prom/alertmanager
+    version_var: alertmanager_version
+    container_name: alertmanager
+    host: "{{ prometheus_host }}"
+  - name: grafana
+    docker_repo: grafana/grafana
+    version_var: grafana_version
+    container_name: grafana
+    host: "{{ grafana_host }}"

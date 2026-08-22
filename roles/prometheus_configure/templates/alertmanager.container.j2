@@ -5,7 +5,7 @@ After=network-online.target
 
 [Container]
 ContainerName=alertmanager
-Image=docker.io/prom/alertmanager:v0.33.1
+Image=docker.io/prom/alertmanager:{{ alertmanager_version }}
 Network=monitoring-network.network
 Volume=/etc/alertmanager:/etc/alertmanager:Z,ro
 Volume=alertmanager_data.volume:/alertmanager:Z

@@ -91,9 +91,9 @@
   become: true
   register: prometheus_network_result
 
-- name: Deploy the Prometheus and Alertmanager Quadlet units
-  ansible.builtin.copy:
-    src: "{{ item }}"
+- name: "Deploy the Prometheus and Alertmanager Quadlet units (templated so check-image-updates.yml's version bump has something to change - previously static files with the tag hardcoded in git)"
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
     dest: "/etc/containers/systemd/{{ item }}"
     owner: root
     group: root

@@ -5,7 +5,7 @@ After=network-online.target
 
 [Container]
 ContainerName=prometheus
-Image=docker.io/prom/prometheus:v3.13.2
+Image=docker.io/prom/prometheus:{{ prometheus_version }}
 Network=monitoring-network.network
 Volume=/etc/prometheus:/etc/prometheus:Z,ro
 Volume=prometheus_data.volume:/prometheus:Z

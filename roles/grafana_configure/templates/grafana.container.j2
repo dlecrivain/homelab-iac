@@ -5,7 +5,7 @@ After=network-online.target
 
 [Container]
 ContainerName=grafana
-Image=docker.io/grafana/grafana:13.1.3
+Image=docker.io/grafana/grafana:{{ grafana_version }}
 Volume=/etc/grafana/provisioning:/etc/grafana/provisioning:Z,ro
 Volume=/etc/grafana/dashboards:/etc/grafana/dashboards:Z,ro
 Volume=grafana_data.volume:/var/lib/grafana:Z

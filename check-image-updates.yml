@@ -1,0 +1,240 @@
+---
+# Detects available updates for images with no dedicated auto-bump mechanism of their own -
+# Semaphore and phpIPAM already have one (update-semaphore-peer.yml / update-phpipam-version.yml)
+# and are deliberately not in group_vars/all.yml's image_update_watch_list. A same-major-line
+# update is bumped into group_vars/all.yml immediately on detection, but the container itself is
+# never touched here - the next container-updates run picks up the new pinned version like any
+# other config change, so "applied" naturally means "the weekly patch run happened since this was
+# detected". A major-line jump (e.g. v3.x -> v4.x) is only ever reported, never auto-applied.
+# Immich is excluded from the watch list entirely (not Ansible-managed, GHCR + digest pins + a
+# floating "release" tag with no version in the image reference at all) - it gets a completely
+# separate, read-only comparison instead: its own reported version against its GitHub releases.
+- name: Check Docker Hub for updates to unmanaged-bump images
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Query Docker Hub tags for each watched image
+      ansible.builtin.uri:
+        url: "https://hub.docker.com/v2/repositories/{{ item.docker_repo }}/tags?page_size=100"
+        return_content: true
+      register: image_update_tags_response
+      loop: "{{ image_update_watch_list }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: "Compute each image's same-major-line target (safe to auto-bump), overall latest available version (for the major-jump warning), and whether either applies"
+      vars:
+        current_version: "{{ lookup('vars', item.item.version_var) }}"
+        current_major: "{{ current_version | regex_replace('^v?([0-9]+)\\..*$', '\\1') }}"
+        all_versions: "{{ item.json.results | map(attribute='name') | select('match', '^v?[0-9]+\\.[0-9]+\\.[0-9]+$') | list }}"
+        same_major_versions: "{{ all_versions | select('match', '^v?' + current_major | regex_escape() + '\\.[0-9]+\\.[0-9]+$') | list }}"
+        same_major_ranked: "{{ same_major_versions | map('regex_findall', '[0-9]+') | map('map', 'int') | map('list') | list | zip(same_major_versions) | map('list') | list }}"
+        all_ranked: "{{ all_versions | map('regex_findall', '[0-9]+') | map('map', 'int') | map('list') | list | zip(all_versions) | map('list') | list }}"
+        same_major_target: "{{ (same_major_ranked | sort)[-1][1] if (same_major_ranked | length > 0) else current_version }}"
+        overall_latest: "{{ (all_ranked | sort)[-1][1] if (all_ranked | length > 0) else current_version }}"
+        overall_latest_major: "{{ overall_latest | regex_replace('^v?([0-9]+)\\..*$', '\\1') }}"
+      ansible.builtin.set_fact:
+        image_update_checks: >-
+          {{
+            (image_update_checks | default([])) + [{
+              'name': item.item.name,
+              'version_var': item.item.version_var,
+              'container_name': item.item.container_name,
+              'host': item.item.host,
+              'current_version': current_version,
+              'same_major_target': same_major_target,
+              'same_major_target_pushed_at': (item.json.results | selectattr('name', 'equalto', same_major_target) | map(attribute='tag_last_pushed') | first | default('')),
+              'bump_needed': same_major_target != current_version,
+              'overall_latest': overall_latest,
+              'overall_latest_pushed_at': (item.json.results | selectattr('name', 'equalto', overall_latest) | map(attribute='tag_last_pushed') | first | default('')),
+              'major_available': (overall_latest_major | int) > (current_major | int),
+            }]
+          }}
+      loop: "{{ image_update_tags_response.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: "Bump group_vars/all.yml immediately for every image where a same-major-line update was found (the container itself isn't touched - the next container-updates run applies it like any other config change)"
+      ansible.builtin.replace:
+        path: "{{ playbook_dir }}/group_vars/all.yml"
+        regexp: '^{{ item.version_var }}: ".*"$'
+        replace: '{{ item.version_var }}: "{{ item.same_major_target }}"'
+      loop: "{{ image_update_checks | selectattr('bump_needed') | list }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: image_update_bump_result
+
+    - name: Configure a git identity for this commit (harmless if already set)
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - git config user.email "d.lecrivain47@gmail.com"
+        - git config user.name "dlecrivain"
+      args:
+        chdir: "{{ playbook_dir }}"
+      changed_when: false
+      when: image_update_bump_result.changed | default(false)
+
+    - name: Commit the version bump(s)
+      ansible.builtin.command: >-
+        git commit -am "Bump pinned image version(s): {{ image_update_checks | selectattr('bump_needed') | map(attribute='name') | join(', ') }} (detected by check-image-updates.yml)"
+      args:
+        chdir: "{{ playbook_dir }}"
+      when: image_update_bump_result.changed | default(false)
+
+    - name: Push the commit to origin/main
+      ansible.builtin.command: "git push https://{{ github_push_token }}@github.com/dlecrivain/homelab-iac main"
+      args:
+        chdir: "{{ playbook_dir }}"
+      register: image_update_git_push
+      failed_when: false
+      no_log: true
+      when: image_update_bump_result.changed | default(false)
+
+    - name: Fail with a token-redacted error if the push failed
+      ansible.builtin.fail:
+        msg: >-
+          git push failed (rc={{ image_update_git_push.rc }}):
+          {{
+            (image_update_git_push.stderr | default('')) | replace(github_push_token, '***REDACTED***')
+            if (github_push_token | default('') | length > 0)
+            else (image_update_git_push.stderr | default('')) + ' (github_push_token is empty - GITHUB_PUSH_TOKEN missing from this template''s Variable Group)'
+          }}
+      when:
+        - image_update_bump_result.changed | default(false)
+        - image_update_git_push.rc != 0
+
+- name: Check whether each watched image's live container has caught up to its target version yet
+  hosts: "{{ prometheus_host | default('prometheus101') }},{{ grafana_host | default('grafana101') }}"
+  gather_facts: false
+  tasks:
+    - name: Get the live image tag for each watched container on this host
+      vars:
+        my_checks: "{{ hostvars['localhost'].image_update_checks | selectattr('host', 'equalto', inventory_hostname) | list }}"
+      ansible.builtin.command: "podman inspect {{ item.container_name }} --format '{{ '{{' }}.ImageName{{ '}}' }}'"
+      become: true
+      register: image_update_live_tags
+      changed_when: false
+      loop: "{{ my_checks }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Save each image's live tag back to localhost, keyed by name
+      ansible.builtin.set_fact:
+        image_update_live_versions: "{{ dict(image_update_live_tags.results | map(attribute='item') | map(attribute='name') | zip(image_update_live_tags.results | map(attribute='stdout') | map('regex_replace', '^.*:', ''))) }}"
+      delegate_to: localhost
+      delegate_facts: true
+
+- name: Compare Immich's reported version against its latest GitHub release (informational only - not Ansible-managed, never touched here)
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Get Immich's own reported running version
+      ansible.builtin.uri:
+        url: "{{ hostvars['immich101'].health_check_url }}/api/server/version"
+        return_content: true
+      register: immich_running_version_response
+      failed_when: false
+
+    - name: Get the latest published Immich release from GitHub
+      ansible.builtin.uri:
+        url: "https://api.github.com/repos/immich-app/immich/releases/latest"
+        return_content: true
+      register: immich_latest_release_response
+      failed_when: false
+
+    - name: Compute Immich's running/latest version strings and whether an update is available
+      when:
+        - immich_running_version_response.status | default(0) == 200
+        - immich_latest_release_response.status | default(0) == 200
+      block:
+        - name: Set Immich version facts
+          ansible.builtin.set_fact:
+            immich_running_version: "v{{ immich_running_version_response.json.major }}.{{ immich_running_version_response.json.minor }}.{{ immich_running_version_response.json.patch }}"
+            immich_latest_version: "{{ immich_latest_release_response.json.tag_name }}"
+            immich_latest_published_at: "{{ immich_latest_release_response.json.published_at }}"
+
+        - name: Determine whether Immich has an update available
+          ansible.builtin.set_fact:
+            immich_update_available: "{{ immich_running_version != immich_latest_version }}"
+
+- name: Send the notification email (only when there's something to report - stays quiet otherwise)
+  hosts: localhost
+  gather_facts: false
+  vars:
+    bumped_images: "{{ image_update_checks | selectattr('bump_needed') | list }}"
+    major_available_images: "{{ image_update_checks | selectattr('major_available') | list }}"
+  tasks:
+    - name: "Build the pending list (target already recorded in git from an earlier run, but the live container hasn't caught up yet - i.e. bumped in the past, not bumped again this run, and still different from what's actually deployed)"
+      ansible.builtin.set_fact:
+        pending_images: "{{ (pending_images | default([])) + ([item] if (not item.bump_needed and image_update_live_versions.get(item.name, '') != item.current_version) else []) }}"
+      loop: "{{ image_update_checks }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Build the report body
+      ansible.builtin.set_fact:
+        image_update_report_body: |
+          <h2>Image update check</h2>
+          {% if bumped_images %}
+          <h3>Newly detected and bumped in git this run</h3>
+          <table>
+            <tr><th>Image</th><th>From</th><th>To</th><th>Published</th></tr>
+            {% for c in bumped_images %}
+            <tr class="status-info">
+              <td>{{ c.name }}</td>
+              <td>{{ c.current_version }}</td>
+              <td>{{ c.same_major_target }}</td>
+              <td>{{ (c.same_major_target_pushed_at | to_datetime('%Y-%m-%dT%H:%M:%S.%fZ')).strftime('%d/%m/%Y') if c.same_major_target_pushed_at else 'N/A' }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+          <p>Will be applied to the running container by the next container-updates run.</p>
+          {% endif %}
+          {% if pending_images | default([]) %}
+          <h3>Still pending application (bumped in git previously, not yet deployed)</h3>
+          <table>
+            <tr><th>Image</th><th>Currently running</th><th>Target</th><th>Published</th></tr>
+            {% for c in pending_images %}
+            <tr class="status-warning">
+              <td>{{ c.name }}</td>
+              <td>{{ image_update_live_versions.get(c.name, 'unknown') }}</td>
+              <td>{{ c.current_version }}</td>
+              <td>{{ (c.same_major_target_pushed_at | to_datetime('%Y-%m-%dT%H:%M:%S.%fZ')).strftime('%d/%m/%Y') if c.same_major_target_pushed_at else 'N/A' }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+          {% endif %}
+          {% if major_available_images %}
+          <h3>Major version available (not applied automatically)</h3>
+          <table>
+            <tr><th>Image</th><th>Current</th><th>Available</th><th>Published</th></tr>
+            {% for c in major_available_images %}
+            <tr class="status-warning">
+              <td>{{ c.name }}</td>
+              <td>{{ c.current_version }}</td>
+              <td>{{ c.overall_latest }}</td>
+              <td>{{ (c.overall_latest_pushed_at | to_datetime('%Y-%m-%dT%H:%M:%S.%fZ')).strftime('%d/%m/%Y') if c.overall_latest_pushed_at else 'N/A' }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+          <p>Review manually - a major version jump can include breaking changes.</p>
+          {% endif %}
+          {% if immich_update_available | default(false) %}
+          <h3>Immich (informational only - not Ansible-managed)</h3>
+          <table>
+            <tr><th>Running</th><th>Latest</th><th>Published</th></tr>
+            <tr class="status-warning">
+              <td>{{ immich_running_version }}</td>
+              <td>{{ immich_latest_version }}</td>
+              <td>{{ (immich_latest_published_at | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%d/%m/%Y') if immich_latest_published_at else 'N/A' }}</td>
+            </tr>
+          </table>
+          {% endif %}
+
+    - name: Send the email (only if there's actually something to report)
+      include_role:
+        name: send_report
+      vars:
+        report_subject: "[check-image-updates] {{ bumped_images | length }} bumped, {{ pending_images | default([]) | length }} pending, {{ major_available_images | length }} major available"
+        report_body: "{{ image_update_report_body }}"
+      when: (bumped_images | length > 0) or (pending_images | default([]) | length > 0) or (major_available_images | length > 0) or (immich_update_available | default(false))
