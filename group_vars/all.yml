@@ -95,20 +95,25 @@ proxmox_api_token_id: "automation"
 # New secret: must be set in Semaphore's Variable Group before the first configure-grafana.yml run.
 grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') }}"
 
-# Pinned versions for images with no dedicated auto-bump mechanism of their own (unlike Semaphore
-# and phpIPAM, which self-heal via their own playbooks). check-image-updates.yml checks Docker Hub
-# and bumps these in place when a same-major-line update is available - the next container-updates
-# run then applies it naturally, since it's just a normal config change like any other.
+# Pinned versions for images with no dedicated auto-bump mechanism of their own (Semaphore is the
+# only exception left - update-semaphore-peer.yml applies its bump immediately, tied to patching
+# semaphore102, so it isn't in image_update_watch_list below). check-image-updates.yml checks
+# Docker Hub and bumps these in place when a same-major-line update is available - it never
+# touches the container itself, the next container-updates run applies it naturally, since it's
+# just a normal config change like any other (that's what container-updates.yml is for).
 prometheus_version: "v3.13.2"
 alertmanager_version: "v0.33.1"
 grafana_version: "13.1.3"
+# phpipam_version itself is already declared above, in the phpIPAM container stack section
 
 # Docker Hub repos check-image-updates.yml watches, paired with the var it bumps and the host
 # whose live container it compares against to know whether a detected bump has actually been
-# applied yet (vs. still pending the next container-updates run). Semaphore and phpIPAM aren't
-# here - they already have their own dedicated bump playbooks. Immich is excluded entirely (not
-# Ansible-managed, uses GHCR + digest pins + a floating "release" tag) - check-image-updates.yml
-# instead just compares Immich's own reported version against its GitHub releases, informational only.
+# applied yet (vs. still pending the next container-updates run). phpipam-web and phpipam-cron
+# both point at the same phpipam_version - they're the same phpIPAM release and always move
+# together. Semaphore isn't here - it already has its own dedicated, immediate-apply bump
+# playbook. Immich is excluded entirely (not Ansible-managed, uses GHCR + digest pins + a floating
+# "release" tag) - check-image-updates.yml instead just compares Immich's own reported version
+# against its GitHub releases, informational only.
 image_update_watch_list:
   - name: prometheus
     docker_repo: prom/prometheus
@@ -125,3 +130,13 @@ image_update_watch_list:
     version_var: grafana_version
     container_name: grafana
     host: "{{ grafana_host }}"
+  - name: phpipam-web
+    docker_repo: phpipam/phpipam-www
+    version_var: phpipam_version
+    container_name: phpipam-web
+    host: "{{ phpipam_host }}"
+  - name: phpipam-cron
+    docker_repo: phpipam/phpipam-cron
+    version_var: phpipam_version
+    container_name: phpipam-cron
+    host: "{{ phpipam_host }}"

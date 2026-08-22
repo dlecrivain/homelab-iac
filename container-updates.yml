@@ -137,6 +137,14 @@
             - not (snapshot_already_exists | default(false))
             - inventory_hostname == (grafana_host | default('grafana101'))
 
+        - name: "Step 2.5 (phpipam101 only) - Re-render the phpIPAM Quadlets first, same reason as above"
+          include_role:
+            name: phpipam_configure
+          when:
+            - podman_units is defined
+            - not (snapshot_already_exists | default(false))
+            - inventory_hostname == (phpipam_host | default('phpipam101'))
+
         - name: Step 3 - Update Podman containers (normal tag pull)
           include_role:
             name: podman_update
