@@ -77,3 +77,8 @@
           {{ hostvars['localhost'].vm_updates_report_body }}
           {{ hostvars['localhost'].pve_updates_report_body }}
           {{ hostvars['localhost'].semaphore_peer_report_body }}
+
+    - name: "Fail this run if any stage reported a problem, now that the combined report has been sent. Without this, ansible-playbook always exits 0 regardless of a real problem - the per-host rescue blocks that keep the orchestration going (so later stages are correctly marked SKIPPED and the report stays accurate) also mean Semaphore's own task status never reflects it on its own"
+      ansible.builtin.fail:
+        msg: "full-updates reported a problem in one or more stages - see the report email for details."
+      when: full_run_any_problem

@@ -309,3 +309,10 @@
         report_subject: "[update-semaphore-peer] {{ peer_host }} {{ semaphore_peer_stage_status }}"
         report_body: "{{ semaphore_peer_report_body }}"
       when: hostvars['localhost'].semaphore_peer_run_standalone | default(true)
+
+    - name: "Fail this run if {{ peer_host }} had a problem (only when run standalone - an orchestrated run must keep going so the combined report still gets sent; full-updates.yml does its own final fail once everything is done). Without this, ansible-playbook always exits 0 regardless of a real problem"
+      ansible.builtin.fail:
+        msg: "update-semaphore-peer reported a problem on {{ peer_host }} - see the report email for details."
+      when:
+        - hostvars['localhost'].semaphore_peer_run_standalone | default(true)
+        - semaphore_peer_stage_status == 'PROBLEM'

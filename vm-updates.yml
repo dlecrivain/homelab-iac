@@ -167,3 +167,10 @@
       vars:
         report_subject: "[vm-updates] {{ 'SKIPPED (previous stage had a problem)' if not stage_was_allowed_to_run else ('PROBLEM detected' if any_problem else 'Weekly patch report') }}"
         report_body: "{{ vm_updates_report_body }}"
+
+    - name: "Fail this run if any host had a problem (only when run standalone - an orchestrated run must keep going so later stages are correctly marked SKIPPED and the combined report still gets sent; full-updates.yml does its own final fail once everything is done). Without this, ansible-playbook always exits 0 - the per-host rescue blocks that make the report accurate also mean Semaphore's own task status never reflects a real problem on its own"
+      ansible.builtin.fail:
+        msg: "vm-updates reported a problem - see the report email for details."
+      when:
+        - not (hostvars['localhost'].is_orchestrated_run | default(false))
+        - any_problem

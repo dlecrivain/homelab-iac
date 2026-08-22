@@ -212,3 +212,10 @@
       vars:
         report_subject: "[pve-updates] {{ 'SKIPPED (previous stage had a problem)' if not stage_was_allowed_to_run else ('STOPPED - manual intervention needed' if run_was_halted else 'Run completed') }}"
         report_body: "{{ pve_updates_report_body }}"
+
+    - name: "Fail this run if it was halted by a blocked host (only when run standalone - an orchestrated run must keep going so the combined report still gets sent; full-updates.yml does its own final fail once everything is done). Without this, ansible-playbook always exits 0 regardless of a real blocked-host problem"
+      ansible.builtin.fail:
+        msg: "pve-updates was stopped by a blocked host - see the report email for details."
+      when:
+        - not (hostvars['localhost'].is_orchestrated_run | default(false))
+        - run_was_halted
