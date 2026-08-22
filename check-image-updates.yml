@@ -1,11 +1,18 @@
 ---
-# Detects available updates for images with no dedicated auto-bump mechanism of their own -
-# Semaphore and phpIPAM already have one (update-semaphore-peer.yml / update-phpipam-version.yml)
-# and are deliberately not in group_vars/all.yml's image_update_watch_list. A same-major-line
-# update is bumped into group_vars/all.yml immediately on detection, but the container itself is
-# never touched here - the next container-updates run picks up the new pinned version like any
-# other config change, so "applied" naturally means "the weekly patch run happened since this was
-# detected". A major-line jump (e.g. v3.x -> v4.x) is only ever reported, never auto-applied.
+# Detects available updates for images with no dedicated auto-bump mechanism of their own.
+# Semaphore keeps its own separate one (update-semaphore-peer.yml, immediate apply, tied to
+# patching semaphore102) and isn't in group_vars/all.yml's image_update_watch_list. phpIPAM
+# used to have its own separate playbook (update-phpipam-version.yml) but it was folded in here
+# (last section below) since there was no real reason for it to need its own Semaphore
+# schedule - unlike Prometheus/Alertmanager/Grafana below, phpIPAM's bump applies immediately
+# (re-renders and restarts right away) rather than waiting for the next container-updates run.
+#
+# For the Docker Hub watch list: a same-major-line update is bumped into group_vars/all.yml
+# immediately on detection, but the container itself is never touched here - the next
+# container-updates run picks up the new pinned version like any other config change, so
+# "applied" naturally means "the weekly patch run happened since this was detected". A
+# major-line jump (e.g. v3.x -> v4.x) is only ever reported, never auto-applied.
+#
 # Immich is excluded from the watch list entirely (not Ansible-managed, GHCR + digest pins + a
 # floating "release" tag with no version in the image reference at all) - it gets a completely
 # separate, read-only comparison instead: its own reported version against its GitHub releases.
@@ -238,3 +245,120 @@
         report_subject: "[check-image-updates] {{ bumped_images | length }} bumped, {{ pending_images | default([]) | length }} pending, {{ major_available_images | length }} major available"
         report_body: "{{ image_update_report_body }}"
       when: (bumped_images | length > 0) or (pending_images | default([]) | length > 0) or (major_available_images | length > 0) or (immich_update_available | default(false))
+
+# phpIPAM: same idea (check Docker Hub, same-major-line only) but immediate apply - unlike the
+# watch list above, phpipam-web and phpipam-cron always move together, so there's no "wait for
+# Saturday" middle ground to speak of; re-renders and restarts right here, then self-heals git.
+- name: Check Docker Hub for a newer phpIPAM release in the same major line
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Extract the current version's major line
+      ansible.builtin.set_fact:
+        phpipam_current_major: "{{ phpipam_version | regex_replace('^v?([0-9]+)\\..*$', '\\1') }}"
+
+    - name: Query available phpipam-www tags on Docker Hub
+      ansible.builtin.uri:
+        url: "https://hub.docker.com/v2/repositories/phpipam/phpipam-www/tags?page_size=100"
+        return_content: true
+      register: phpipam_tags_response
+
+    - name: Filter to pure vMAJOR.MINOR.PATCH tags in the same major line (excludes latest/nightly/xhprof/short-form aliases like 1.8x)
+      ansible.builtin.set_fact:
+        phpipam_candidate_versions: >-
+          {{
+            phpipam_tags_response.json.results
+            | map(attribute='name')
+            | select('match', '^v' + phpipam_current_major | regex_escape() + '\.[0-9]+\.[0-9]+$')
+            | list
+          }}
+
+    - name: Rank each candidate by its [major, minor, patch] numbers, paired with its tag string
+      ansible.builtin.set_fact:
+        phpipam_ranked_versions: "{{ phpipam_candidate_versions | map('regex_findall', '[0-9]+') | map('map', 'int') | map('list') | list | zip(phpipam_candidate_versions) | map('list') | list }}"
+
+    - name: Set the target version (highest-ranked candidate)
+      ansible.builtin.set_fact:
+        phpipam_target_version: "{{ (phpipam_ranked_versions | sort)[-1][1] }}"
+
+    - name: Record whether a bump is actually needed
+      ansible.builtin.set_fact:
+        phpipam_bump_needed: "{{ phpipam_target_version != phpipam_version }}"
+
+- name: Deploy the new phpIPAM version (only if a newer one was found)
+  hosts: "{{ phpipam_host | default('phpipam101') }}"
+  gather_facts: false
+  tasks:
+    - name: Deploy phpIPAM at the bumped version
+      include_role:
+        name: phpipam_configure
+      vars:
+        phpipam_version: "{{ hostvars['localhost'].phpipam_target_version }}"
+      when: hostvars['localhost'].phpipam_bump_needed | bool
+
+    - name: Check services after the bump
+      include_role:
+        name: health_check
+      vars:
+        health_check_fail_on_unhealthy: true
+      when: hostvars['localhost'].phpipam_bump_needed | bool
+
+- name: Self-heal this repo's pinned phpIPAM version and notify (only if a bump actually happened)
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Update the phpipam_version line in group_vars/all.yml
+      ansible.builtin.replace:
+        path: "{{ playbook_dir }}/group_vars/all.yml"
+        regexp: '^phpipam_version: ".*"$'
+        replace: 'phpipam_version: "{{ phpipam_target_version }}"'
+      when: phpipam_bump_needed | bool
+
+    - name: Configure a git identity for this commit (harmless if already set)
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - git config user.email "d.lecrivain47@gmail.com"
+        - git config user.name "dlecrivain"
+      args:
+        chdir: "{{ playbook_dir }}"
+      changed_when: false
+      when: phpipam_bump_needed | bool
+
+    - name: Commit the version bump
+      ansible.builtin.command: >-
+        git commit -am "Bump pinned phpIPAM version to {{ phpipam_target_version }} (applied by check-image-updates.yml)"
+      args:
+        chdir: "{{ playbook_dir }}"
+      when: phpipam_bump_needed | bool
+
+    - name: Push the commit to origin/main
+      ansible.builtin.command: "git push https://{{ github_push_token }}@github.com/dlecrivain/homelab-iac main"
+      args:
+        chdir: "{{ playbook_dir }}"
+      register: phpipam_git_push
+      failed_when: false
+      no_log: true
+      when: phpipam_bump_needed | bool
+
+    - name: Fail with a token-redacted error if the push failed
+      ansible.builtin.fail:
+        msg: >-
+          git push failed (rc={{ phpipam_git_push.rc }}):
+          {{
+            (phpipam_git_push.stderr | default('')) | replace(github_push_token, '***REDACTED***')
+            if (github_push_token | default('') | length > 0)
+            else (phpipam_git_push.stderr | default('')) + ' (github_push_token is empty - GITHUB_PUSH_TOKEN missing from this template''s Variable Group)'
+          }}
+      when:
+        - phpipam_bump_needed | bool
+        - phpipam_git_push.rc != 0
+
+    - name: Send a notification email (only when a bump actually happened - this is a quiet no-op run otherwise)
+      include_role:
+        name: send_report
+      vars:
+        report_subject: "[check-image-updates] phpIPAM bumped to {{ phpipam_target_version }}"
+        report_body: |
+          <h2>phpIPAM version bump</h2>
+          <p>phpipam-web and phpipam-cron were bumped from the previously pinned version to <strong>{{ phpipam_target_version }}</strong> and restarted.</p>
+      when: phpipam_bump_needed | bool
