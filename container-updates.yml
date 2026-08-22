@@ -253,6 +253,17 @@
       ansible.builtin.set_fact:
         container_updates_duration_display: "{{ (container_updates_duration_seconds | int // 3600) }}h {{ ((container_updates_duration_seconds | int % 3600) // 60) }}m {{ (container_updates_duration_seconds | int % 60) }}s"
 
+    - name: "Determine which containers had an update applied via Step 2.5 rather than Step 3 (a Step 2.5 re-render+restart happens BEFORE Step 3's own pull runs, so podman_update's own before/after image-ID comparison can no longer see the change by the time it runs - it would otherwise misreport these as unchanged even though they were, in fact, updated moments earlier in the same run)"
+      ansible.builtin.set_fact:
+        step25_changed_containers: >-
+          {{
+            (['prometheus', 'alertmanager'] if (hostvars[prometheus_host | default('prometheus101')].prometheus_config_changed | default(false)) else [])
+            + (['grafana'] if (hostvars[grafana_host | default('grafana101')].grafana_config_changed | default(false)) else [])
+            + (['phpipam-web', 'phpipam-cron'] if (hostvars[phpipam_host | default('phpipam101')].phpipam_config_changed | default(false)) else [])
+            + (['bunkerweb-aio'] if (hostvars['bunkerweb101'].bunkerweb_config_changed | default(false)) else [])
+            + (['adguardhome'] if (hostvars['adguard101'].adguard_config_changed | default(false)) else [])
+          }}
+
     - name: Capture this stage's report body
       ansible.builtin.set_fact:
         container_updates_report_body: |
@@ -285,9 +296,10 @@
             {% if hostvars[h].podman_update_summary is defined and not (hostvars[h].host_update_skipped | default(false)) and not (hostvars[h].host_update_failure_reason is defined) %}
             {% for c in hostvars[h].podman_update_summary %}
             {% set running = hostvars[h].health_check_container_results | default([]) | selectattr('name','equalto',c.name) | map(attribute='status') | first | default('Up') %}
+            {% set really_updated = c.updated or (c.name in step25_changed_containers) %}
             {% if running != 'Up' %}
             {% set row_class = 'status-problem' %}
-            {% elif c.updated %}
+            {% elif really_updated %}
             {% set row_class = 'status-info' %}
             {% else %}
             {% set row_class = 'status-ok' %}
@@ -297,7 +309,7 @@
               <td>{{ c.name }}</td>
               <td>
                 {{ running }}
-                {% if c.updated %} — updated {{ c.old_version }} → {{ c.new_version }}{% else %} — unchanged ({{ c.old_version }}){% endif %}
+                {% if c.updated %} — updated {{ c.old_version }} → {{ c.new_version }}{% elif really_updated %} — updated to {{ c.new_version }} (applied via config change before the pull below saw it){% else %} — unchanged ({{ c.old_version }}){% endif %}
               </td>
               <td>
                 {{ hostvars[h].health_check_url_status | default('N/A') }}

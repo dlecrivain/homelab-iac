@@ -71,12 +71,16 @@
         seconds: 5
       when: unit_needs_realign | bool
 
-- name: Record update summary for this unit
+- name: "Record update summary for this unit. Prefers, in order, whichever of these actually looks like a version (contains a digit): the org.opencontainers.image.version label, then the image's own tag, then finally a raw image ID - same fallback logic as podman_update's own report, since neither source can be trusted blindly"
+  vars:
+    unit_version_label_before: "{{ version_before.stdout | trim }}"
+    unit_version_label_after: "{{ version_after.stdout | trim }}"
+    unit_image_tag: "{{ image_tag_before.stdout.split('@')[0].split(':')[-1] if (':' in image_tag_before.stdout.split('@')[0]) else '' }}"
   ansible.builtin.set_fact:
     podman_update_summary: >-
       {{ podman_update_summary + [{
         'name': unit.name,
         'updated': (unit_needs_realign | bool),
-        'old_version': (version_before.stdout | trim) or image_before.stdout[:12],
-        'new_version': (version_after.stdout | trim) or image_after.stdout[:12]
+        'old_version': (unit_version_label_before if (unit_version_label_before is search('[0-9]')) else (unit_image_tag if (unit_image_tag is search('[0-9]')) else image_before.stdout[:12])),
+        'new_version': (unit_version_label_after if (unit_version_label_after is search('[0-9]')) else (unit_image_tag if (unit_image_tag is search('[0-9]')) else image_after.stdout[:12]))
       }] }}

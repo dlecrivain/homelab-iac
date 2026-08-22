@@ -75,7 +75,7 @@
   vars:
     unit_version_label_before: "{{ check_unit_version_before.stdout | default('') | trim }}"
     unit_version_label_after: "{{ check_unit_version_after.stdout | default('') | trim }}"
-    unit_image_tag: "{{ check_unit_image_ref.stdout.split(':')[-1] if (':' in (check_unit_image_ref.stdout | default(''))) else '' }}"
+    unit_image_tag: "{{ check_unit_image_ref.stdout.split('@')[0].split(':')[-1] if (':' in (check_unit_image_ref.stdout | default('')).split('@')[0]) else '' }}"
   ansible.builtin.set_fact:
     fleet_image_checks: >-
       {{

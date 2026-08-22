@@ -16,15 +16,19 @@
     mode: '0644'
   register: adguard_quadlet_result
 
+- name: "Determine whether anything actually changed (named consistently with the other *_configure roles - container-updates.yml's report reads this to know a Step 2.5 re-render already updated the container, since podman_update's own before/after can no longer see it by the time Step 3 runs)"
+  ansible.builtin.set_fact:
+    adguard_config_changed: "{{ adguard_quadlet_result is changed }}"
+
 - name: Reload the user systemd instance to pick up any unit change
   ansible.builtin.systemd:
     daemon_reload: true
     scope: user
-  when: adguard_quadlet_result is changed
+  when: adguard_config_changed
 
 - name: Restart adguardhome.service (user scope) to pick up any unit change
   ansible.builtin.systemd:
     name: adguardhome.service
     state: restarted
     scope: user
-  when: adguard_quadlet_result is changed
+  when: adguard_config_changed

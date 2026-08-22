@@ -69,7 +69,7 @@
   vars:
     unit_version_label_before: "{{ version_before.stdout | trim }}"
     unit_version_label_after: "{{ version_after.stdout | trim }}"
-    unit_image_tag: "{{ image_ref.stdout.split(':')[-1] if ':' in image_ref.stdout else '' }}"
+    unit_image_tag: "{{ image_ref.stdout.split('@')[0].split(':')[-1] if ':' in image_ref.stdout.split('@')[0] else '' }}"
   ansible.builtin.set_fact:
     podman_update_summary: >-
       {{ podman_update_summary + [{
