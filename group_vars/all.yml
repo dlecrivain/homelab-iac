@@ -41,6 +41,18 @@ phpipam_subnet_cidr: "192.168.1.0/24"
 phpipam_search_start_ip: "192.168.1.111"
 phpipam_max_retries: 5
 
+# phpIPAM container stack (configure-phpipam.yml) - was set up by hand before this repo managed
+# it (docker-compose, then migrated to Quadlet manually), with both DB passwords hardcoded in
+# plaintext in the live .container files. Brought under Ansible with the exact same values so the
+# migration is a no-op for the running service - must be set in Semaphore's Variable Group before
+# the first configure-phpipam.yml run, or it would try to reset both passwords to empty strings.
+phpipam_host: phpipam101
+phpipam_db_password: "{{ lookup('env', 'PHPIPAM_DB_PASSWORD') }}"
+phpipam_db_root_password: "{{ lookup('env', 'PHPIPAM_DB_ROOT_PASSWORD') }}"
+# Pinned instead of :latest so updates are a reviewable version bump (update-phpipam-version.yml
+# checks Docker Hub and self-heals this value) rather than a silent, unannounced image swap.
+phpipam_version: "v1.8.2"
+
 # Proxmox VM provisioning (provision-vm.yml)
 pve_template_vmid: 9000
 pve_clone_node: pve1

@@ -1,0 +1,27 @@
+[Unit]
+Description=phpIPAM Web
+After=phpipam-mariadb.service
+Requires=phpipam-mariadb.service
+
+[Container]
+Volume=/var/phpipam/apache-override/proxy-tls.conf:/etc/apache2/conf.d/zzz-proxy-tls.conf:ro,Z
+Image=docker.io/phpipam/phpipam-www:{{ phpipam_version }}
+ContainerName=phpipam-web
+Environment=TZ=Europe/Luxembourg
+Environment=IPAM_DATABASE_HOST=phpipam-mariadb
+Environment=IPAM_DATABASE_PASS={{ phpipam_db_password }}
+Environment=IPAM_DATABASE_WEBHOST=%
+Environment=IPAM_DISABLE_INSTALLER=1
+PublishPort=8080:80
+Volume=/var/phpipam/logo:/phpipam/css/images/logo:Z
+Volume=/var/phpipam/ca:/usr/local/share/ca-certificates:ro,Z
+Volume=/var/phpipam/config-override/config.docker.php:/phpipam/config.docker.php:Z
+Network=phpipam.network
+AddCapability=NET_ADMIN
+AddCapability=NET_RAW
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target default.target

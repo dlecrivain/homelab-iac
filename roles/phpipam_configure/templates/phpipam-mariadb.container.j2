@@ -1,0 +1,15 @@
+[Unit]
+Description=phpIPAM MariaDB
+
+[Container]
+Image=docker.io/mariadb:latest
+ContainerName=phpipam-mariadb
+Environment=MYSQL_ROOT_PASSWORD={{ phpipam_db_root_password }}
+Volume=/var/phpipam/mysql-data:/var/lib/mysql:Z
+Network=phpipam.network
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target default.target

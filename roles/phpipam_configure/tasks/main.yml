@@ -1,0 +1,93 @@
+---
+- name: Ensure phpIPAM's host directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+  loop:
+    - /var/phpipam/mysql-data
+    - /var/phpipam/logo
+    - /var/phpipam/ca
+    - /var/phpipam/config-override
+    - /var/phpipam/apache-override
+
+- name: "Deploy the phpIPAM config override (bind-mounted over /phpipam/config.docker.php - the BunkerWeb HTTPS fix and api_allow_unsafe tweak are baked directly into it, so no separate config.php override is needed)"
+  ansible.builtin.copy:
+    src: config.docker.php
+    dest: /var/phpipam/config-override/config.docker.php
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: Deploy the Apache reverse-proxy override (bind-mounted over /etc/apache2/conf.d/zzz-proxy-tls.conf)
+  ansible.builtin.copy:
+    src: proxy-tls.conf
+    dest: /var/phpipam/apache-override/proxy-tls.conf
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: Ensure /etc/containers/systemd exists
+  ansible.builtin.file:
+    path: /etc/containers/systemd
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Deploy the phpIPAM network Quadlet
+  ansible.builtin.copy:
+    src: phpipam.network
+    dest: /etc/containers/systemd/phpipam.network
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  register: phpipam_network_result
+
+- name: "Deploy the phpIPAM Quadlet units (mode 0600 - these embed IPAM_DATABASE_PASS/MYSQL_ROOT_PASSWORD directly as Environment= lines, matching how they were already set up on this host before being brought under Ansible management)"
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/containers/systemd/{{ item }}"
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+  no_log: true
+  loop:
+    - phpipam-mariadb.container
+    - phpipam-web.container
+    - phpipam-cron.container
+  register: phpipam_quadlet_result
+
+- name: Determine whether anything actually changed
+  ansible.builtin.set_fact:
+    phpipam_config_changed: >-
+      {{
+        phpipam_network_result is changed
+        or phpipam_quadlet_result is changed
+      }}
+
+- name: Reload systemd to pick up any config/unit change
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
+  when: phpipam_config_changed
+
+- name: "Restart phpIPAM units to pick up any config/unit change (mariadb first - After=/Requires= in the other two units already encodes this dependency, but listing it first here keeps the restart order obvious)"
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: restarted
+    enabled: true
+  become: true
+  loop:
+    - phpipam-mariadb.service
+    - phpipam-cron.service
+    - phpipam-web.service
+  when: phpipam_config_changed

@@ -1,0 +1,22 @@
+[Unit]
+Description=phpIPAM Cron
+After=phpipam-mariadb.service
+Requires=phpipam-mariadb.service
+
+[Container]
+Image=docker.io/phpipam/phpipam-cron:{{ phpipam_version }}
+ContainerName=phpipam-cron
+Environment=TZ=Europe/Luxembourg
+Environment=IPAM_DATABASE_HOST=phpipam-mariadb
+Environment=IPAM_DATABASE_PASS={{ phpipam_db_password }}
+Environment=SCAN_INTERVAL=1h
+Volume=/var/phpipam/ca:/usr/local/share/ca-certificates:ro,Z
+Network=phpipam.network
+AddCapability=NET_ADMIN
+AddCapability=NET_RAW
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target default.target
