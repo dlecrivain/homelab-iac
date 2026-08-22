@@ -121,6 +121,22 @@
             name: proxmox_snapshot
           when: podman_units is defined
 
+        - name: "Step 2.5 (prometheus101 only) - Re-render the Prometheus/Alertmanager Quadlets first, so any version bump check-image-updates.yml already committed to git actually reaches the container before Step 3's pull below - podman_update only pulls whatever tag is already in the deployed Quadlet file, it never re-templates it"
+          include_role:
+            name: prometheus_configure
+          when:
+            - podman_units is defined
+            - not (snapshot_already_exists | default(false))
+            - inventory_hostname == (prometheus_host | default('prometheus101'))
+
+        - name: "Step 2.5 (grafana101 only) - Re-render the Grafana Quadlet first, same reason as above"
+          include_role:
+            name: grafana_configure
+          when:
+            - podman_units is defined
+            - not (snapshot_already_exists | default(false))
+            - inventory_hostname == (grafana_host | default('grafana101'))
+
         - name: Step 3 - Update Podman containers (normal tag pull)
           include_role:
             name: podman_update
