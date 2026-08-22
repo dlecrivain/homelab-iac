@@ -111,6 +111,12 @@
   hosts: "{{ prometheus_host | default('prometheus101') }},{{ grafana_host | default('grafana101') }},{{ phpipam_host | default('phpipam101') }},bunkerweb101,adguard101"
   gather_facts: false
   tasks:
+    - name: Capture the full list of targeted hosts (once, so the aggregation play below knows who to collect from)
+      include_role:
+        name: capture_host_list
+      vars:
+        capture_host_list_fact_name: image_update_live_check_host_list
+
     - name: "Get the live image tag for each watched container on this host (no become on adguard101 - it runs rootless as the connecting user itself, root's podman can't see it)"
       vars:
         my_checks: "{{ hostvars['localhost'].image_update_checks | selectattr('host', 'equalto', inventory_hostname) | list }}"
@@ -122,11 +128,17 @@
       loop_control:
         label: "{{ item.name }}"
 
-    - name: Save each image's live tag back to localhost, keyed by name
+    - name: "Save this host's own live tags as its own local fact, keyed by name (kept per-host - a later aggregation play combines every host's dict on localhost in one pass, since multiple hosts writing the same delegated fact in this same task would race and clobber each other)"
       ansible.builtin.set_fact:
         image_update_live_versions: "{{ dict(image_update_live_tags.results | map(attribute='item') | map(attribute='name') | zip(image_update_live_tags.results | map(attribute='stdout') | map('regex_replace', '^.*:', ''))) }}"
-      delegate_to: localhost
-      delegate_facts: true
+
+- name: Aggregate the live-tag check results onto localhost
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Combine every host's image_update_live_versions into one dict
+      ansible.builtin.set_fact:
+        image_update_live_versions: "{{ image_update_live_check_host_list | map('extract', hostvars, 'image_update_live_versions') | select('defined') | list | combine }}"
 
 - name: Compare Immich's reported version against its latest GitHub release (informational only - not Ansible-managed, never touched here)
   hosts: localhost
