@@ -161,12 +161,41 @@
           ansible.builtin.set_fact:
             immich_update_available: "{{ immich_running_version != immich_latest_version }}"
 
+- name: "Read-only scan of every other podman-managed container fleet-wide for a newer image (pull only - never restarts or redeploys anything, purely informational, no git writes)"
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101') }}"
+  gather_facts: false
+  vars:
+    watched_container_names: "{{ hostvars['localhost'].image_update_watch_list | map(attribute='container_name') | list }}"
+  tasks:
+    - name: Capture the full list of targeted hosts (once, so the aggregation play below knows who to collect from)
+      include_role:
+        name: capture_host_list
+      vars:
+        capture_host_list_fact_name: fleet_image_check_host_list
+
+    - name: Check each of this host's own podman_units not already covered by image_update_watch_list above
+      include_tasks: tasks/check_unit_for_update.yml
+      loop: "{{ (podman_units | default([])) | rejectattr('name', 'in', watched_container_names) | list }}"
+      loop_control:
+        loop_var: unit
+        label: "{{ unit.name }}"
+      when: podman_units is defined
+
+- name: Aggregate the fleet-wide read-only scan results onto localhost
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Combine every host's fleet_image_checks into one list
+      ansible.builtin.set_fact:
+        fleet_image_checks: "{{ fleet_image_check_host_list | map('extract', hostvars, 'fleet_image_checks') | select('defined') | list | flatten(levels=1) }}"
+
 - name: Send the notification email (only when there's something to report - stays quiet otherwise)
   hosts: localhost
   gather_facts: false
   vars:
     bumped_images: "{{ image_update_checks | selectattr('bump_needed') | list }}"
     major_available_images: "{{ image_update_checks | selectattr('major_available') | list }}"
+    fleet_update_available_images: "{{ fleet_image_checks | default([]) | selectattr('update_available') | list }}"
   tasks:
     - name: "Build the pending list (target already recorded in git from an earlier run, but the live container hasn't caught up yet - i.e. bumped in the past, not bumped again this run, and still different from what's actually deployed)"
       ansible.builtin.set_fact:
@@ -234,12 +263,27 @@
             </tr>
           </table>
           {% endif %}
+          {% if fleet_update_available_images | default([]) %}
+          <h3>Rest of the fleet (informational only - no git write, nothing applied here)</h3>
+          <table>
+            <tr><th>Host</th><th>Container</th><th>Current</th><th>Available</th></tr>
+            {% for c in fleet_update_available_images %}
+            <tr class="status-warning">
+              <td>{{ c.host }}</td>
+              <td>{{ c.name }}</td>
+              <td>{{ c.current_version }}</td>
+              <td>{{ c.new_version }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+          <p>Will be picked up as usual by the next container-updates run - listed here purely so you know ahead of patch day.</p>
+          {% endif %}
 
     - name: Send the email (only if there's actually something to report)
       include_role:
         name: send_report
       vars:
-        report_subject: "[check-image-updates] {{ bumped_images | length }} bumped, {{ pending_images | default([]) | length }} pending, {{ major_available_images | length }} major available"
+        report_subject: "[check-image-updates] {{ bumped_images | length }} bumped, {{ pending_images | default([]) | length }} pending, {{ major_available_images | length }} major available, {{ fleet_update_available_images | default([]) | length }} elsewhere in the fleet"
         report_body: "{{ image_update_report_body }}"
-      when: (bumped_images | length > 0) or (pending_images | default([]) | length > 0) or (major_available_images | length > 0) or (immich_update_available | default(false))
+      when: (bumped_images | length > 0) or (pending_images | default([]) | length > 0) or (major_available_images | length > 0) or (immich_update_available | default(false)) or (fleet_update_available_images | default([]) | length > 0)
 

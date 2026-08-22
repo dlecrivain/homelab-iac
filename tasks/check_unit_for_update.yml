@@ -1,0 +1,90 @@
+---
+# Included in a loop with loop_var: unit (one entry of a host's podman_units). Read-only:
+# pulls the image to refresh the local cache and compares digests, but never restarts anything -
+# unlike podman_update's own per-unit task file, which this deliberately doesn't reuse directly
+# since restarting is exactly what must NOT happen here.
+- name: Determine become settings for this unit (mirrors podman_update's own logic)
+  ansible.builtin.set_fact:
+    check_unit_become: "{{ unit.scope == 'root' or (unit.become_user is defined and unit.become_user != ansible_user) }}"
+
+- name: Get UID for cross-user rootless units
+  ansible.builtin.command: "id -u {{ unit.become_user }}"
+  register: check_unit_uid
+  changed_when: false
+  when: unit.scope == 'user' and unit.become_user is defined and unit.become_user != ansible_user
+
+- name: Set environment for cross-user rootless podman
+  ansible.builtin.set_fact:
+    check_unit_env: "{{ {'XDG_RUNTIME_DIR': '/run/user/' + check_unit_uid.stdout, 'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/run/user/' + check_unit_uid.stdout + '/bus'} if (unit.scope == 'user' and unit.become_user is defined and unit.become_user != ansible_user) else {} }}"
+
+- name: Check this unit's image for an update (pull only - never restarts anything)
+  become: "{{ check_unit_become }}"
+  become_user: "{{ 'root' if unit.scope == 'root' else (unit.become_user | default(omit)) }}"
+  environment: "{{ check_unit_env }}"
+  block:
+    - name: Get current image ID
+      ansible.builtin.command: "podman inspect {{ unit.name }} --format '{{ '{{' }}.Image{{ '}}' }}'"
+      register: check_unit_image_before
+      changed_when: false
+      failed_when: false
+
+    - name: Get current image version label
+      ansible.builtin.command: >
+        podman inspect {{ unit.name }} --format '{{ '{{' }} index .Config.Labels "org.opencontainers.image.version" {{ '}}' }}'
+      register: check_unit_version_before
+      changed_when: false
+      failed_when: false
+      when: check_unit_image_before.rc == 0
+
+    - name: Get image reference used
+      ansible.builtin.command: "podman inspect {{ unit.name }} --format '{{ '{{' }}.ImageName{{ '}}' }}'"
+      register: check_unit_image_ref
+      changed_when: false
+      failed_when: false
+      when: check_unit_image_before.rc == 0
+
+    - name: Pull the image (refreshes the local cache only - the running container keeps using its current image until something explicitly restarts it)
+      ansible.builtin.command: "podman pull {{ check_unit_image_ref.stdout }}"
+      register: check_unit_pull_result
+      changed_when: "'Copying blob' in check_unit_pull_result.stdout or 'Copying config' in check_unit_pull_result.stdout"
+      failed_when: false
+      when:
+        - check_unit_image_before.rc == 0
+        - check_unit_image_ref.stdout | default('') | length > 0
+
+    - name: Get image ID after pull
+      ansible.builtin.command: "podman inspect {{ check_unit_image_ref.stdout }} --format '{{ '{{' }}.Id{{ '}}' }}'"
+      register: check_unit_image_after
+      changed_when: false
+      failed_when: false
+      when:
+        - check_unit_image_before.rc == 0
+        - check_unit_image_ref.stdout | default('') | length > 0
+
+    - name: Get new image version label
+      ansible.builtin.command: >
+        podman inspect {{ check_unit_image_ref.stdout }} --format '{{ '{{' }} index .Config.Labels "org.opencontainers.image.version" {{ '}}' }}'
+      register: check_unit_version_after
+      changed_when: false
+      failed_when: false
+      when:
+        - check_unit_image_before.rc == 0
+        - check_unit_image_ref.stdout | default('') | length > 0
+
+- name: "Record this unit's check result. Version display prefers, in order, whichever actually looks like a version (contains a digit): the org.opencontainers.image.version label, then the image's own tag, then a raw image ID - same fallback logic as podman_update's own report, since neither source can be trusted blindly"
+  vars:
+    unit_version_label_before: "{{ check_unit_version_before.stdout | default('') | trim }}"
+    unit_version_label_after: "{{ check_unit_version_after.stdout | default('') | trim }}"
+    unit_image_tag: "{{ check_unit_image_ref.stdout.split(':')[-1] if (':' in (check_unit_image_ref.stdout | default(''))) else '' }}"
+  ansible.builtin.set_fact:
+    fleet_image_checks: >-
+      {{
+        (fleet_image_checks | default([])) + [{
+          'name': unit.name,
+          'host': inventory_hostname,
+          'update_available': (check_unit_image_after.stdout | default('') != '') and (check_unit_image_after.stdout | default('a') != check_unit_image_before.stdout | default('b')),
+          'current_version': (unit_version_label_before if (unit_version_label_before is search('[0-9]')) else (unit_image_tag if (unit_image_tag is search('[0-9]')) else (check_unit_image_before.stdout | default('unknown'))[:12])),
+          'new_version': (unit_version_label_after if (unit_version_label_after is search('[0-9]')) else (unit_image_tag if (unit_image_tag is search('[0-9]')) else (check_unit_image_after.stdout | default('unknown'))[:12])),
+        }]
+      }}
+  when: check_unit_image_before.rc | default(1) == 0
