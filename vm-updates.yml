@@ -131,7 +131,12 @@
               <th>URL Status</th>
             </tr>
             {% for h in hostvars['localhost'].vm_updates_host_list %}
-            {% if hostvars[h].host_overall_status is defined %}
+            {% if not stage_was_allowed_to_run %}
+            <tr class="status-warning">
+              <td>{{ h }}</td>
+              <td colspan="2">Skipped — run was stopped before reaching this host</td>
+            </tr>
+            {% elif hostvars[h].host_overall_status is defined %}
             {% if hostvars[h].host_overall_status == 'PROBLEM' %}
             {% set row_class = 'status-problem' %}
             {% elif hostvars[h].host_update_skipped | default(false) %}
