@@ -205,13 +205,12 @@
   hosts: localhost
   gather_facts: false
   vars:
-    bumped_images: "{{ image_update_checks | selectattr('bump_needed') | list }}"
     major_available_images: "{{ image_update_checks | selectattr('major_available') | list }}"
     fleet_update_available_images: "{{ fleet_image_checks | default([]) | selectattr('update_available') | list }}"
   tasks:
-    - name: "Build the pending list (target already recorded in git from an earlier run, but the live container hasn't caught up yet - i.e. bumped in the past, not bumped again this run, and still different from what's actually deployed)"
+    - name: "Build the list of containers with a target version not yet deployed - covers both a bump that just happened this run and one recorded on an earlier run that's still waiting on the next container-updates. Disappears from this list the moment the container actually catches up, regardless of when the bump itself happened"
       ansible.builtin.set_fact:
-        pending_images: "{{ (pending_images | default([])) + ([item] if (not item.bump_needed and image_update_live_versions.get(item.name, '') != item.current_version) else []) }}"
+        pending_deployment_images: "{{ (pending_deployment_images | default([])) + ([item] if (image_update_live_versions.get(item.name, '') != item.same_major_target) else []) }}"
       loop: "{{ image_update_checks }}"
       loop_control:
         label: "{{ item.name }}"
@@ -220,34 +219,20 @@
       ansible.builtin.set_fact:
         image_update_report_body: |
           <h2>Image update check</h2>
-          {% if bumped_images %}
-          <h3>Newly detected and bumped in git this run</h3>
+          {% if pending_deployment_images | default([]) %}
+          <h3>New image available (not yet deployed)</h3>
           <table>
-            <tr><th>Image</th><th>From</th><th>To</th><th>Published</th></tr>
-            {% for c in bumped_images %}
+            <tr><th>Image</th><th>Currently running</th><th>Target</th><th>Published</th></tr>
+            {% for c in pending_deployment_images %}
             <tr class="status-info">
               <td>{{ c.name }}</td>
-              <td>{{ c.current_version }}</td>
+              <td>{{ image_update_live_versions.get(c.name, 'unknown') }}</td>
               <td>{{ c.same_major_target }}</td>
               <td>{{ (c.same_major_target_pushed_at | to_datetime('%Y-%m-%dT%H:%M:%S.%fZ')).strftime('%d/%m/%Y') if c.same_major_target_pushed_at else 'N/A' }}</td>
             </tr>
             {% endfor %}
           </table>
           <p>Will be applied to the running container by the next container-updates run.</p>
-          {% endif %}
-          {% if pending_images | default([]) %}
-          <h3>Still pending application (bumped in git previously, not yet deployed)</h3>
-          <table>
-            <tr><th>Image</th><th>Currently running</th><th>Target</th><th>Published</th></tr>
-            {% for c in pending_images %}
-            <tr class="status-warning">
-              <td>{{ c.name }}</td>
-              <td>{{ image_update_live_versions.get(c.name, 'unknown') }}</td>
-              <td>{{ c.current_version }}</td>
-              <td>{{ (c.same_major_target_pushed_at | to_datetime('%Y-%m-%dT%H:%M:%S.%fZ')).strftime('%d/%m/%Y') if c.same_major_target_pushed_at else 'N/A' }}</td>
-            </tr>
-            {% endfor %}
-          </table>
           {% endif %}
           {% if major_available_images %}
           <h3>Major version available (not applied automatically)</h3>
@@ -295,7 +280,7 @@
       include_role:
         name: send_report
       vars:
-        report_subject: "[check-image-updates] {{ bumped_images | length }} bumped, {{ pending_images | default([]) | length }} pending, {{ major_available_images | length }} major available, {{ fleet_update_available_images | default([]) | length }} elsewhere in the fleet"
+        report_subject: "[check-image-updates] {{ pending_deployment_images | default([]) | length }} awaiting deploy, {{ major_available_images | length }} major available, {{ fleet_update_available_images | default([]) | length }} elsewhere in the fleet"
         report_body: "{{ image_update_report_body }}"
-      when: (bumped_images | length > 0) or (pending_images | default([]) | length > 0) or (major_available_images | length > 0) or (immich_update_available | default(false)) or (fleet_update_available_images | default([]) | length > 0)
+      when: (pending_deployment_images | default([]) | length > 0) or (major_available_images | length > 0) or (immich_update_available | default(false)) or (fleet_update_available_images | default([]) | length > 0)
 
