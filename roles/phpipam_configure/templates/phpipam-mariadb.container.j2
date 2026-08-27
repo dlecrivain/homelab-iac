@@ -7,22 +7,23 @@ ContainerName=phpipam-mariadb
 Environment=MYSQL_ROOT_PASSWORD={{ phpipam_db_root_password }}
 Volume=/var/phpipam/mysql-data:/var/lib/mysql:Z
 Network=phpipam.network
-# Repeated "Bad magic header in tc log" crash-recovery failures on restart (22/08, three times on
-# 27/08 - including once *with* a longer StopTimeout alone, so that wasn't sufficient by itself).
-# Root cause: this unit's ExecStop is "podman rm -f" (Quadlet's own choice for a --rm container),
-# and InnoDB's buffer-pool dump-at-shutdown/load-at-startup (a warm-cache convenience, not a
-# durability feature - the actual crash-safe data is the redo log/tc.log, not this dump) was
-# competing with that same shutdown window for time. Disabling it removes a slow, unnecessary step
-# from the critical shutdown path entirely - confirmed with 5 clean back-to-back `systemctl
-# restart` cycles live, and the resulting startup log no longer even enters "Recovering after a
-# crash" at all (not just faster - the shutdown is now actually clean). StopTimeout=60 is kept as
-# defense in depth for whatever's left, still well under systemd's own 90s TimeoutStopSec. Note:
-# applying either of these to an *already-running* container that predates the change doesn't help
-# - stopping that old instance still uses whatever it was originally created with.
+# Repeated "Bad magic header in tc log" crash-recovery failures on restart (22/08, four times on
+# 27/08). Tried StopTimeout=60 alone, then also disabling InnoDB's buffer-pool dump-at-shutdown/
+# load-at-startup (removes a slow, unrelated step from the shutdown window) - neither fully
+# eliminated it; each looked clean over several manual test cycles, then failed again on the very
+# next real configure-phpipam.yml run, so treat any "N clean cycles" claim about this specific
+# problem skeptically. Gave up trying to make every stop perfectly clean and instead made the
+# corruption harmless: phpIPAM is a plain PHP/PDO app, it never issues XA transactions, so tc.log
+# (which exists only to resolve in-doubt 2-phase-commit transactions across a crash) has zero
+# practical value here - wiping it before every start means mariadbd never encounters a stale or
+# corrupted one and never enters crash-recovery-via-tc.log at all. Kept StopTimeout=60 and the
+# buffer-pool settings too since they still reduce how often a stop needs saving in the first
+# place. Still needs a real configure-phpipam.yml run (not another manual test) to confirm.
 StopTimeout=60
 Exec=--innodb-buffer-pool-dump-at-shutdown=0 --innodb-buffer-pool-load-at-startup=0
 
 [Service]
+ExecStartPre=/bin/rm -f /var/phpipam/mysql-data/tc.log
 Restart=always
 
 [Install]
