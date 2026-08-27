@@ -5,7 +5,7 @@ Requires=semaphore-db.service
 Wants=network-online.target
 
 [Container]
-Image=docker.io/semaphoreui/semaphore:v2.19.8
+Image=docker.io/semaphoreui/semaphore:v2.19.11
 Pull=missing
 ContainerName=semaphore
 Network=semaphore-network.network
