@@ -7,6 +7,11 @@ ContainerName=phpipam-mariadb
 Environment=MYSQL_ROOT_PASSWORD={{ phpipam_db_root_password }}
 Volume=/var/phpipam/mysql-data:/var/lib/mysql:Z
 Network=phpipam.network
+# Podman's default stop-timeout (10s) can be shorter than InnoDB needs to flush its buffer pool
+# and tc.log cleanly, causing "Bad magic header in tc log" crash-recovery failures on the next
+# start (hit twice: 22/08 and 27/08, both right after a container restart). Give it real headroom
+# before SIGKILL - well under systemd's own 90s TimeoutStopSec, so systemd never races ahead of it.
+PodmanArgs=--stop-timeout=60
 
 [Service]
 Restart=always
