@@ -48,7 +48,7 @@
   ansible.builtin.command: >
     qm migrate {{ migrate_vmid }} {{ migrate_target_node }}
     --online --with-local-disks --targetstorage nvme_data
-    {{ '--migration_network 10.10.10.0/31' if migrate_use_mesh_network else '' }}
+    {{ '--migration_network 10.10.10.0/31 --migration_type insecure' if migrate_use_mesh_network else '' }}
   register: migrate_start
   async: 21600
   poll: 0
