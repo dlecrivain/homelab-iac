@@ -40,10 +40,15 @@
   vars:
     ansible_python_interpreter: "{{ migrate_python_interpreter | default(proxmox_python_interpreter) }}"
 
+- name: "Determine whether this migration can use the direct pve2<->pve3 10G mesh link (only when neither endpoint is pve1, which currently has no NIC on that network - PVE's own migration_network resolution hard-fails, not falls back, if a node has no matching address, so this must never be set unless both ends genuinely have one)"
+  ansible.builtin.set_fact:
+    migrate_use_mesh_network: "{{ (migrate_delegate_to | default(inventory_hostname)) in ['pve2', 'pve3'] and migrate_target_node in ['pve2', 'pve3'] }}"
+
 - name: Start the live migration
   ansible.builtin.command: >
     qm migrate {{ migrate_vmid }} {{ migrate_target_node }}
     --online --with-local-disks --targetstorage nvme_data
+    {{ '--migration_network 10.10.10.0/31' if migrate_use_mesh_network else '' }}
   register: migrate_start
   async: 21600
   poll: 0
