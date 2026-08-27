@@ -51,13 +51,15 @@
       ignore_errors: true
       when: pcloud_backup_source is not defined
 
-    - name: Determine all pCloud backup failures (if any)
+    - name: "Determine all pCloud backup failures (if any) - including a job that never finished within the 6-hour async window, which has no 'rc' at all and would otherwise pass silently"
       ansible.builtin.set_fact:
         pcloud_backup_failures: >-
           {%- set failures = [] -%}
           {%- for r in (pcloud_wait.results | default([])) -%}
             {%- if r.rc is defined and r.rc != 0 -%}
               {%- set _ = failures.append(r.item.item.name + ': ' + (r.stderr | default('unknown error'))) -%}
+            {%- elif not (r.finished | default(0) | bool) -%}
+              {%- set _ = failures.append(r.item.item.name + ': did not finish within the 6-hour async window') -%}
             {%- endif -%}
           {%- endfor -%}
           {{ failures | join(' | ') }}

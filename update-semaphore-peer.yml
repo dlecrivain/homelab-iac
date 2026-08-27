@@ -94,6 +94,12 @@
             - has_updates | default(false) | bool
             - host_overall_status == 'OK'
 
+      rescue:
+        - name: Mark this host as having a problem, and record why
+          ansible.builtin.set_fact:
+            host_overall_status: PROBLEM
+            host_update_failure_reason: "{{ ansible_failed_result.msg | default('Unknown error') }}"
+
 - import_playbook: container-updates.yml
   # For the semaphore102 direction, this nested call now handles image alignment to semaphore101
   # internally (container-updates.yml's own Step 3 branches on inventory_hostname == 'semaphore102'
@@ -186,6 +192,17 @@
       retries: 30
       delay: 10
       until: (peer_semaphore_ping.status | default(0)) == 200
+      ignore_errors: true
+
+    - name: "Mark this host as having a problem if it never came back up (a hard failure here on localhost would otherwise skip localhost - and the final report play - for the rest of this run)"
+      ansible.builtin.set_fact:
+        host_overall_status: PROBLEM
+        host_update_failure_reason: "{{ peer_host }} did not respond on :3000/api/ping within the retry window after the image bump/restart"
+      delegate_to: "{{ peer_host }}"
+      delegate_facts: true
+      when:
+        - (peer_semaphore_ping.status | default(0)) != 200
+        - (hostvars[peer_host].host_overall_status | default('OK')) == 'OK'
 
 - name: Keep this repo's provisioning template in sync with whatever Semaphore version the peer is actually running
   hosts: localhost

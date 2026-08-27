@@ -31,16 +31,16 @@
                 migrate_target_node: "{{ vm_backup_node }}"
                 migrate_delegate_to: "{{ proxmox_node }}"
 
+            - name: "Record that this VM was migrated for backup, and its original node (before the health check below, so a failed check still triggers the migrate-back safety net in 'always' instead of stranding the VM here with nothing detecting it)"
+              ansible.builtin.set_fact:
+                vm_was_migrated: true
+                vm_original_node: "{{ proxmox_node }}"
+
             - name: Check services after migration
               include_role:
                 name: health_check
               vars:
                 health_check_fail_on_unhealthy: true
-
-            - name: Record that this VM was migrated for backup, and its original node
-              ansible.builtin.set_fact:
-                vm_was_migrated: true
-                vm_original_node: "{{ proxmox_node }}"
 
         - name: Step 2 - Run the vzdump backup and upload it to pCloud
           include_role:
@@ -142,7 +142,11 @@
               <td>{{ st }}</td>
               <td>
                 {% if st == 'OK' %}
-                Backed up to pCloud{% if hostvars[h].vm_was_migrated | default(false) %} (migrated to {{ vm_backup_node }} and back){% endif %}
+                Backed up to pCloud
+                {%- if hostvars[h].vm_was_migrated | default(false) %}
+                {%- if hostvars[h].vm_migrated_back | default(false) %} (migrated to {{ vm_backup_node }} and back)
+                {%- else %} (migrated to {{ vm_backup_node }} - migrate-back FAILED, see banner above){% endif %}
+                {%- endif %}
                 {% else %}
                 {{ hostvars[h].vm_backup_failure_reason | default('Unknown error') }}
                 {% endif %}

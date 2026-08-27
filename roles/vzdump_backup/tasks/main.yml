@@ -27,10 +27,11 @@
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
 
-- name: Fail clearly if the vzdump job itself reports an error
+- name: "Fail clearly if the vzdump job itself reports an error, or never finished within the async window (async_status has no 'rc' at all while a job is still running, so a genuine timeout would otherwise pass this check silently and go on to upload whatever the previous, stale backup archive happens to be)"
   ansible.builtin.fail:
-    msg: "vzdump of VM {{ vzdump_vmid }} failed: {{ vzdump_job.stderr | default('unknown error') }}"
-  when: vzdump_job.rc is defined and vzdump_job.rc != 0
+    msg: >-
+      vzdump of VM {{ vzdump_vmid }} {{ 'failed: ' + (vzdump_job.stderr | default('unknown error')) if (vzdump_job.rc is defined and vzdump_job.rc != 0) else 'did not finish within the 6-hour async window' }}
+  when: (vzdump_job.rc is defined and vzdump_job.rc != 0) or not (vzdump_job.finished | default(0) | bool)
 
 - name: Find the newest backup archive for this VM
   ansible.builtin.command: >

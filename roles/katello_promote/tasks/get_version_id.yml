@@ -5,6 +5,7 @@
     content-view version list
     --content-view {{ content_view_name }}
     --organization "{{ katello_organization }}"
+    --order "id DESC"
     --per-page 1
     --fields id,version
   register: cv_version_list
