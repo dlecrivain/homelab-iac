@@ -1,6 +1,6 @@
 ---
-- name: Back up every VM to Stockage_SSD then pCloud, migrating each one back to its own node right after
-  hosts: "{{ target_hosts | default('proxmox_all_qemu') }}"
+- name: "Back up every VM to Stockage_SSD then pCloud, migrating each one back to its own node right after (immich101 excluded - its photo library is already covered file-level by pcloud-backups.yml, and its own disk now lives on Stockage_SSD itself, so a vzdump copy there protects against nothing a physical drive failure wouldn't also take out)"
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!immich101') }}"
   gather_facts: false
   serial: 3
   tasks:
