@@ -4,6 +4,12 @@
     qm start {{ vm.vmid }}
   changed_when: true
 
+- name: "Wait for {{ vm.name }} to finish booting (a cold start, unlike a live migration's already-running guest - health_check would otherwise run before SSH/podman are even up)"
+  ansible.builtin.wait_for_connection:
+    delay: 10
+    timeout: 180
+  delegate_to: "{{ vm.name }}"
+
 - name: "Check {{ vm.name }} health after restart"
   include_role:
     name: health_check
