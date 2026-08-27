@@ -321,24 +321,39 @@
       loop_control:
         label: "{{ item.name }}"
 
+    - name: "Merge watch-list bumps not yet deployed with the generic fleet-wide scan into one list (same underlying question - 'is a newer image available for this container' - so one table instead of forcing the reader to know which detection mechanism found it). Both apply automatically on the next container-updates run either way - podman_update pulls/restarts every podman_units entry regardless of pin status - the real difference is whether the bump was reviewable in git first"
+      ansible.builtin.set_fact:
+        unified_update_items: "{{ (unified_update_items | default([])) + [{'host': item.host, 'name': item.name, 'current': image_update_live_versions.get(item.name, 'unknown'), 'target': item.same_major_target, 'reviewed': true}] }}"
+      loop: "{{ pending_deployment_images }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Add the generic fleet-wide scan's own findings to the same merged list
+      ansible.builtin.set_fact:
+        unified_update_items: "{{ (unified_update_items | default([])) + [{'host': item.host, 'name': item.name, 'current': item.current_version, 'target': item.new_version, 'reviewed': false}] }}"
+      loop: "{{ fleet_update_available_images }}"
+      loop_control:
+        label: "{{ item.name }}"
+
     - name: Build the report body
       ansible.builtin.set_fact:
         image_update_report_body: |
           <h2>Image update check</h2>
-          {% if pending_deployment_images | default([]) %}
-          <h3>New image available (not yet deployed)</h3>
+          {% if unified_update_items | default([]) %}
+          <h3>Container image updates available</h3>
           <table>
-            <tr><th>Image</th><th>Currently running</th><th>Target</th><th>Published</th></tr>
-            {% for c in pending_deployment_images %}
+            <tr><th>Host</th><th>Image</th><th>Current</th><th>Available</th><th>Bump reviewed in git?</th></tr>
+            {% for c in unified_update_items %}
             <tr class="status-info">
+              <td>{{ c.host }}</td>
               <td>{{ c.name }}</td>
-              <td>{{ image_update_live_versions.get(c.name, 'unknown') }}</td>
-              <td>{{ c.same_major_target }}</td>
-              <td>{{ (c.same_major_target_pushed_at | to_datetime('%Y-%m-%dT%H:%M:%S.%fZ')).strftime('%d/%m/%Y') if c.same_major_target_pushed_at else 'N/A' }}</td>
+              <td>{{ c.current }}</td>
+              <td>{{ c.target }}</td>
+              <td>{{ 'Yes' if c.reviewed else 'No - not in image_update_watch_list' }}</td>
             </tr>
             {% endfor %}
           </table>
-          <p>Will be applied to the running container by the next container-updates run.</p>
+          <p>All of these apply automatically on the next container-updates run either way.</p>
           {% endif %}
           {% if major_available_images %}
           <h3>Major version available (not applied automatically)</h3>
@@ -394,27 +409,12 @@
             </tr>
           </table>
           {% endif %}
-          {% if fleet_update_available_images | default([]) %}
-          <h3>Rest of the fleet (informational only - no git write, nothing applied here)</h3>
-          <table>
-            <tr><th>Host</th><th>Container</th><th>Current</th><th>Available</th></tr>
-            {% for c in fleet_update_available_images %}
-            <tr class="status-warning">
-              <td>{{ c.host }}</td>
-              <td>{{ c.name }}</td>
-              <td>{{ c.current_version }}</td>
-              <td>{{ c.new_version }}</td>
-            </tr>
-            {% endfor %}
-          </table>
-          <p>Will be picked up as usual by the next container-updates run - listed here purely so you know ahead of patch day.</p>
-          {% endif %}
 
     - name: Send the email (only if there's actually something to report)
       include_role:
         name: send_report
       vars:
-        report_subject: "[check-image-updates] {{ pending_deployment_images | default([]) | length }} awaiting deploy, {{ major_available_images | length }} major available, {{ fleet_update_available_images | default([]) | length }} elsewhere in the fleet, {{ binary_bumped | length }} binaries bumped"
+        report_subject: "[check-image-updates] {{ unified_update_items | default([]) | length }} image update(s) available, {{ major_available_images | length }} major available, {{ binary_bumped | length }} binaries bumped"
         report_body: "{{ image_update_report_body }}"
-      when: (pending_deployment_images | default([]) | length > 0) or (major_available_images | length > 0) or (immich_update_available | default(false)) or (fleet_update_available_images | default([]) | length > 0) or (binary_bumped | length > 0) or (binary_major_available | length > 0)
+      when: (unified_update_items | default([]) | length > 0) or (major_available_images | length > 0) or (immich_update_available | default(false)) or (binary_bumped | length > 0) or (binary_major_available | length > 0)
 
