@@ -1,0 +1,18 @@
+---
+- name: "Start {{ vm.name }} back up after host maintenance"
+  ansible.builtin.command: >
+    qm start {{ vm.vmid }}
+  changed_when: true
+
+- name: "Check {{ vm.name }} health after restart"
+  include_role:
+    name: health_check
+  vars:
+    health_check_delegate_to: "{{ vm.name }}"
+    health_check_fail_on_unhealthy: true
+    health_check_containers: "{{ hostvars[vm.name].health_check_containers | default([]) }}"
+    health_check_url: "{{ hostvars[vm.name].health_check_url | default('') }}"
+    health_check_podman_user: "{{ hostvars[vm.name].health_check_podman_user | default('root') }}"
+    health_check_validate_certs: "{{ hostvars[vm.name].health_check_validate_certs | default(true) }}"
+    health_check_retries: "{{ hostvars[vm.name].health_check_retries | default(5) }}"
+    health_check_delay: "{{ hostvars[vm.name].health_check_delay | default(10) }}"

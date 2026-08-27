@@ -12,16 +12,18 @@
     {{ pve_other_nodes | join(',') }}
     {{ pve_safety_threshold }}
     {{ pve_clone_storage }}
+    {{ pve_placement_exclude_names | default([]) | join(',') }}
   register: placement_result
   changed_when: false
 
-- name: Store the computed placement as a reusable fact
+- name: Store the computed placement and maintenance-shutdown lists as reusable facts
   ansible.builtin.set_fact:
-    vm_placements: "{{ placement_result.stdout | from_json }}"
+    vm_placements: "{{ (placement_result.stdout | from_json).migrate }}"
+    vm_shutdowns: "{{ (placement_result.stdout | from_json).shutdown }}"
 
 - name: Show computed placement
   ansible.builtin.debug:
-    msg: "{{ vm_placements }}"
+    msg: "Migrate: {{ vm_placements }} | Shutdown for maintenance: {{ vm_shutdowns }}"
 
 - name: Clean up the placement script
   ansible.builtin.file:

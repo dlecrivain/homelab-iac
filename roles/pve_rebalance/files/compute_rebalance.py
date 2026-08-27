@@ -6,6 +6,9 @@ nodes = sys.argv[1].split(',')
 SAFETY_THRESHOLD = float(sys.argv[2])
 IMPROVEMENT_MARGIN = float(sys.argv[3])  # only move a VM if it meaningfully improves balance
 STORAGE_ID = sys.argv[4]  # the shared storage name VM disks are migrated onto (e.g. nvme_data)
+# VMs whose disk lives on node-local storage (e.g. immich101 on pve1's Stockage_SSD) can't be
+# migrated at all - never propose a move for them, it would fail outright at runtime.
+EXCLUDE_NAMES = sys.argv[5].split(',') if len(sys.argv) > 5 and sys.argv[5] else []
 
 def get_node_status(node):
     raw = subprocess.check_output(['pvesh', 'get', f'/nodes/{node}/status', '--output-format', 'json'])
@@ -18,7 +21,10 @@ def get_storage_status(node, storage_id):
 def get_all_vms():
     raw = subprocess.check_output(['pvesh', 'get', '/cluster/resources', '--type', 'vm', '--output-format', 'json'])
     data = json.loads(raw)
-    return [vm for vm in data if vm.get('template') != 1 and vm.get('status') == 'running']
+    return [
+        vm for vm in data
+        if vm.get('template') != 1 and vm.get('status') == 'running' and vm.get('name') not in EXCLUDE_NAMES
+    ]
 
 node_total = {}
 node_avail_disk = {}

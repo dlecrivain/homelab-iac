@@ -9,9 +9,18 @@
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
 
+- name: Determine which VMs are pinned to node-local storage and must never be rebalanced
+  ansible.builtin.set_fact:
+    pve_rebalance_exclude_names: "{{ pve_rebalance_exclude_names | default([]) + [item] }}"
+  loop: "{{ groups['proxmox_all_qemu'] }}"
+  loop_control:
+    label: "{{ item }}"
+  when: hostvars[item].pve_shutdown_for_maintenance | default(false) | bool
+
 - name: Compute the global rebalance plan
   ansible.builtin.command: >
     python3 /tmp/compute_rebalance.py {{ pve_all_nodes | join(',') }} {{ pve_safety_threshold }} {{ pve_rebalance_margin }} {{ pve_clone_storage }}
+    {{ pve_rebalance_exclude_names | default([]) | join(',') }}
   register: rebalance_result
   changed_when: false
   delegate_to: "{{ proxmox_api_host }}"

@@ -6,6 +6,9 @@ source_node = sys.argv[1]
 target_nodes = sys.argv[2].split(',')
 SAFETY_THRESHOLD = float(sys.argv[3])  # never push a node above this fraction of memory usage
 STORAGE_ID = sys.argv[4]  # the shared storage name VM disks are migrated onto (e.g. nvme_data)
+# VMs whose disk lives on node-local storage that isn't present on the other nodes (e.g. immich101
+# on pve1's Stockage_SSD) can't be live-migrated at all - shut down for the maintenance window instead.
+EXCLUDE_NAMES = sys.argv[5].split(',') if len(sys.argv) > 5 and sys.argv[5] else []
 
 def get_node_status(node):
     raw = subprocess.check_output(['pvesh', 'get', f'/nodes/{node}/status', '--output-format', 'json'])
@@ -21,9 +24,12 @@ def get_storage_status(node, storage_id):
 
 def get_vms_to_evacuate(node):
     vms = get_node_vms(node)
-    return [vm for vm in vms if vm.get('status') == 'running']
+    running = [vm for vm in vms if vm.get('status') == 'running']
+    to_migrate = [vm for vm in running if vm.get('name') not in EXCLUDE_NAMES]
+    to_shutdown = [vm for vm in running if vm.get('name') in EXCLUDE_NAMES]
+    return to_migrate, to_shutdown
 
-vms_to_move = get_vms_to_evacuate(source_node)
+vms_to_move, vms_to_shutdown = get_vms_to_evacuate(source_node)
 vms_to_move.sort(key=lambda v: v.get('maxmem', 0), reverse=True)
 
 node_total_mem = {}
@@ -79,4 +85,11 @@ for vm in vms_to_move:
     node_avail_disk[best_node] -= vm_disk
     node_vm_count[best_node] += 1
 
-print(json.dumps(placements, indent=2))
+result = {
+    'migrate': placements,
+    'shutdown': [
+        {'vmid': vm['vmid'], 'name': vm.get('name', f"vm-{vm['vmid']}")}
+        for vm in vms_to_shutdown
+    ]
+}
+print(json.dumps(result, indent=2))

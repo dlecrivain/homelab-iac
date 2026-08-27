@@ -56,6 +56,11 @@
               include_role:
                 name: reboot_and_wait
 
+            - name: Step 5 - Start back up any VMs that were shut down for this host's maintenance window (node-pinned disks that couldn't migrate)
+              include_role:
+                name: pve_evacuate_host
+                tasks_from: resume_after_maintenance
+
         - name: Capture the PVE version after update
           ansible.builtin.command: pveversion
           register: pveversion_after

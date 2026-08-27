@@ -1,0 +1,7 @@
+---
+- name: Start each maintenance-shutdown VM back up now that the host has rebooted
+  ansible.builtin.include_tasks: start_and_verify.yml
+  loop: "{{ pve_vms_shutdown_for_maintenance | default([]) }}"
+  loop_control:
+    loop_var: vm
+    label: "{{ vm.name }}"

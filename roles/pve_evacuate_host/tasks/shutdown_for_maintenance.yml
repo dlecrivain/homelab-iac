@@ -1,0 +1,14 @@
+---
+- name: "Shut down {{ vm.name }} for the maintenance window (disk is on node-local storage, can't migrate)"
+  ansible.builtin.command: >
+    qm shutdown {{ vm.vmid }} --timeout 60
+  changed_when: true
+
+- name: "Confirm {{ vm.name }} is stopped"
+  ansible.builtin.command: >
+    qm status {{ vm.vmid }}
+  register: shutdown_status_check
+  changed_when: false
+  retries: 6
+  delay: 5
+  until: "'status: stopped' in shutdown_status_check.stdout"

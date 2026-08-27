@@ -1,4 +1,12 @@
 ---
+- name: Determine which VMs are pinned to node-local storage and must be shut down rather than migrated
+  ansible.builtin.set_fact:
+    pve_placement_exclude_names: "{{ pve_placement_exclude_names | default([]) + [item] }}"
+  loop: "{{ groups['proxmox_all_qemu'] }}"
+  loop_control:
+    label: "{{ item }}"
+  when: hostvars[item].pve_shutdown_for_maintenance | default(false) | bool
+
 - name: Compute placement for VMs on this host
   include_role:
     name: pve_placement
@@ -9,3 +17,14 @@
   loop_control:
     loop_var: vm
     label: "{{ vm.name }} -> {{ vm.target_node }}"
+
+- name: Shut down each node-pinned VM for the duration of this host's maintenance window
+  ansible.builtin.include_tasks: shutdown_for_maintenance.yml
+  loop: "{{ vm_shutdowns }}"
+  loop_control:
+    loop_var: vm
+    label: "{{ vm.name }}"
+
+- name: Remember which VMs were shut down here, so they can be started back up after the reboot
+  ansible.builtin.set_fact:
+    pve_vms_shutdown_for_maintenance: "{{ vm_shutdowns }}"
