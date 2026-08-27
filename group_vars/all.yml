@@ -55,10 +55,12 @@ phpipam_version: "v1.8.2"
 # phpipam-mariadb.container.j2 used to run docker.io/mariadb:latest, unlike every other image in
 # the fleet - container-updates.yml's routine podman_update pass would silently pull/restart it
 # against whatever upstream currently tags :latest, including an unreviewed major-version jump
-# that could fail to start against the existing datadir (needs mysql_upgrade). Pinned the same way
-# as everything else; not in image_update_watch_list since a DB engine bump deserves a deliberate,
-# manually-reviewed change here rather than an automatic detect-and-bump.
-mariadb_version: "11.4"
+# that could fail to start against the existing datadir (needs mysql_upgrade). Pinned to the exact
+# version already running (confirmed via `podman exec phpipam-mariadb mariadb --version` on
+# phpipam101) so applying this pin is a no-op for the live container; not in image_update_watch_list
+# since a DB engine bump deserves a deliberate, manually-reviewed change here rather than an
+# automatic detect-and-bump.
+mariadb_version: "12.3.2"
 
 # Proxmox VM provisioning (provision-vm.yml)
 pve_template_vmid: 9000
