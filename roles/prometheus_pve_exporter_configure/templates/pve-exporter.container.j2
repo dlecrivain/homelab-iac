@@ -5,7 +5,7 @@ After=network-online.target
 
 [Container]
 ContainerName=pve-exporter
-Image=docker.io/prompve/prometheus-pve-exporter:3.10.0
+Image=docker.io/prompve/prometheus-pve-exporter:{{ pve_exporter_version }}
 Network=monitoring-network.network
 Volume=/etc/pve-exporter/pve.yml:/etc/prometheus/pve.yml:Z,ro
 PublishPort=9221:9221

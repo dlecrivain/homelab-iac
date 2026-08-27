@@ -13,6 +13,12 @@
 # Immich is excluded from the watch list entirely (not Ansible-managed, GHCR + digest pins + a
 # floating "release" tag with no version in the image reference at all) - it gets a completely
 # separate, read-only comparison instead: its own reported version against its GitHub releases.
+#
+# node_exporter and smartctl_exporter get the same same-major-line auto-bump treatment as the
+# Docker Hub images below, but via a separate GitHub Releases check further down (own play) -
+# they're native binaries installed fleet-wide by node_exporter_install/smartctl_exporter_install,
+# not a single container to compare a "live" version against, so they can't share the watch list's
+# live-catch-up tracking. A bump here applies the next time the relevant install role runs.
 - name: Check Docker Hub for updates to unmanaged-bump images
   hosts: localhost
   gather_facts: false
@@ -140,6 +146,104 @@
       ansible.builtin.set_fact:
         image_update_live_versions: "{{ image_update_live_check_host_list | map('extract', hostvars, 'image_update_live_versions') | select('defined') | list | combine }}"
 
+- name: "Check GitHub Releases for node_exporter/smartctl_exporter updates and bump their pin immediately if found (these are native binaries installed fleet-wide by node_exporter_install/smartctl_exporter_install, not a Docker Hub image or a single container to inspect - so unlike the watch list above, there's no 'live container caught up yet' check possible here. A same-major bump applies the next time the relevant install role actually runs, e.g. the next configure-monitoring.yml reconciliation pass, not on any routine patch cycle)"
+  hosts: localhost
+  gather_facts: false
+  vars:
+    binary_update_watch_list:
+      - name: node_exporter
+        github_repo: prometheus/node_exporter
+        version_var: node_exporter_version
+      - name: smartctl_exporter
+        github_repo: prometheus-community/smartctl_exporter
+        version_var: smartctl_exporter_version
+  tasks:
+    - name: Query recent GitHub releases for each watched binary
+      ansible.builtin.uri:
+        url: "https://api.github.com/repos/{{ item.github_repo }}/releases?per_page=100"
+        return_content: true
+      register: binary_update_releases_response
+      loop: "{{ binary_update_watch_list }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: "Compute each binary's same-major-line target (safe to auto-bump) and overall latest (for the major-jump warning) - same logic as the Docker Hub check above, adapted to GitHub's vX.Y.Z release tags"
+      vars:
+        current_version: "{{ lookup('vars', item.item.version_var) }}"
+        current_major: "{{ current_version | regex_replace('^v?([0-9]+)\\..*$', '\\1') }}"
+        all_versions: "{{ item.json | map(attribute='tag_name') | select('match', '^v[0-9]+\\.[0-9]+\\.[0-9]+$') | map('regex_replace', '^v', '') | list }}"
+        same_major_versions: "{{ all_versions | select('match', '^' + current_major | regex_escape() + '\\.[0-9]+\\.[0-9]+$') | list }}"
+        same_major_ranked: "{{ same_major_versions | map('regex_findall', '[0-9]+') | map('map', 'int') | map('list') | list | zip(same_major_versions) | map('list') | list }}"
+        all_ranked: "{{ all_versions | map('regex_findall', '[0-9]+') | map('map', 'int') | map('list') | list | zip(all_versions) | map('list') | list }}"
+        same_major_target: "{{ (same_major_ranked | sort)[-1][1] if (same_major_ranked | length > 0) else current_version }}"
+        overall_latest: "{{ (all_ranked | sort)[-1][1] if (all_ranked | length > 0) else current_version }}"
+        overall_latest_major: "{{ overall_latest | regex_replace('^v?([0-9]+)\\..*$', '\\1') }}"
+      ansible.builtin.set_fact:
+        binary_update_checks: >-
+          {{
+            (binary_update_checks | default([])) + [{
+              'name': item.item.name,
+              'version_var': item.item.version_var,
+              'current_version': current_version,
+              'same_major_target': same_major_target,
+              'bump_needed': same_major_target != current_version,
+              'overall_latest': overall_latest,
+              'major_available': (overall_latest_major | int) > (current_major | int),
+            }]
+          }}
+      loop: "{{ binary_update_releases_response.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: "Bump group_vars/all.yml immediately for every binary where a same-major-line update was found"
+      ansible.builtin.replace:
+        path: "{{ playbook_dir }}/group_vars/all.yml"
+        regexp: '^{{ item.version_var }}: ".*"$'
+        replace: '{{ item.version_var }}: "{{ item.same_major_target }}"'
+      loop: "{{ binary_update_checks | selectattr('bump_needed') | list }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: binary_update_bump_result
+
+    - name: Configure a git identity for this commit (harmless if already set)
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - git config user.email "d.lecrivain47@gmail.com"
+        - git config user.name "dlecrivain"
+      args:
+        chdir: "{{ playbook_dir }}"
+      changed_when: false
+      when: binary_update_bump_result.changed | default(false)
+
+    - name: Commit the version bump(s)
+      ansible.builtin.command: >-
+        git commit -am "Bump pinned binary version(s): {{ binary_update_checks | selectattr('bump_needed') | map(attribute='name') | join(', ') }} (detected by check-image-updates.yml)"
+      args:
+        chdir: "{{ playbook_dir }}"
+      when: binary_update_bump_result.changed | default(false)
+
+    - name: Push the commit to origin/main
+      ansible.builtin.command: "git push https://{{ github_push_token }}@github.com/dlecrivain/homelab-iac main"
+      args:
+        chdir: "{{ playbook_dir }}"
+      register: binary_update_git_push
+      failed_when: false
+      no_log: true
+      when: binary_update_bump_result.changed | default(false)
+
+    - name: Fail with a token-redacted error if the push failed
+      ansible.builtin.fail:
+        msg: >-
+          git push failed (rc={{ binary_update_git_push.rc }}):
+          {{
+            (binary_update_git_push.stderr | default('')) | replace(github_push_token, '***REDACTED***')
+            if (github_push_token | default('') | length > 0)
+            else (binary_update_git_push.stderr | default('')) + ' (github_push_token is empty - GITHUB_PUSH_TOKEN missing from this template''s Variable Group)'
+          }}
+      when:
+        - binary_update_bump_result.changed | default(false)
+        - binary_update_git_push.rc != 0
+
 - name: Compare Immich's reported version against its latest GitHub release (informational only - not Ansible-managed, never touched here)
   hosts: localhost
   gather_facts: false
@@ -207,6 +311,8 @@
   vars:
     major_available_images: "{{ image_update_checks | selectattr('major_available') | list }}"
     fleet_update_available_images: "{{ fleet_image_checks | default([]) | selectattr('update_available') | list }}"
+    binary_bumped: "{{ binary_update_checks | default([]) | selectattr('bump_needed') | list }}"
+    binary_major_available: "{{ binary_update_checks | default([]) | selectattr('major_available') | list }}"
   tasks:
     - name: "Build the list of containers with a target version not yet deployed - covers both a bump that just happened this run and one recorded on an earlier run that's still waiting on the next container-updates. Disappears from this list the moment the container actually catches up, regardless of when the bump itself happened"
       ansible.builtin.set_fact:
@@ -249,6 +355,34 @@
           </table>
           <p>Review manually - a major version jump can include breaking changes.</p>
           {% endif %}
+          {% if binary_bumped %}
+          <h3>Binary version(s) bumped (node_exporter / smartctl_exporter)</h3>
+          <table>
+            <tr><th>Binary</th><th>Old</th><th>New</th></tr>
+            {% for c in binary_bumped %}
+            <tr class="status-info">
+              <td>{{ c.name }}</td>
+              <td>{{ c.current_version }}</td>
+              <td>{{ c.same_major_target }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+          <p>Applied to group_vars/all.yml and pushed - takes effect the next time the relevant install role actually runs (e.g. the next configure-monitoring.yml reconciliation pass), not on any routine patch cycle.</p>
+          {% endif %}
+          {% if binary_major_available %}
+          <h3>Binary major version available (not applied automatically)</h3>
+          <table>
+            <tr><th>Binary</th><th>Current</th><th>Available</th></tr>
+            {% for c in binary_major_available %}
+            <tr class="status-warning">
+              <td>{{ c.name }}</td>
+              <td>{{ c.current_version }}</td>
+              <td>{{ c.overall_latest }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+          <p>Review manually - a major version jump can include breaking changes.</p>
+          {% endif %}
           {% if immich_update_available | default(false) %}
           <h3>Immich (informational only - not Ansible-managed)</h3>
           <table>
@@ -280,7 +414,7 @@
       include_role:
         name: send_report
       vars:
-        report_subject: "[check-image-updates] {{ pending_deployment_images | default([]) | length }} awaiting deploy, {{ major_available_images | length }} major available, {{ fleet_update_available_images | default([]) | length }} elsewhere in the fleet"
+        report_subject: "[check-image-updates] {{ pending_deployment_images | default([]) | length }} awaiting deploy, {{ major_available_images | length }} major available, {{ fleet_update_available_images | default([]) | length }} elsewhere in the fleet, {{ binary_bumped | length }} binaries bumped"
         report_body: "{{ image_update_report_body }}"
-      when: (pending_deployment_images | default([]) | length > 0) or (major_available_images | length > 0) or (immich_update_available | default(false)) or (fleet_update_available_images | default([]) | length > 0)
+      when: (pending_deployment_images | default([]) | length > 0) or (major_available_images | length > 0) or (immich_update_available | default(false)) or (fleet_update_available_images | default([]) | length > 0) or (binary_bumped | length > 0) or (binary_major_available | length > 0)
 

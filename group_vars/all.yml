@@ -116,6 +116,9 @@ grafana_version: "13.2.0"
 bunkerweb_version: "1.6.14"
 adguard_version: "v0.107.79"
 # phpipam_version itself is already declared above, in the phpIPAM container stack section
+# Used to run as a static file with the tag hardcoded in git (files/pve-exporter.container) -
+# templated and pinned the same way as everything else above, now that it's in the watch list too.
+pve_exporter_version: "3.10.0"
 
 # Docker Hub repos check-image-updates.yml watches, paired with the var it bumps and the host
 # whose live container it compares against to know whether a detected bump has actually been
@@ -161,3 +164,8 @@ image_update_watch_list:
     version_var: adguard_version
     container_name: adguardhome
     host: adguard101
+  - name: pve-exporter
+    docker_repo: prompve/prometheus-pve-exporter
+    version_var: pve_exporter_version
+    container_name: pve-exporter
+    host: "{{ prometheus_host }}"
