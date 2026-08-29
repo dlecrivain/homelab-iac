@@ -47,3 +47,8 @@
             </tr>
             {% endfor %}
           </table>
+
+    - name: "Fail this run if any content view had a problem - see the report email for details. Without this, ansible-playbook always exits 0 regardless of a real problem"
+      ansible.builtin.fail:
+        msg: "katello-publish detected a PROBLEM on at least one content view - see the report email for details."
+      when: katello_publish_any_problem

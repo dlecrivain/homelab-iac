@@ -1,5 +1,5 @@
 ---
-- name: Get the current content view version
+- name: "Get the current content view version (--output json instead of parsing hammer's ASCII table - that table format/locale isn't guaranteed stable across hammer versions/configs, and a silent zero-match regex is exactly what broke this on 27/08)"
   ansible.builtin.command: >
     hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
     content-view version list
@@ -8,6 +8,7 @@
     --order "id DESC"
     --per-page 1
     --fields id,version
+    --output json
   register: cv_version_list
   changed_when: false
   failed_when: false
@@ -26,9 +27,15 @@
       }}
   when: cv_version_list.rc != 0
 
-- name: Extract the version ID and number from command output
+- name: "Fail clearly if no content view version was found at all (rather than a confusing 'sequence was empty' from the next task)"
+  ansible.builtin.fail:
+    msg: "hammer content-view version list returned no versions for {{ content_view_name }} - has it ever been published?"
+  when: (cv_version_list.stdout | from_json | length) == 0
+
+- name: "Extract the version ID and number from the JSON output (key casing varies by hammer/Foreman version - e.g. 'id' vs 'Id' - so match case-insensitively instead of guessing a specific casing)"
   vars:
-    cv_version_row: "{{ cv_version_list.stdout_lines | select('match', '^\\s*[0-9]+\\s*\\|\\s*[0-9.]+\\s*$') | first }}"
+    cv_version_row: "{{ (cv_version_list.stdout | from_json) | first }}"
+    cv_version_row_lc: "{{ dict(cv_version_row | dict2items | map(attribute='key') | map('lower') | zip(cv_version_row | dict2items | map(attribute='value')) | list) }}"
   ansible.builtin.set_fact:
-    cv_version_id: "{{ cv_version_row.split('|')[0] | trim }}"
-    cv_version_number: "{{ cv_version_row.split('|')[1] | trim }}"
+    cv_version_id: "{{ cv_version_row_lc.id }}"
+    cv_version_number: "{{ cv_version_row_lc.version }}"
