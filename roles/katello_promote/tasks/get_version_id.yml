@@ -1,13 +1,12 @@
 ---
-- name: "Get the current content view version (--output json instead of parsing hammer's ASCII table - that table format/locale isn't guaranteed stable across hammer versions/configs, and a silent zero-match regex is exactly what broke this on 27/08)"
+- name: "Get all versions of this content view (--output json instead of parsing hammer's ASCII table - not guaranteed stable across hammer versions/configs, and a silent zero-match regex is exactly what broke this on 27/08. Not relying on --order/--per-page either - 'id DESC' returned an empty result entirely on this hammer install for reasons still unclear - fetch everything and pick the highest id ourselves below instead of trusting hammer's own sort/pagination)"
   ansible.builtin.command: >
     hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
     --output json
     content-view version list
     --content-view {{ content_view_name }}
     --organization "{{ katello_organization }}"
-    --order "id DESC"
-    --per-page 1
+    --per-page 999
     --fields id,version
   register: cv_version_list
   changed_when: false
@@ -27,15 +26,23 @@
       }}
   when: cv_version_list.rc != 0
 
-- name: "Fail clearly if no content view version was found at all (rather than a confusing 'sequence was empty' from the next task)"
+- name: "Fail clearly if no content view version was found at all (rather than a confusing error from the next task)"
   ansible.builtin.fail:
     msg: "hammer content-view version list returned no versions for {{ content_view_name }} - has it ever been published?"
   when: (cv_version_list.stdout | from_json | length) == 0
 
-- name: "Extract the version ID and number from the JSON output (key casing varies by hammer/Foreman version - e.g. 'id' vs 'Id' - so match case-insensitively instead of guessing a specific casing)"
-  vars:
-    cv_version_row: "{{ (cv_version_list.stdout | from_json) | first }}"
-    cv_version_row_lc: "{{ dict(cv_version_row | dict2items | map(attribute='key') | map('lower') | zip(cv_version_row | dict2items | map(attribute='value')) | list) }}"
+- name: "Reset the running 'highest version seen' before scanning this content view's rows"
   ansible.builtin.set_fact:
-    cv_version_id: "{{ cv_version_row_lc.id }}"
-    cv_version_number: "{{ cv_version_row_lc.version }}"
+    cv_version_id: null
+    cv_version_number: null
+
+- name: "Find the highest-id row from the JSON output (key casing varies by hammer/Foreman version - matched case-insensitively - and hammer's own --order isn't trusted for this after 27/08's empty-result issue, so every row is scanned here instead)"
+  vars:
+    item_lc: "{{ dict(item | dict2items | map(attribute='key') | map('lower') | zip(item | dict2items | map(attribute='value')) | list) }}"
+  ansible.builtin.set_fact:
+    cv_version_id: "{{ item_lc.id }}"
+    cv_version_number: "{{ item_lc.version }}"
+  loop: "{{ cv_version_list.stdout | from_json }}"
+  loop_control:
+    label: "{{ item }}"
+  when: (cv_version_id is none) or (item_lc.id | int > cv_version_id | int)
