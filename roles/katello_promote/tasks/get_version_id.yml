@@ -2,13 +2,13 @@
 - name: "Get the current content view version (--output json instead of parsing hammer's ASCII table - that table format/locale isn't guaranteed stable across hammer versions/configs, and a silent zero-match regex is exactly what broke this on 27/08)"
   ansible.builtin.command: >
     hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
+    --output json
     content-view version list
     --content-view {{ content_view_name }}
     --organization "{{ katello_organization }}"
     --order "id DESC"
     --per-page 1
     --fields id,version
-    --output json
   register: cv_version_list
   changed_when: false
   failed_when: false
