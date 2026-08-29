@@ -1,3 +1,5 @@
+ansible_host: 192.168.1.113 # explicit static IP - predates provision-vm.yml's convention of always setting this, connected by bare hostname until now, which is exactly what let a stale/wrong known_hosts entry under that name silently break automation
+
 health_check_url: "http://192.168.1.113"
 health_check_podman_user: deploy
 health_check_containers:
