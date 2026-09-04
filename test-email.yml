@@ -1,0 +1,13 @@
+---
+- name: Send a single test email to verify SMTP credentials, independent of any real run
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Send a test report email
+      include_role:
+        name: send_report
+      vars:
+        report_subject: "[test-email] SMTP connectivity check"
+        report_body: |
+          <h2>Test email</h2>
+          <p>If you're reading this, SMTP_USER/SMTP_PASSWORD in Semaphore's Variable Group are working correctly.</p>
