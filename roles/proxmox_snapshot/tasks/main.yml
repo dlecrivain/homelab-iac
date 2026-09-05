@@ -13,7 +13,7 @@
   ansible.builtin.set_fact:
     snapshot_already_exists: "{{ (snapshot_label | default('ansible_patching')) in existing_snapshot_check.stdout }}"
 
-- name: Create a Proxmox snapshot before update
+- name: "Create a Proxmox snapshot before update (not fatal if this VM's storage doesn't support snapshots at all - e.g. immich101's disk on Stockage_SSD, a dir-type storage - continuing without one beats permanently blocking every future update for that VM; any other failure still aborts as before)"
   ansible.builtin.command: >
     pvesh create /nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/snapshot
     -snapname {{ snapshot_label | default('ansible_patching') }}
@@ -23,9 +23,19 @@
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
   register: snapshot_result
+  failed_when:
+    - snapshot_result.rc != 0
+    - "'snapshot feature is not available' not in (snapshot_result.stderr | default('') + snapshot_result.stdout | default(''))"
   when: not snapshot_already_exists
+
+- name: Record that this VM's storage doesn't support snapshots, so later steps don't try to clean up one that was never created
+  ansible.builtin.set_fact:
+    snapshot_unsupported: true
+  when:
+    - not snapshot_already_exists
+    - snapshot_result.rc is defined and snapshot_result.rc != 0
 
 - name: Store the snapshot name for later deletion
   ansible.builtin.set_fact:
     snapshot_name: "{{ snapshot_label | default('ansible_patching') }}"
-  when: not snapshot_already_exists and not (snapshot_result is failed)
+  when: not snapshot_already_exists and not (snapshot_unsupported | default(false))
