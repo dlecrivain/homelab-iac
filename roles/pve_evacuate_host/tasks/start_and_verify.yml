@@ -1,8 +1,12 @@
 ---
-- name: "Start {{ vm.name }} back up after host maintenance"
+- name: "Start {{ vm.name }} back up after host maintenance (a no-op if Proxmox's own onboot=1 already auto-started it during the host's own boot sequence, before this task even runs - qm start on an already-running VM exits 255 with 'VM ... already running' on stderr, which isn't a real failure)"
   ansible.builtin.command: >
     qm start {{ vm.vmid }}
-  changed_when: true
+  register: vm_start_result
+  failed_when:
+    - vm_start_result.rc != 0
+    - "'already running' not in (vm_start_result.stderr | default('') + vm_start_result.stdout | default(''))"
+  changed_when: vm_start_result.rc == 0
 
 - name: "Wait for {{ vm.name }} to finish booting (a cold start, unlike a live migration's already-running guest - health_check would otherwise run before SSH/podman are even up)"
   ansible.builtin.wait_for_connection:
