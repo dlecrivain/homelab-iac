@@ -13,7 +13,7 @@
   ansible.builtin.set_fact:
     snapshot_already_exists: "{{ (snapshot_label | default('ansible_patching')) in existing_snapshot_check.stdout }}"
 
-- name: "Create a Proxmox snapshot before update (not fatal if this VM's storage doesn't support snapshots at all - hit this on 05/09 when immich101's disk briefly lived on Stockage_SSD, a dir-type storage with no snapshot support, before moving back to nvme_data - continuing without one beats permanently blocking every future update for a VM in that situation; any other failure still aborts as before)"
+- name: "Create a Proxmox snapshot before update (pvesh create's own exit code only confirms the task was submitted, not whether the snapshot itself actually succeeded - confirmed live on 05/09: it returns rc=0 even when the underlying qmsnapshot task fails with 'snapshot feature is not available'. The task's real outcome is checked separately below via its UPID, the same lesson already learned the hard way with migrations earlier)"
   ansible.builtin.command: >
     pvesh create /nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/snapshot
     -snapname {{ snapshot_label | default('ansible_patching') }}
@@ -22,18 +22,40 @@
   remote_user: "{{ proxmox_ssh_user }}"
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
-  register: snapshot_result
-  failed_when:
-    - snapshot_result.rc != 0
-    - "'snapshot feature is not available' not in (snapshot_result.stderr | default('') + snapshot_result.stdout | default(''))"
+  register: snapshot_create_result
   when: not snapshot_already_exists
+
+- name: Extract the UPID of the snapshot task just submitted (the last line of pvesh create's own output)
+  ansible.builtin.set_fact:
+    snapshot_upid: "{{ snapshot_create_result.stdout | trim | regex_search('UPID:.*') }}"
+  when: not snapshot_already_exists
+
+- name: Check the snapshot task's actual outcome (its own exitstatus - not pvesh create's rc, which doesn't reflect it)
+  ansible.builtin.command: >
+    pvesh get /nodes/{{ proxmox_node }}/tasks/{{ snapshot_upid }}/status
+    --output-format json
+  delegate_to: "{{ proxmox_api_host }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+  register: snapshot_task_status
+  changed_when: false
+  when: not snapshot_already_exists
+
+- name: "Fail clearly if the snapshot task genuinely failed for any reason other than this VM's storage not supporting snapshots at all (that specific, known case is handled below instead of aborting - see roles/proxmox_snapshot's own git history for why)"
+  ansible.builtin.fail:
+    msg: "Snapshot creation for VM {{ proxmox_vmid }} failed: {{ (snapshot_task_status.stdout | from_json).exitstatus }}"
+  when:
+    - not snapshot_already_exists
+    - (snapshot_task_status.stdout | from_json).exitstatus != 'OK'
+    - "'snapshot feature is not available' not in (snapshot_task_status.stdout | from_json).exitstatus"
 
 - name: Record that this VM's storage doesn't support snapshots, so later steps don't try to clean up one that was never created
   ansible.builtin.set_fact:
     snapshot_unsupported: true
   when:
     - not snapshot_already_exists
-    - snapshot_result.rc is defined and snapshot_result.rc != 0
+    - (snapshot_task_status.stdout | from_json).exitstatus != 'OK'
 
 - name: Store the snapshot name for later deletion
   ansible.builtin.set_fact:
