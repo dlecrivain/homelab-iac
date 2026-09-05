@@ -13,7 +13,7 @@
   ansible.builtin.set_fact:
     snapshot_already_exists: "{{ (snapshot_label | default('ansible_patching')) in existing_snapshot_check.stdout }}"
 
-- name: "Create a Proxmox snapshot before update (not fatal if this VM's storage doesn't support snapshots at all - e.g. immich101's disk on Stockage_SSD, a dir-type storage - continuing without one beats permanently blocking every future update for that VM; any other failure still aborts as before)"
+- name: "Create a Proxmox snapshot before update (not fatal if this VM's storage doesn't support snapshots at all - hit this on 05/09 when immich101's disk briefly lived on Stockage_SSD, a dir-type storage with no snapshot support, before moving back to nvme_data - continuing without one beats permanently blocking every future update for a VM in that situation; any other failure still aborts as before)"
   ansible.builtin.command: >
     pvesh create /nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/snapshot
     -snapname {{ snapshot_label | default('ansible_patching') }}

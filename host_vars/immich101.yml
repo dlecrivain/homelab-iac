@@ -2,7 +2,7 @@ ansible_host: 192.168.1.111 # explicit static IP - predates provision-vm.yml's c
 
 vm_backup_local_retention: 1 # immich's backups are much larger (photo/video library) - kept at the old default rather than bumped with the rest of the fleet
 
-pve_shutdown_for_maintenance: true # disk lives on pve1's node-local Stockage_SSD (not present on pve2/pve3) - can't be live-migrated, so pve-updates.yml/pve_rebalance shut it down for pve1's maintenance window instead of evacuating it
+pve_shutdown_for_maintenance: true # disk moved back to nvme_data (05/09) so live migration is technically possible again, but kept pinned to pve1 by deliberate choice - simpler to just accept downtime during pve1's own maintenance window than deal with migrating a VM this size. pve-updates.yml/pve_rebalance shut it down instead of evacuating it.
 
 health_check_url: "http://192.168.1.111:2283"
 health_check_podman_user: immich
