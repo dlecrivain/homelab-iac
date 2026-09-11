@@ -51,7 +51,7 @@ phpipam_db_password: "{{ lookup('env', 'PHPIPAM_DB_PASSWORD') }}"
 phpipam_db_root_password: "{{ lookup('env', 'PHPIPAM_DB_ROOT_PASSWORD') }}"
 # Pinned instead of :latest so updates are a reviewable version bump (check-image-updates.yml
 # checks Docker Hub and self-heals this value) rather than a silent, unannounced image swap.
-phpipam_version: "v1.8.2"
+phpipam_version: "v1.8.3"
 # phpipam-mariadb.container.j2 used to run docker.io/mariadb:latest, unlike every other image in
 # the fleet - container-updates.yml's routine podman_update pass would silently pull/restart it
 # against whatever upstream currently tags :latest, including an unreviewed major-version jump
