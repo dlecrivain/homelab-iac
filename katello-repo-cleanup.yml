@@ -1,0 +1,8 @@
+---
+- name: Disable any repo not managed by Katello, fleet-wide (a one-off remediation/reconciliation run - provision-vm.yml and provision-semaphore-peer.yml now do this automatically at provisioning time, but phpipam101, smb101 and semaphore102 predate that and were never caught up)
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101') }}"
+  gather_facts: true
+  tasks:
+    - name: Disable any enabled repo that isn't managed by Katello
+      include_role:
+        name: katello_repo_cleanup

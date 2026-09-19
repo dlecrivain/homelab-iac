@@ -7,6 +7,10 @@
       include_role:
         name: semaphore_provision
 
+    - name: Disable any enabled repo that isn't managed by Katello (this playbook never ran this check before - confirmed live on 19/09 that semaphore102 had picked up the raw Rocky Linux appstream/baseos/extras repos alongside the Katello-managed ones)
+      include_role:
+        name: katello_repo_cleanup
+
     - name: Wait for the new peer's Semaphore web service to respond
       ansible.builtin.uri:
         url: "http://{{ ansible_host }}:3000/api/ping"
