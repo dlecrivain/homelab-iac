@@ -25,10 +25,17 @@
   register: snapshot_create_result
   when: not snapshot_already_exists
 
-- name: Extract the UPID of the snapshot task just submitted (the last line of pvesh create's own output)
+- name: "Extract the UPID of the snapshot task just submitted (pvesh create's plain-text output wraps its returned value in double quotes - confirmed live on 19/09: \"UPID:pve3:...:root@pam:\" - so the old '.*' pattern captured that trailing quote too, breaking shlex parsing of the next pvesh command with 'No closing quotation'. Whitelisting only real UPID characters keeps it clean)"
   ansible.builtin.set_fact:
-    snapshot_upid: "{{ snapshot_create_result.stdout | trim | regex_search('UPID:.*') }}"
+    snapshot_upid: "{{ snapshot_create_result.stdout | trim | regex_search('UPID:[A-Za-z0-9@_.:-]+') }}"
   when: not snapshot_already_exists
+
+- name: Fail clearly if pvesh create didn't actually hand back a usable task UPID (an error message rather than a real task submission)
+  ansible.builtin.fail:
+    msg: "Snapshot creation for VM {{ proxmox_vmid }} didn't return a usable task UPID. Raw pvesh output: {{ snapshot_create_result.stdout }}"
+  when:
+    - not snapshot_already_exists
+    - not snapshot_upid
 
 - name: Check the snapshot task's actual outcome (its own exitstatus - not pvesh create's rc, which doesn't reflect it)
   ansible.builtin.command: >
