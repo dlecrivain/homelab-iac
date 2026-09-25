@@ -110,7 +110,7 @@ grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') }}"
 # Docker Hub and bumps these in place when a same-major-line update is available - it never
 # touches the container itself, the next container-updates run applies it naturally, since it's
 # just a normal config change like any other (that's what container-updates.yml is for).
-prometheus_version: "v3.14.0"
+prometheus_version: "v3.15.0"
 alertmanager_version: "v0.34.1"
 grafana_version: "13.2.2"
 bunkerweb_version: "1.6.15"
