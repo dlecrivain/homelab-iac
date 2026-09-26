@@ -33,12 +33,14 @@
   become: true
   no_log: true
 
-- name: Fail if running the registration command failed (stderr withheld - it may embed the registration bearer token)
+# stderr is withheld - it may embed the registration bearer token.
+- name: Fail if running the registration command failed
   ansible.builtin.fail:
     msg: "Registration command failed on this host (rc={{ katello_registration_run_result.rc }}) - check this host and lpkat101 manually; error details withheld since they may contain the registration token"
   when: katello_registration_run_result.rc != 0
 
-- name: Confirm Katello registered this host under its exact hostname (so decommission-vm.yml can find it by exact name later)
+# So decommission-vm.yml can find it by exact name later.
+- name: Confirm Katello registered this host under its exact hostname
   ansible.builtin.command: >
     hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
     host info --name {{ new_vm_name }}

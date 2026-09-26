@@ -1,5 +1,6 @@
 ---
-- name: Resolve a reachable Proxmox node to use for delegate_to (once), preferring pve1, falling back to pve2 then pve3
+# Prefers pve1, falling back to pve2 then pve3.
+- name: Resolve a reachable Proxmox node to use for delegate_to (once)
   when: hostvars['localhost'].resolved_proxmox_api_host is not defined
   delegate_to: localhost
   delegate_facts: true

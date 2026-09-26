@@ -15,7 +15,8 @@
       include_role:
         name: prometheus_configure
 
-    - name: Register this host as its own Prometheus scrape target (must run after prometheus_configure, which creates /etc/prometheus/file_sd/*)
+    # Must run after prometheus_configure, which creates /etc/prometheus/file_sd/*.
+    - name: Register this host as its own Prometheus scrape target
       include_role:
         name: prometheus_target
       vars:

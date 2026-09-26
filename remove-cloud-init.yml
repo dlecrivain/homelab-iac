@@ -1,5 +1,6 @@
 ---
-- name: Strip cloud-init from legacy fleet VMs, one at a time (SSH host key regenerates on every boot otherwise)
+# Without this, the SSH host key regenerates on every boot.
+- name: Strip cloud-init from legacy fleet VMs, one at a time
   hosts: "{{ target_hosts | default('adguard101,patchmon101,phpipam101,lpkat101,immich101,semaphore102,smb101') }}"
   gather_facts: false
   serial: 1
@@ -14,7 +15,8 @@
       vars:
         capture_host_list_fact_name: cloudinit_removal_host_list
 
-    - name: "Convert this host, stopping the whole run on any failure (unrelated services - don't cascade a bad conversion into the next one)"
+    # Stops the whole run on failure: unrelated services, don't cascade a bad conversion.
+    - name: Convert this host
       block:
         - name: Remove cloud-init from this host
           include_role:

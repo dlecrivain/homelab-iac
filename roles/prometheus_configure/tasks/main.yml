@@ -1,5 +1,7 @@
 ---
-- name: Disable Cockpit (frees port 9090 for Prometheus - Cockpit's default web console listens there too, and it's enabled by default on the Rocky 10 golden template every fleet VM is cloned from; prometheus101 has no other use for it)
+# Frees port 9090: Cockpit's web console listens there too and is enabled by default on the
+# golden template every fleet VM is cloned from. prometheus101 has no other use for it.
+- name: Disable Cockpit
   ansible.builtin.systemd:
     name: cockpit.socket
     state: stopped
@@ -20,7 +22,9 @@
     - /etc/prometheus/file_sd/node_exporter_targets.d
     - /etc/prometheus/file_sd/smartctl_exporter_targets.d
 
-- name: "Ensure /etc/alertmanager exists (group-owned by GID 65534 with search permission - the container's non-root 'nobody' user needs to traverse into this directory to read alertmanager.yml)"
+# Group-owned by GID 65534 with search permission: the container's non-root 'nobody' user needs
+# to traverse into this directory to read alertmanager.yml.
+- name: Ensure /etc/alertmanager exists
   ansible.builtin.file:
     path: /etc/alertmanager
     state: directory
@@ -49,7 +53,9 @@
   become: true
   register: prometheus_config_result
 
-- name: "Deploy the Alertmanager config (embeds the SMTP password - not committed anywhere, templated from group_vars/all.yml's lookup('env', ...) values). Group-owned by GID 65534 (the 'nobody' user prom/alertmanager runs as by default, confirmed via podman inspect - not root:0600, since the container can't read a root-only file)"
+# Embeds the SMTP password, templated from env lookups - never committed. Group-owned by GID 65534
+# ('nobody', the user prom/alertmanager runs as) rather than root:0600, which it couldn't read.
+- name: Deploy the Alertmanager config
   ansible.builtin.template:
     src: alertmanager.yml.j2
     dest: /etc/alertmanager/alertmanager.yml
@@ -81,7 +87,9 @@
     - prometheus_data.volume
     - alertmanager_data.volume
 
-- name: "Deploy the shared monitoring network Quadlet (lets these containers resolve each other by name - PublishPort= only exposes a port to the LAN, it does NOT make sibling containers reachable via 127.0.0.1/localhost, since each container gets its own isolated network namespace by default; same pattern semaphore_provision already uses for semaphore/semaphore-db)"
+# Lets these containers resolve each other by name: PublishPort= only exposes a port to the LAN,
+# it does not make siblings reachable over localhost (each gets its own network namespace).
+- name: Deploy the shared monitoring network Quadlet
   ansible.builtin.copy:
     src: monitoring-network.network
     dest: /etc/containers/systemd/monitoring-network.network
@@ -91,7 +99,8 @@
   become: true
   register: prometheus_network_result
 
-- name: "Deploy the Prometheus and Alertmanager Quadlet units (templated so check-image-updates.yml's version bump has something to change - previously static files with the tag hardcoded in git)"
+# Templated, not static files, so check-image-updates.yml's version bump has something to change.
+- name: Deploy the Prometheus and Alertmanager Quadlet units
   ansible.builtin.template:
     src: "{{ item }}.j2"
     dest: "/etc/containers/systemd/{{ item }}"

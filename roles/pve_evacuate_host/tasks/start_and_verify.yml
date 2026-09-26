@@ -1,5 +1,8 @@
 ---
-- name: "Start {{ vm.name }} back up after host maintenance (a no-op if Proxmox's own onboot=1 already auto-started it during the host's own boot sequence, before this task even runs - qm start on an already-running VM exits 255 with 'VM ... already running' on stderr, which isn't a real failure. Retried because pve1's own cluster services (pmxcfs/corosync) can take a short while to reach quorum again right after a reboot - confirmed live on 19/09: qm start failed with 'cluster not ready - no quorum?' (rc=255) a few seconds after the host came back up and was reachable over SSH, which only proves the host is up, not that its cluster stack has finished resyncing)"
+# A no-op if onboot=1 already auto-started this VM during the host's own boot. Retried because
+# cluster quorum can take a moment to re-establish after a reboot even once SSH is back
+# ("cluster not ready - no quorum?", rc=255).
+- name: "Start {{ vm.name }} back up after host maintenance"
   ansible.builtin.command: >
     qm start {{ vm.vmid }}
   register: vm_start_result
@@ -13,7 +16,8 @@
     - "'already running' not in (vm_start_result.stderr | default('') + vm_start_result.stdout | default(''))"
   changed_when: vm_start_result.rc == 0
 
-- name: "Wait for {{ vm.name }} to finish booting (a cold start, unlike a live migration's already-running guest - health_check would otherwise run before SSH/podman are even up)"
+# A cold start, unlike a live migration - health_check would otherwise run before SSH/podman are up.
+- name: "Wait for {{ vm.name }} to finish booting"
   ansible.builtin.wait_for_connection:
     delay: 10
     timeout: 180

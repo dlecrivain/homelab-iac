@@ -9,7 +9,9 @@
   vars:
     snapshot_label: ansible_cloudinit_removal
 
-- name: "Resolve this host's IP (ansible_host if set, else extracted from health_check_url - these 5 hosts predate provision-vm.yml's host_vars convention)"
+# ansible_host if set, else extracted from health_check_url - these hosts predate
+# provision-vm.yml's host_vars convention.
+- name: Resolve this host's IP
   ansible.builtin.set_fact:
     rci_ip: >-
       {{
@@ -37,7 +39,9 @@
   ansible.builtin.set_fact:
     rci_conn_name: "{{ rci_active_conn.stdout_lines | first }}"
 
-- name: Make this connection a persistent static profile independent of cloud-init (fire-and-forget - bringing it up can drop the current SSH control connection even though the IP itself isn't changing)
+# Fire-and-forget: bringing it up can drop the current SSH control connection even though the IP
+# itself isn't changing.
+- name: Make this connection a persistent static profile independent of cloud-init
   ansible.builtin.shell: >
     nmcli con mod "{{ rci_conn_name }}"
     ipv4.method manual
@@ -80,7 +84,9 @@
   become: true
   when: rci_cloud_init_check.rc == 0
 
-- name: Get this VM's actually-running Proxmox config (--current, not the pending one - a previous "qm set --delete" already mutates the pending config immediately, before any restart actually applies it)
+# --current, not the pending config: a previous "qm set --delete" already mutates the pending one
+# immediately, before any restart actually applies it.
+- name: Get this VM's actually-running Proxmox config
   ansible.builtin.command: >
     pvesh get /nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/config
     --current 1
@@ -92,7 +98,9 @@
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
 
-- name: Determine which slot (if any) holds the cloud-init drive (restricted to actual drive-slot keys - "cloudinit" can also appear as a substring of an unrelated field, e.g. the "parent" snapshot-tracking key when a snapshot happens to be named ansible_cloudinit_removal)
+# Restricted to actual drive-slot keys: "cloudinit" can also appear inside an unrelated field,
+# e.g. the "parent" snapshot key when a snapshot is named ansible_cloudinit_removal.
+- name: Determine which slot (if any) holds the cloud-init drive
   ansible.builtin.set_fact:
     rci_cloudinit_slot: >-
       {{
@@ -106,7 +114,9 @@
         | default('')
       }}
 
-- name: "Remove the cloud-init drive from this VM's config (if present) - delegated to proxmox_node (the VM's actual host), not proxmox_api_host: unlike pvesh, raw qm commands aren't cluster-aware and only work run from the node that's actually hosting the VM"
+# Delegated to proxmox_node (the VM's actual host), not proxmox_api_host: unlike pvesh, raw qm
+# commands aren't cluster-aware and only work from the node hosting the VM.
+- name: Remove the cloud-init drive from this VM's config, if present
   ansible.builtin.command: >
     qm set {{ proxmox_vmid }} --delete {{ rci_cloudinit_slot }}
   when: rci_cloudinit_slot | length > 0
@@ -115,7 +125,8 @@
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
 
-- name: Shut down the VM gracefully (a soft in-guest reboot doesn't cycle QEMU itself, so the pending cloud-init drive removal above would never actually apply - a real stop/start is required)
+# A soft in-guest reboot doesn't cycle QEMU, so the pending drive removal above would never apply.
+- name: Shut down the VM gracefully
   ansible.builtin.command: >
     qm shutdown {{ proxmox_vmid }} --timeout 300
   when: rci_cloudinit_slot | length > 0
@@ -162,7 +173,8 @@
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
 
-- name: Reboot from within the guest instead (no pending hardware change to apply, a soft reboot is enough)
+# No pending hardware change to apply, so a soft reboot is enough.
+- name: Reboot from within the guest instead
   include_role:
     name: reboot_and_wait
   when: rci_cloudinit_slot | length == 0

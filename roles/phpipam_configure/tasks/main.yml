@@ -14,7 +14,9 @@
     - /var/phpipam/config-override
     - /var/phpipam/apache-override
 
-- name: "Deploy the phpIPAM config override (bind-mounted over /phpipam/config.docker.php - the BunkerWeb HTTPS fix and api_allow_unsafe tweak are baked directly into it, so no separate config.php override is needed)"
+# Bind-mounted over /phpipam/config.docker.php, with the BunkerWeb HTTPS fix and api_allow_unsafe
+# tweak baked in, so no separate config.php override is needed.
+- name: Deploy the phpIPAM config override
   ansible.builtin.copy:
     src: config.docker.php
     dest: /var/phpipam/config-override/config.docker.php
@@ -23,7 +25,7 @@
     mode: '0644'
   become: true
 
-- name: Deploy the Apache reverse-proxy override (bind-mounted over /etc/apache2/conf.d/zzz-proxy-tls.conf)
+- name: Deploy the Apache reverse-proxy override
   ansible.builtin.copy:
     src: proxy-tls.conf
     dest: /var/phpipam/apache-override/proxy-tls.conf
@@ -51,7 +53,9 @@
   become: true
   register: phpipam_network_result
 
-- name: "Deploy the phpIPAM Quadlet units (mode 0600 - these embed IPAM_DATABASE_PASS/MYSQL_ROOT_PASSWORD directly as Environment= lines, matching how they were already set up on this host before being brought under Ansible management)"
+# Mode 0600: these embed IPAM_DATABASE_PASS/MYSQL_ROOT_PASSWORD directly as Environment= lines,
+# matching how the host was already set up before coming under Ansible management.
+- name: Deploy the phpIPAM Quadlet units
   ansible.builtin.template:
     src: "{{ item }}.j2"
     dest: "/etc/containers/systemd/{{ item }}"
@@ -80,7 +84,9 @@
   become: true
   when: phpipam_config_changed
 
-- name: "Restart phpIPAM units to pick up any config/unit change (mariadb first - After=/Requires= in the other two units already encodes this dependency, but listing it first here keeps the restart order obvious)"
+# mariadb first: the other units' After=/Requires= already encodes this, but listing it first
+# keeps the restart order obvious.
+- name: Restart phpIPAM units to pick up any config/unit change
   ansible.builtin.systemd:
     name: "{{ item }}"
     state: restarted

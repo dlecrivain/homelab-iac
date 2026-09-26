@@ -1,5 +1,5 @@
 ---
-- name: Back up every VM to Stockage_SSD then pCloud, migrating each one back to its own node right after
+- name: Back up every VM to Stockage_SSD then pCloud, migrating each one back after
   hosts: "{{ target_hosts | default('proxmox_all_qemu') }}"
   gather_facts: false
   serial: 3
@@ -31,7 +31,9 @@
                 migrate_target_node: "{{ vm_backup_node }}"
                 migrate_delegate_to: "{{ proxmox_node }}"
 
-            - name: "Record that this VM was migrated for backup, and its original node (before the health check below, so a failed check still triggers the migrate-back safety net in 'always' instead of stranding the VM here with nothing detecting it)"
+            # Set before the health check below, so a failed check still triggers the migrate-back
+            # safety net in 'always' instead of stranding the VM here undetected.
+            - name: Record that this VM was migrated for backup, and its original node
               ansible.builtin.set_fact:
                 vm_was_migrated: true
                 vm_original_node: "{{ proxmox_node }}"
@@ -60,7 +62,8 @@
             vm_backup_failure_reason: "{{ ansible_failed_result.msg | default('Unknown error') }}"
 
       always:
-        - name: "Step 3 - Migrate this VM back to {{ vm_original_node | default('its original node') }} (backup attempt done, success or not)"
+        # Runs whether the backup attempt succeeded or not.
+        - name: "Step 3 - Migrate this VM back to {{ vm_original_node | default('its original node') }}"
           when: vm_was_migrated | default(false)
           block:
             - name: "Migrate VM back to its original node"

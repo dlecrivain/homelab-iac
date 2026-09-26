@@ -1,5 +1,6 @@
 ---
-- name: "Shut down {{ vm.name }} for the maintenance window (disk is on node-local storage, can't migrate)"
+# Its disk is on node-local storage, so it can't migrate.
+- name: "Shut down {{ vm.name }} for the maintenance window"
   ansible.builtin.command: >
     qm shutdown {{ vm.vmid }} --timeout 60
   changed_when: true

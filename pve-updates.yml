@@ -56,7 +56,7 @@
               include_role:
                 name: reboot_and_wait
 
-            - name: Step 5 - Start back up any VMs that were shut down for this host's maintenance window (node-pinned disks that couldn't migrate)
+            - name: Step 5 - Start back up any VMs shut down for this maintenance window
               include_role:
                 name: pve_evacuate_host
                 tasks_from: resume_after_maintenance
@@ -100,7 +100,7 @@
             and (ansible_play_hosts_all | map('extract', hostvars) | map(attribute='pve_host_status', default='NOT_PROCESSED') | select('equalto', 'BLOCKED') | list | length == 0)
           }}
 
-    - name: Rebalance the whole cluster (skipped if any host was blocked earlier, or this stage was itself skipped)
+    - name: Rebalance the whole cluster
       include_role:
         name: pve_rebalance
       when: rebalance_should_run | bool
@@ -210,7 +210,8 @@
             {% endfor %}
           </table>
 
-    - name: Build and send the HTML report email (skipped when part of an orchestrated run; the combined email covers it instead)
+    # Skipped in an orchestrated run - the combined email covers it instead.
+    - name: Build and send the HTML report email
       include_role:
         name: send_report
       when: not (hostvars['localhost'].is_orchestrated_run | default(false))
@@ -218,7 +219,10 @@
         report_subject: "[pve-updates] {{ 'SKIPPED (previous stage had a problem)' if not stage_was_allowed_to_run else ('STOPPED - manual intervention needed' if run_was_halted else 'Run completed') }}"
         report_body: "{{ pve_updates_report_body }}"
 
-    - name: "Fail this run if it was halted by a blocked host (only when run standalone - an orchestrated run must keep going so the combined report still gets sent; full-updates.yml does its own final fail once everything is done). Without this, ansible-playbook always exits 0 regardless of a real blocked-host problem"
+    # Standalone runs only: an orchestrated run must keep going so the combined report still gets
+    # sent, and full-updates.yml does its own final fail. Without this, ansible-playbook exits 0
+    # even when a host was blocked.
+    - name: Fail this run if it was halted by a blocked host
       ansible.builtin.fail:
         msg: "pve-updates was stopped by a blocked host - see the report email for details."
       when:

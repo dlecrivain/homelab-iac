@@ -11,7 +11,7 @@
   changed_when: false
   failed_when: false
 
-- name: "Download and install smartctl_exporter {{ smartctl_exporter_version }} (GitHub release binary)"
+- name: "Download and install smartctl_exporter {{ smartctl_exporter_version }}"
   when: smartctl_exporter_version not in (smartctl_exporter_existing_version.stderr | default('') + smartctl_exporter_existing_version.stdout | default(''))
   block:
     - name: Download the smartctl_exporter release tarball

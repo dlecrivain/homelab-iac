@@ -7,7 +7,10 @@
       include_role:
         name: node_exporter_install
 
-    - name: "Resolve this VM's real IP (ansible_host is a real IP for hosts provisioned by provision-vm.yml, but the 5 legacy hosts that predate it resolve ansible_host to their own hostname via /etc/hosts on semaphore101 only - not usable from prometheus101, so fall back to extracting the IP from health_check_url the same way decommission-vm.yml/remove-cloud-init.yml already do)"
+    # ansible_host is a real IP for hosts provisioned by provision-vm.yml, but legacy hosts resolve
+    # it via semaphore101's /etc/hosts only - unusable from prometheus101, so fall back to
+    # extracting the IP from health_check_url, as decommission-vm.yml already does.
+    - name: Resolve this VM's real IP
       ansible.builtin.set_fact:
         monitoring_target_ip: >-
           {{

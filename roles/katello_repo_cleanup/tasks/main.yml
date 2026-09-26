@@ -6,7 +6,9 @@
   failed_when: false
   when: ansible_facts['pkg_mgr'] in ['dnf', 'yum']
 
-- name: Fail clearly if no Katello-managed repos were found (redhat.repo missing or empty - registration may not have worked as expected, don't blindly disable everything below)
+# redhat.repo missing or empty means registration didn't work as expected - don't blindly disable
+# everything below in that case.
+- name: Fail clearly if no Katello-managed repos were found
   ansible.builtin.fail:
     msg: "No repos found in /etc/yum.repos.d/redhat.repo - Katello registration may not have configured repos as expected"
   when:
@@ -19,7 +21,8 @@
   changed_when: false
   when: ansible_facts['pkg_mgr'] in ['dnf', 'yum']
 
-- name: "Determine which enabled repos aren't managed by Katello (varies by template/version - e.g. epel isn't always present, so a fixed list would be wrong either way)"
+# Varies by template/version (epel isn't always present), so a fixed list would be wrong.
+- name: Determine which enabled repos aren't managed by Katello
   ansible.builtin.set_fact:
     katello_repo_cleanup_non_katello: >-
       {{
@@ -31,7 +34,9 @@
       }}
   when: ansible_facts['pkg_mgr'] in ['dnf', 'yum']
 
-- name: Disable every enabled repo that isn't managed by Katello (avoids selinux-policy-targeted version conflicts between the vendor repos and the Katello content view - a real incident on patchmon101)
+# Avoids selinux-policy-targeted version conflicts between the vendor repos and the Katello
+# content view - a real incident on patchmon101.
+- name: Disable every enabled repo that isn't managed by Katello
   ansible.builtin.command: "dnf config-manager --set-disabled {{ katello_repo_cleanup_non_katello | join(' ') }}"
   become: true
   changed_when: true

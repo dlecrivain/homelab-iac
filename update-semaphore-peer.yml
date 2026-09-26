@@ -1,13 +1,14 @@
 ---
-- name: Mark this as an orchestrated run so the nested container-updates.yml import doesn't send its own separate email
+- name: Mark this as an orchestrated run
   hosts: localhost
   gather_facts: false
   tasks:
-    - name: Remember whether this run was already orchestrated by something bigger (e.g. full-updates.yml), before forcing the flag below
+    - name: Remember whether this run was already orchestrated by something bigger
       ansible.builtin.set_fact:
         semaphore_peer_run_standalone: "{{ not (hostvars['localhost'].is_orchestrated_run | default(false)) }}"
 
-    - name: Force the orchestration flag (container-updates.yml, imported below, must not send its own email - this playbook's own final report covers it)
+    # container-updates.yml, imported below, must not send its own email - the final report covers it.
+    - name: Force the orchestration flag
       ansible.builtin.set_fact:
         is_orchestrated_run: true
 
@@ -28,7 +29,9 @@
     - name: Patch this peer (skipped if an earlier stage in an orchestrated run had a problem)
       when: hostvars['localhost'].orchestration_should_run | default(true)
       block:
-        - name: "Look up this peer's actual current Proxmox node (its inventory-cached proxmox_node can be stale - pve-updates.yml, running earlier in the same full-updates.yml orchestration, may have evacuated or rebalanced it onto a different node since the inventory was loaded)"
+        # The inventory-cached proxmox_node can be stale: pve-updates.yml, running earlier in the
+        # same orchestration, may have evacuated or rebalanced this peer onto a different node.
+        - name: Look up this peer's actual current Proxmox node
           ansible.builtin.command: >
             pvesh get /cluster/resources --type vm --output-format json
           register: semaphore_peer_vm_resources
@@ -38,7 +41,8 @@
           vars:
             ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
 
-        - name: Override the stale inventory node with this peer's actual current node (cluster/resources is cluster-wide and cluster-aware, unlike the per-node paths cleanup_snapshot/proxmox_snapshot query below)
+        # cluster/resources is cluster-aware, unlike the per-node paths queried below.
+        - name: Override the stale inventory node with the peer's actual current node
           ansible.builtin.set_fact:
             proxmox_node: >-
               {{
@@ -109,7 +113,8 @@
   vars:
     target_hosts: "{{ peer_host | default('semaphore101') }}"
 
-- name: Bump this peer's Semaphore image if a newer patch/minor is available (skipped in the image_reference_host direction, which uses exact-digest alignment above instead)
+# Skipped in the image_reference_host direction, which uses exact-digest alignment above instead.
+- name: Bump this peer's Semaphore image if a newer patch/minor is available
   hosts: "{{ peer_host | default('semaphore101') }}"
   gather_facts: false
   tasks:
@@ -126,7 +131,7 @@
           ansible.builtin.set_fact:
             semaphore_current_version: "{{ semaphore_current_image_ref.stdout.split(':')[-1] }}"
 
-        - name: Determine the target tag automatically (latest stable release within the same major line) when semaphore_image_tag isn't explicitly passed
+        - name: Determine the target tag automatically when none is passed
           when: semaphore_image_tag is not defined
           block:
             - name: Extract the current version's major line
@@ -140,7 +145,7 @@
               register: semaphore_tags_response
               delegate_to: localhost
 
-            - name: Filter to pure vMAJOR.MINOR.PATCH tags in the same major line (excludes beta/rc/arch-suffixed tags)
+            - name: Filter to pure vMAJOR.MINOR.PATCH tags in the same major line
               ansible.builtin.set_fact:
                 semaphore_candidate_versions: >-
                   {{
@@ -194,7 +199,8 @@
       until: (peer_semaphore_ping.status | default(0)) == 200
       ignore_errors: true
 
-    - name: "Mark this host as having a problem if it never came back up (a hard failure here on localhost would otherwise skip localhost - and the final report play - for the rest of this run)"
+    # A hard failure here would skip localhost - and the final report play - for the rest of the run.
+    - name: Mark this host as having a problem if it never came back up
       ansible.builtin.set_fact:
         host_overall_status: PROBLEM
         host_update_failure_reason: "{{ peer_host }} did not respond on :3000/api/ping within the retry window after the image bump/restart"
@@ -204,7 +210,7 @@
         - (peer_semaphore_ping.status | default(0)) != 200
         - (hostvars[peer_host].host_overall_status | default('OK')) == 'OK'
 
-- name: Keep this repo's provisioning template in sync with whatever Semaphore version the peer is actually running
+- name: Keep this repo's provisioning template in sync with the peer's running version
   hosts: localhost
   gather_facts: false
   vars:
@@ -215,11 +221,14 @@
         src: "{{ playbook_dir }}/roles/semaphore_provision/files/semaphore.container"
       register: semaphore_repo_template_content
 
-    - name: Extract the version currently recorded in this repo's provisioning template (regex evaluated on the controller, not the target's shell - avoids BusyBox grep's lack of -P support)
+    # Regex evaluated on the controller, not the target's shell - BusyBox grep has no -P.
+    - name: Extract the version currently recorded in this repo's provisioning template
       ansible.builtin.set_fact:
         semaphore_repo_recorded_tag: "{{ (semaphore_repo_template_content.content | b64decode) | regex_search('(?<=semaphoreui/semaphore:).*') | default('', true) | trim }}"
 
-    - name: Update, commit and push if the repo's recorded version differs from what the peer is actually running (self-healing - not just "did a bump just happen in this run", so an interrupted previous sync still gets caught)
+    # Compares recorded vs running rather than "did a bump happen this run", so an interrupted
+    # previous sync still gets caught.
+    - name: Update, commit and push if the recorded version differs from the running one
       when:
         - semaphore_bumped_tag != ''
         - semaphore_bumped_tag != semaphore_repo_recorded_tag
@@ -264,7 +273,8 @@
               }}
           when: semaphore_peer_git_push.rc != 0
 
-- name: Determine this stage's status and send its report (only when run standalone - the combined full-updates.yml email covers it otherwise)
+# Standalone runs only - the combined full-updates.yml email covers it otherwise.
+- name: Determine this stage's status and send its report
   hosts: localhost
   gather_facts: false
   tasks:
@@ -319,7 +329,8 @@
           {{ hostvars['localhost'].container_updates_report_body | default('') }}
           {% endif %}
 
-    - name: Build and send the HTML report email (skipped when part of an orchestrated run; the combined email covers it instead)
+    # Skipped in an orchestrated run - the combined email covers it instead.
+    - name: Build and send the HTML report email
       include_role:
         name: send_report
       vars:
@@ -327,7 +338,9 @@
         report_body: "{{ semaphore_peer_report_body }}"
       when: hostvars['localhost'].semaphore_peer_run_standalone | default(true)
 
-    - name: "Fail this run if {{ peer_host }} had a problem (only when run standalone - an orchestrated run must keep going so the combined report still gets sent; full-updates.yml does its own final fail once everything is done). Without this, ansible-playbook always exits 0 regardless of a real problem"
+    # Standalone runs only: an orchestrated run must keep going so the combined report still gets
+    # sent, and full-updates.yml does its own final fail. Without this, ansible-playbook exits 0.
+    - name: "Fail this run if {{ peer_host }} had a problem"
       ansible.builtin.fail:
         msg: "update-semaphore-peer reported a problem on {{ peer_host }} - see the report email for details."
       when:

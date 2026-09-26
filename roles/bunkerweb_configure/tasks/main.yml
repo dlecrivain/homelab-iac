@@ -58,7 +58,7 @@
   become: true
   register: bunkerweb_existing_service_files
 
-- name: Remove config files for services no longer defined in bunkerweb_services (e.g. a decommissioned VM)
+- name: Remove config files for services no longer in bunkerweb_services
   ansible.builtin.file:
     path: "{{ item.path }}"
     state: absent

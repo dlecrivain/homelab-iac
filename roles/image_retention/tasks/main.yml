@@ -9,7 +9,9 @@
   ansible.builtin.set_fact:
     image_retention_unit: "{{ podman_units[0] }}"
 
-- name: "Precompute whether this host needs become (a become: keyword can't safely re-reference ansible_user itself - podman_update's update_unit.yml hits the same constraint and works around it the same way - confirmed live: referencing ansible_user directly inside become: on immich101 failed with 'ansible_user is undefined' even though the identical expression resolved fine moments earlier in this same task list's when: clauses)"
+# A become: keyword can't safely re-reference ansible_user itself (it resolves as undefined there,
+# even where the same expression works in when:). podman_update works around it the same way.
+- name: Precompute whether this host needs become
   ansible.builtin.set_fact:
     image_retention_become: "{{ image_retention_unit.scope == 'root' or (image_retention_unit.become_user is defined and image_retention_unit.become_user != ansible_user) }}"
 

@@ -130,7 +130,9 @@
       delegate_to: localhost
       no_log: true
 
-    - name: "Register this VM as a Prometheus scrape target (no-op on prometheus101's own provisioning run, before it exists in inventory yet - configure-prometheus.yml handles that bootstrap case itself)"
+    # A no-op on prometheus101's own provisioning run, before it exists in inventory -
+    # configure-prometheus.yml handles that bootstrap case itself.
+    - name: Register this VM as a Prometheus scrape target
       include_role:
         name: prometheus_target
       vars:

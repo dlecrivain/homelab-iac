@@ -9,7 +9,8 @@
   ansible.builtin.set_fact:
     provision_nm_conn_name: "{{ provision_nm_active_conn.stdout_lines | first }}"
 
-- name: Reconfigure IP/hostname and regenerate the SSH host key (fire-and-forget - this connection will not survive)
+# Fire-and-forget: this connection will not survive.
+- name: Reconfigure IP/hostname and regenerate the SSH host key
   ansible.builtin.shell: >
     nmcli con mod "{{ provision_nm_conn_name }}"
     ipv4.method manual

@@ -1,5 +1,6 @@
 ---
-- name: Confirm this host exists in Katello under this exact name (provisioning guarantees an exact match, no fuzzy search needed)
+# Provisioning guarantees an exact match, so no fuzzy search is needed.
+- name: Confirm this host exists in Katello under this exact name
   ansible.builtin.command: >
     hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
     host info --name {{ katello_deregister_name }}
@@ -10,7 +11,8 @@
   changed_when: false
   no_log: true
 
-- name: Determine whether the lookup failed simply because the host isn't registered (not an error - nothing to deregister, same philosophy as phpipam_remove_address)
+# Not an error - there's simply nothing to deregister, same as phpipam_remove_address.
+- name: Determine whether the lookup failed because the host isn't registered
   ansible.builtin.set_fact:
     katello_deregister_not_found: >-
       {{
@@ -26,7 +28,8 @@
     msg: "{{ katello_deregister_name }} not found in Katello - already absent, nothing to deregister"
   when: katello_deregister_not_found
 
-- name: Fail with a password-redacted error if the host lookup failed for an unexpected reason (ambiguous match, Katello unreachable, auth failure - anything other than a clean not-found)
+# Anything other than a clean not-found: ambiguous match, Katello unreachable, auth failure.
+- name: Fail with a password-redacted error if the host lookup failed unexpectedly
   ansible.builtin.fail:
     msg: >-
       Katello lookup failed for {{ katello_deregister_name }} (rc={{ katello_deregister_confirm_result.rc }}):

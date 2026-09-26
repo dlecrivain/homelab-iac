@@ -1,5 +1,6 @@
 ---
-- name: Provision a fresh Semaphore peer instance identically to the existing one (run from semaphore101, targeting the new VM)
+# Run from semaphore101, targeting the new VM.
+- name: Provision a fresh Semaphore peer instance identically to the existing one
   hosts: "{{ peer_host | default('semaphore102') }}"
   gather_facts: true
   tasks:
@@ -7,7 +8,9 @@
       include_role:
         name: semaphore_provision
 
-    - name: Disable any enabled repo that isn't managed by Katello (this playbook never ran this check before - confirmed live on 19/09 that semaphore102 had picked up the raw Rocky Linux appstream/baseos/extras repos alongside the Katello-managed ones)
+    # This playbook never ran the check before, which is how semaphore102 ended up with the raw
+    # Rocky appstream/baseos/extras repos alongside the Katello-managed ones.
+    - name: Disable any enabled repo that isn't managed by Katello
       include_role:
         name: katello_repo_cleanup
 

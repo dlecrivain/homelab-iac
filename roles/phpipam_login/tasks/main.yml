@@ -24,7 +24,8 @@
   register: phpipam_subnets_list
   no_log: true
 
-- name: Find subnets matching our CIDR (subnet/mask are separate fields, no combined CIDR lookup endpoint)
+# subnet/mask are separate fields - there's no combined CIDR lookup endpoint.
+- name: Find subnets matching our CIDR
   ansible.builtin.set_fact:
     phpipam_matching_subnets: >-
       {{

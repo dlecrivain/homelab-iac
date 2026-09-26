@@ -42,7 +42,7 @@
       register: version_after
       changed_when: false
 
-    - name: Determine whether this unit actually needs realigning (image content changed, or just the visible tag is stale)
+    - name: Determine whether this unit actually needs realigning
       ansible.builtin.set_fact:
         unit_needs_realign: "{{ (image_after.stdout != image_before.stdout) or (image_tag_before.stdout != podman_align_reference_tags[unit.name]) }}"
 
@@ -71,7 +71,9 @@
         seconds: 5
       when: unit_needs_realign | bool
 
-- name: "Record update summary for this unit. Prefers, in order, whichever of these actually looks like a version (contains a digit): the org.opencontainers.image.version label, then the image's own tag, then finally a raw image ID - same fallback logic as podman_update's own report, since neither source can be trusted blindly"
+# Prefers, in order, whichever looks like a version (contains a digit): the OCI version label,
+# the image's own tag, then a raw image ID - same fallback logic as podman_update's own report.
+- name: Record update summary for this unit
   vars:
     unit_version_label_before: "{{ version_before.stdout | trim }}"
     unit_version_label_after: "{{ version_after.stdout | trim }}"

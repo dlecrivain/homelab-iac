@@ -8,7 +8,10 @@
     mode: '0700'
   become: true
 
-- name: "Deploy the pve-exporter config (embeds the Proxmox API token - not committed anywhere). Group-owned by GID 101 (the 'prometheus' user prompve/prometheus-pve-exporter runs as by default, confirmed via podman inspect) - this is a file-to-file bind mount, so the container's own non-root process reads it directly and needs group-read access, unlike EnvironmentFile= (read by podman-as-root on the host before the container starts)"
+# Embeds the Proxmox API token - never committed. Group-owned by GID 101 ('prometheus', the user
+# the image runs as): it's a file-to-file bind mount, so the container's own non-root process
+# reads it directly and needs group-read, unlike EnvironmentFile= (read by podman-as-root).
+- name: Deploy the pve-exporter config
   ansible.builtin.template:
     src: pve.yml.j2
     dest: /etc/pve-exporter/pve.yml
@@ -28,7 +31,8 @@
     mode: '0755'
   become: true
 
-- name: "Deploy the shared monitoring network Quadlet (own copy, in case this role ever runs before prometheus_configure - identical, idempotent content)"
+# Own copy in case this role runs before prometheus_configure - identical, idempotent content.
+- name: Deploy the shared monitoring network Quadlet
   ansible.builtin.copy:
     src: monitoring-network.network
     dest: /etc/containers/systemd/monitoring-network.network
@@ -38,7 +42,8 @@
   become: true
   register: pve_exporter_network_result
 
-- name: "Deploy the pve-exporter Quadlet unit (templated so check-image-updates.yml's version bump has something to change - previously a static file with the tag hardcoded in git)"
+# Templated, not a static file, so check-image-updates.yml's version bump has something to change.
+- name: Deploy the pve-exporter Quadlet unit
   ansible.builtin.template:
     src: pve-exporter.container.j2
     dest: /etc/containers/systemd/pve-exporter.container

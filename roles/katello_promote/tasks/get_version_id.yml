@@ -1,5 +1,8 @@
 ---
-- name: "Get all versions of this content view (--output json instead of parsing hammer's ASCII table - not guaranteed stable across hammer versions/configs, and a silent zero-match regex is exactly what broke this on 27/08. Not relying on --order/--per-page either - 'id DESC' returned an empty result entirely on this hammer install for reasons still unclear - fetch everything and pick the highest id ourselves below instead of trusting hammer's own sort/pagination)"
+# --output json instead of hammer's ASCII table (unstable across versions, broke on 27/08). Not
+# relying on --order either - "id DESC" returned empty on this install - so fetch everything and
+# pick the highest id ourselves below instead of trusting hammer's own sort/pagination.
+- name: Get all versions of this content view
   ansible.builtin.command: >
     hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
     --output json
@@ -26,17 +29,18 @@
       }}
   when: cv_version_list.rc != 0
 
-- name: "Fail clearly if no content view version was found at all (rather than a confusing error from the next task)"
+- name: Fail clearly if no content view version was found at all
   ansible.builtin.fail:
     msg: "hammer content-view version list returned no versions for {{ content_view_name }} - has it ever been published?"
   when: (cv_version_list.stdout | from_json | length) == 0
 
-- name: "Reset the running 'highest version seen' before scanning this content view's rows"
+- name: Reset the running "highest version seen" before scanning this content view's rows
   ansible.builtin.set_fact:
     cv_version_id: null
     cv_version_number: null
 
-- name: "Find the highest-id row from the JSON output (key casing varies by hammer/Foreman version - matched case-insensitively - and hammer's own --order isn't trusted for this after 27/08's empty-result issue, so every row is scanned here instead)"
+# Key casing varies by hammer/Foreman version, so it's matched case-insensitively.
+- name: Find the highest-id row from the JSON output
   vars:
     item_lc: "{{ dict(item | dict2items | map(attribute='key') | map('lower') | zip(item | dict2items | map(attribute='value')) | list) }}"
   ansible.builtin.set_fact:

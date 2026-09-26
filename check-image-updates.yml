@@ -32,7 +32,7 @@
       loop_control:
         label: "{{ item.name }}"
 
-    - name: "Compute each image's same-major-line target (safe to auto-bump), overall latest available version (for the major-jump warning), and whether either applies"
+    - name: Compute each image's same-major-line target and overall latest version
       vars:
         current_version: "{{ lookup('vars', item.item.version_var) }}"
         current_major: "{{ current_version | regex_replace('^v?([0-9]+)\\..*$', '\\1') }}"
@@ -64,7 +64,7 @@
       loop_control:
         label: "{{ item.item.name }}"
 
-    - name: "Bump group_vars/all.yml immediately for every image where a same-major-line update was found (the container itself isn't touched - the next container-updates run applies it like any other config change)"
+    - name: Bump group_vars/all.yml for every image with a same-major-line update
       ansible.builtin.replace:
         path: "{{ playbook_dir }}/group_vars/all.yml"
         regexp: '^{{ item.version_var }}: ".*"$'
@@ -117,13 +117,14 @@
   hosts: "{{ prometheus_host | default('prometheus101') }},{{ grafana_host | default('grafana101') }},{{ phpipam_host | default('phpipam101') }},bunkerweb101,adguard101"
   gather_facts: false
   tasks:
-    - name: Capture the full list of targeted hosts (once, so the aggregation play below knows who to collect from)
+    - name: Capture the full list of targeted hosts (for the aggregation play below)
       include_role:
         name: capture_host_list
       vars:
         capture_host_list_fact_name: image_update_live_check_host_list
 
-    - name: "Get the live image tag for each watched container on this host (no become on adguard101 - it runs rootless as the connecting user itself, root's podman can't see it)"
+    # No become on adguard101 - it runs rootless as the connecting user, root's podman can't see it.
+    - name: Get the live image tag for each watched container on this host
       vars:
         my_checks: "{{ hostvars['localhost'].image_update_checks | selectattr('host', 'equalto', inventory_hostname) | list }}"
       ansible.builtin.command: "podman inspect {{ item.container_name }} --format '{{ '{{' }}.ImageName{{ '}}' }}'"
@@ -134,7 +135,9 @@
       loop_control:
         label: "{{ item.name }}"
 
-    - name: "Save this host's own live tags as its own local fact, keyed by name (kept per-host - a later aggregation play combines every host's dict on localhost in one pass, since multiple hosts writing the same delegated fact in this same task would race and clobber each other)"
+    # Kept per-host - a later play aggregates every host's dict on localhost in one pass, since
+    # multiple hosts writing the same delegated fact here would race and clobber each other.
+    - name: Save this host's own live tags as a local fact, keyed by name
       ansible.builtin.set_fact:
         image_update_live_versions: "{{ dict(image_update_live_tags.results | map(attribute='item') | map(attribute='name') | zip(image_update_live_tags.results | map(attribute='stdout') | map('regex_replace', '^.*:', ''))) }}"
 
@@ -146,7 +149,9 @@
       ansible.builtin.set_fact:
         image_update_live_versions: "{{ image_update_live_check_host_list | map('extract', hostvars, 'image_update_live_versions') | select('defined') | list | combine }}"
 
-- name: "Check GitHub Releases for node_exporter/smartctl_exporter updates and bump their pin immediately if found (these are native binaries installed fleet-wide by node_exporter_install/smartctl_exporter_install, not a Docker Hub image or a single container to inspect - so unlike the watch list above, there's no 'live container caught up yet' check possible here. A same-major bump applies the next time the relevant install role actually runs, e.g. the next configure-monitoring.yml reconciliation pass, not on any routine patch cycle)"
+# Native binaries installed fleet-wide, not a container - so unlike the watch list above, there's
+# no "live version caught up yet" check possible; a bump applies next time the install role runs.
+- name: Check GitHub Releases for node_exporter/smartctl_exporter updates
   hosts: localhost
   gather_facts: false
   vars:
@@ -167,7 +172,8 @@
       loop_control:
         label: "{{ item.name }}"
 
-    - name: "Compute each binary's same-major-line target (safe to auto-bump) and overall latest (for the major-jump warning) - same logic as the Docker Hub check above, adapted to GitHub's vX.Y.Z release tags"
+    # Same logic as the Docker Hub check above, adapted to GitHub's vX.Y.Z release tags.
+    - name: Compute each binary's same-major-line target and overall latest version
       vars:
         current_version: "{{ lookup('vars', item.item.version_var) }}"
         current_major: "{{ current_version | regex_replace('^v?([0-9]+)\\..*$', '\\1') }}"
@@ -195,7 +201,7 @@
       loop_control:
         label: "{{ item.item.name }}"
 
-    - name: "Bump group_vars/all.yml immediately for every binary where a same-major-line update was found"
+    - name: Bump group_vars/all.yml for every binary with a same-major-line update
       ansible.builtin.replace:
         path: "{{ playbook_dir }}/group_vars/all.yml"
         regexp: '^{{ item.version_var }}: ".*"$'
@@ -244,7 +250,8 @@
         - binary_update_bump_result.changed | default(false)
         - binary_update_git_push.rc != 0
 
-- name: Compare Immich's reported version against its latest GitHub release (informational only - not Ansible-managed, never touched here)
+# Informational only - Immich isn't Ansible-managed and is never touched here.
+- name: Compare Immich's reported version against its latest GitHub release
   hosts: localhost
   gather_facts: false
   tasks:
@@ -277,19 +284,20 @@
           ansible.builtin.set_fact:
             immich_update_available: "{{ immich_running_version != immich_latest_version }}"
 
-- name: "Read-only scan of every other podman-managed container fleet-wide for a newer image (pull only - never restarts or redeploys anything, purely informational, no git writes)"
+# Pull only - never restarts/redeploys anything, purely informational, no git writes.
+- name: Read-only scan of every other podman-managed container for a newer image
   hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101') }}"
   gather_facts: false
   vars:
     watched_container_names: "{{ hostvars['localhost'].image_update_watch_list | map(attribute='container_name') | list }}"
   tasks:
-    - name: Capture the full list of targeted hosts (once, so the aggregation play below knows who to collect from)
+    - name: Capture the full list of targeted hosts (for the aggregation play below)
       include_role:
         name: capture_host_list
       vars:
         capture_host_list_fact_name: fleet_image_check_host_list
 
-    - name: Check each of this host's own podman_units not already covered by image_update_watch_list above
+    - name: Check podman_units not already covered by image_update_watch_list
       include_tasks: tasks/check_unit_for_update.yml
       loop: "{{ (podman_units | default([])) | rejectattr('name', 'in', watched_container_names) | list }}"
       loop_control:
@@ -305,7 +313,8 @@
       ansible.builtin.set_fact:
         fleet_image_checks: "{{ fleet_image_check_host_list | map('extract', hostvars, 'fleet_image_checks') | select('defined') | list | flatten(levels=1) }}"
 
-- name: Send the notification email (only when there's something to report - stays quiet otherwise)
+# Stays quiet when there's nothing to report.
+- name: Send the notification email
   hosts: localhost
   gather_facts: false
   vars:
@@ -314,14 +323,18 @@
     binary_bumped: "{{ binary_update_checks | default([]) | selectattr('bump_needed') | list }}"
     binary_major_available: "{{ binary_update_checks | default([]) | selectattr('major_available') | list }}"
   tasks:
-    - name: "Build the list of containers with a target version not yet deployed - covers both a bump that just happened this run and one recorded on an earlier run that's still waiting on the next container-updates. Disappears from this list the moment the container actually catches up, regardless of when the bump itself happened"
+    # Covers both a bump that just happened this run and one from an earlier run still waiting on
+    # the next container-updates - drops off once the container actually catches up.
+    - name: Build the list of containers with a target version not yet deployed
       ansible.builtin.set_fact:
         pending_deployment_images: "{{ (pending_deployment_images | default([])) + ([item] if (image_update_live_versions.get(item.name, '') != item.same_major_target) else []) }}"
       loop: "{{ image_update_checks }}"
       loop_control:
         label: "{{ item.name }}"
 
-    - name: "Merge watch-list bumps not yet deployed with the generic fleet-wide scan into one list (same underlying question - 'is a newer image available for this container' - so one table instead of forcing the reader to know which detection mechanism found it). Both apply automatically on the next container-updates run either way - podman_update pulls/restarts every podman_units entry regardless of pin status - the real difference is whether the bump was reviewable in git first"
+    # One table instead of forcing the reader to know which detection mechanism found it - both
+    # apply automatically on the next container-updates run either way.
+    - name: Merge watch-list bumps not yet deployed with the fleet-wide scan into one list
       ansible.builtin.set_fact:
         unified_update_items: "{{ (unified_update_items | default([])) + [{'host': item.host, 'name': item.name, 'current': image_update_live_versions.get(item.name, 'unknown'), 'target': item.same_major_target, 'reviewed': true}] }}"
       loop: "{{ pending_deployment_images }}"

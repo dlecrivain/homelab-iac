@@ -34,7 +34,9 @@
       register: image_ref
       changed_when: false
 
-    - name: "Read the Quadlet file's own Image= line as a last-resort tag source (podman inspect can lose the tag entirely once a container is resolved to a pure digest reference, e.g. valkey:9@sha256:... - podman only remembers the digest afterwards, the tag only still exists in the file itself)"
+# Last-resort tag source: podman inspect can lose the tag entirely once a container resolves to a
+# pure digest reference (e.g. valkey:9@sha256:...) - the tag only still exists in the file itself.
+    - name: Read the Quadlet file's own Image= line
       ansible.builtin.slurp:
         src: >-
           {{
@@ -76,7 +78,10 @@
         seconds: 5
       when: image_after.stdout != image_before.stdout
 
-- name: "Record update summary for this unit. Prefers, in order, whichever of these actually looks like a version (contains a digit): the org.opencontainers.image.version label, then the image's own tag from podman inspect, then the tag as written in the Quadlet file itself (podman inspect loses it entirely for digest-pinned references), then finally a raw image ID. None of these can be trusted blindly - some images set the label to a meaningless branch name instead of a version (bunkerweb-all-in-one: 'master'), and some tags are the floating ':latest'-equivalent with no digit in it either"
+# Prefers, in order, whichever actually looks like a version (contains a digit): the OCI version
+# label, the image's own tag, the tag from the Quadlet file, then a raw image ID - none can be
+# trusted blindly (some labels are a branch name like "master", some tags are ":latest").
+- name: Record update summary for this unit
   vars:
     unit_version_label_before: "{{ version_before.stdout | trim }}"
     unit_version_label_after: "{{ version_after.stdout | trim }}"

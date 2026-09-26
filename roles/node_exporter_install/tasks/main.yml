@@ -1,5 +1,6 @@
 ---
-- name: Compute the systemd unit-include regex from this host's tracked podman_units (matches nothing if none are tracked - reuses existing host_vars data, no new per-host var needed)
+# Reuses existing host_vars data rather than a new per-host var; matches nothing if none tracked.
+- name: Compute the systemd unit-include regex from this host's podman_units
   ansible.builtin.set_fact:
     node_exporter_systemd_unit_regex: >-
       {%- set unit_names = [] -%}
@@ -33,7 +34,8 @@
   changed_when: false
   failed_when: false
 
-- name: "Download and install node_exporter {{ node_exporter_version }} (GitHub release binary - not dnf/apt, since provision-vm.yml already disables every non-Katello-managed repo)"
+# A GitHub release binary, not dnf/apt: every non-Katello-managed repo is disabled fleet-wide.
+- name: "Download and install node_exporter {{ node_exporter_version }}"
   when: node_exporter_version not in (node_exporter_existing_version.stdout | default('') + node_exporter_existing_version.stderr | default(''))
   block:
     - name: Download the node_exporter release tarball

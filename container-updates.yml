@@ -14,7 +14,8 @@
             'semaphore102' in query('ansible.builtin.inventory_hostnames', target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101'))
           }}
 
-- name: "Capture semaphore101's current image versions, only if semaphore102 is actually being targeted this run (used to align semaphore102's images to match)"
+# Only when semaphore102 is targeted - used to align its images to match.
+- name: Capture semaphore101's current image versions
   hosts: semaphore101
   gather_facts: false
   tasks:
@@ -104,7 +105,7 @@
       vars:
         capture_host_list_fact_name: container_updates_host_list
 
-    - name: Update containers on this host (skipped if an earlier stage in an orchestrated run had a problem)
+    - name: Update containers on this host
       when: hostvars['localhost'].orchestration_should_run | default(true)
       block:
         - name: Step 1 - Remove any leftover container snapshot from a previous run
@@ -121,7 +122,9 @@
             name: proxmox_snapshot
           when: podman_units is defined
 
-        - name: "Step 2.5 (prometheus101 only) - Re-render the Prometheus/Alertmanager Quadlets first, so any version bump check-image-updates.yml already committed to git actually reaches the container before Step 3's pull below - podman_update only pulls whatever tag is already in the deployed Quadlet file, it never re-templates it"
+        # Re-render first so a version bump already committed to git reaches the container before
+        # Step 3's pull: podman_update only pulls the tag already in the deployed Quadlet file.
+        - name: Step 2.5 (prometheus101 only) - Re-render the Prometheus/Alertmanager Quadlets
           include_role:
             name: prometheus_configure
           when:
@@ -169,7 +172,7 @@
             - not (snapshot_already_exists | default(false))
             - inventory_hostname != 'semaphore102'
 
-        - name: Step 3 (semaphore102 only) - Align images to semaphore101's exact digest instead of pulling independently
+        - name: Step 3 (semaphore102 only) - Align images to semaphore101's exact digest
           include_role:
             name: podman_align_image
           vars:
@@ -181,7 +184,8 @@
             - inventory_hostname == 'semaphore102'
             - hostvars['localhost'].reference_image_digests is defined
 
-        - name: Record why semaphore102 was skipped if semaphore101 wasn't healthy enough to align against (otherwise it would silently get no row at all in the report)
+        # Without this it would silently get no row at all in the report.
+        - name: Record why semaphore102 was skipped when semaphore101 wasn't healthy
           ansible.builtin.set_fact:
             host_update_failure_reason: "Alignment skipped - reference host semaphore101 wasn't healthy"
           when:
@@ -253,7 +257,9 @@
       ansible.builtin.set_fact:
         container_updates_duration_display: "{{ (container_updates_duration_seconds | int // 3600) }}h {{ ((container_updates_duration_seconds | int % 3600) // 60) }}m {{ (container_updates_duration_seconds | int % 60) }}s"
 
-    - name: "Determine which containers had an update applied via Step 2.5 rather than Step 3 (a Step 2.5 re-render+restart happens BEFORE Step 3's own pull runs, so podman_update's own before/after image-ID comparison can no longer see the change by the time it runs - it would otherwise misreport these as unchanged even though they were, in fact, updated moments earlier in the same run)"
+    # Step 2.5's re-render+restart happens before Step 3's pull, so podman_update's own
+    # before/after image-ID comparison can no longer see the change and misreports them unchanged.
+    - name: Determine which containers were updated via Step 2.5 rather than Step 3
       ansible.builtin.set_fact:
         step25_changed_containers: >-
           {{
@@ -320,7 +326,8 @@
             {% endfor %}
           </table>
 
-    - name: Build and send the HTML report email (skipped when part of an orchestrated run; the combined email covers it instead)
+    # Skipped in an orchestrated run - the combined email covers it instead.
+    - name: Build and send the HTML report email
       include_role:
         name: send_report
       when: not (hostvars['localhost'].is_orchestrated_run | default(false))
@@ -328,7 +335,11 @@
         report_subject: "[container-updates] {{ 'SKIPPED (previous stage had a problem)' if not stage_was_allowed_to_run else ('PROBLEM detected' if any_problem else 'All OK') }}"
         report_body: "{{ container_updates_report_body }}"
 
-    - name: "Fail this run if any host had a problem (only when run standalone - an orchestrated run must keep going so later stages are correctly marked SKIPPED and the combined report still gets sent; full-updates.yml does its own final fail once everything is done). Without this, ansible-playbook always exits 0 - the per-host rescue blocks that make the report accurate also mean Semaphore's own task status never reflects a real problem on its own"
+    # Standalone runs only: an orchestrated run must keep going so later stages are marked SKIPPED
+    # and the combined report still gets sent, and full-updates.yml does its own final fail.
+    # Without this, ansible-playbook exits 0 even on a real problem, since the per-host rescue
+    # blocks that keep the report accurate also swallow the failure from Semaphore's task status.
+    - name: Fail this run if any host had a problem
       ansible.builtin.fail:
         msg: "container-updates reported a problem - see the report email for details."
       when:

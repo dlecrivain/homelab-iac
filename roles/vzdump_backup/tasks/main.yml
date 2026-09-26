@@ -27,7 +27,9 @@
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
 
-- name: "Fail clearly if the vzdump job itself reports an error, or never finished within the async window (async_status has no 'rc' at all while a job is still running, so a genuine timeout would otherwise pass this check silently and go on to upload whatever the previous, stale backup archive happens to be)"
+# async_status has no 'rc' at all while a job is still running, so a genuine timeout would pass
+# silently and go on to upload whatever stale archive is left from the previous run.
+- name: Fail clearly if the vzdump job errored or never finished in the async window
   ansible.builtin.fail:
     msg: >-
       vzdump of VM {{ vzdump_vmid }} {{ 'failed: ' + (vzdump_job.stderr | default('unknown error')) if (vzdump_job.rc is defined and vzdump_job.rc != 0) else 'did not finish within the 6-hour async window' }}
@@ -76,7 +78,8 @@
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
 
-- name: "Prune old backups on pCloud before uploading (keep {{ vm_backup_pcloud_retention - 1 }}, freeing space for the new one)"
+# Frees space for the new one before it's uploaded.
+- name: "Prune old pCloud backups, keeping {{ vm_backup_pcloud_retention - 1 }}"
   ansible.builtin.command: >
     python3 /tmp/prune_pcloud_backups.py
     {{ vm_backup_pcloud_base_path }}/{{ vzdump_vm_name }}
@@ -98,7 +101,8 @@
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
 
-- name: "Purge every other pCloud backup for this VM now that the new one is confirmed uploaded (only reached if the upload above succeeded)"
+# Only reached if the upload above succeeded.
+- name: Purge every other pCloud backup for this VM
   ansible.builtin.command: >
     python3 /tmp/prune_pcloud_backups.py
     {{ vm_backup_pcloud_base_path }}/{{ vzdump_vm_name }}

@@ -9,14 +9,17 @@
     state: directory
     mode: '0755'
 
-- name: "Deploy the AdGuard Home Quadlet unit (templated so check-image-updates.yml's version bump has something to change - previously a hand-written file with the tag hardcoded, and not tracked by this repo at all)"
+# Templated, not a hand-written file, so check-image-updates.yml's bump has something to change.
+- name: Deploy the AdGuard Home Quadlet unit
   ansible.builtin.template:
     src: adguardhome.container.j2
     dest: "/home/{{ ansible_user }}/.config/containers/systemd/adguardhome.container"
     mode: '0644'
   register: adguard_quadlet_result
 
-- name: "Determine whether anything actually changed (named consistently with the other *_configure roles - container-updates.yml's report reads this to know a Step 2.5 re-render already updated the container, since podman_update's own before/after can no longer see it by the time Step 3 runs)"
+# Named consistently with the other *_configure roles: container-updates.yml's report reads this
+# to know a Step 2.5 re-render already updated the container.
+- name: Determine whether anything actually changed
   ansible.builtin.set_fact:
     adguard_config_changed: "{{ adguard_quadlet_result is changed }}"
 
