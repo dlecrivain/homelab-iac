@@ -1,0 +1,29 @@
+---
+- name: "Synchronize a Katello-managed repository on demand (repo syncs are otherwise handled by Foreman's own Sync Plans, outside this repo's scope - use this for an immediate one-off resync, e.g. after changing a repo's download policy, or to recover from a partial/incomplete sync)"
+  hosts: "{{ lpkat_host | default('lpkat101') }}"
+  gather_facts: false
+  tasks:
+    - name: "Synchronize {{ katello_sync_product | default('Rocky Linux 10') }} / {{ katello_sync_repo | default('EPEL 10') }}"
+      ansible.builtin.command: >
+        hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
+        repository synchronize
+        --name "{{ katello_sync_repo | default('EPEL 10') }}"
+        --product "{{ katello_sync_product | default('Rocky Linux 10') }}"
+        --organization "{{ katello_organization }}"
+      register: katello_sync_result
+      failed_when: false
+      become: true
+      no_log: true
+
+    - name: Fail with a password-redacted error if the sync failed
+      ansible.builtin.fail:
+        msg: >-
+          hammer repository synchronize failed for
+          {{ katello_sync_product | default('Rocky Linux 10') }} / {{ katello_sync_repo | default('EPEL 10') }}
+          (rc={{ katello_sync_result.rc }}):
+          {{
+            (katello_sync_result.stderr | default('')) | replace(katello_hammer_password, '***REDACTED***')
+            if (katello_hammer_password | default('') | length > 0)
+            else (katello_sync_result.stderr | default(''))
+          }}
+      when: katello_sync_result.rc != 0
