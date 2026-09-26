@@ -56,13 +56,16 @@ groups:
           description: "nvme_data storage usage on {{ $labels.id }} has been above 90% for 15 minutes - pve_placement/pve_rebalance may struggle to find room for new VMs."
 
       - alert: DiskTemperatureHigh
-        expr: smartctl_device_temperature{temperature_type="current"} > 65
+        # 70C, not 65C: immich101's library disk (nvme_data) hits 66-69C for ~15min every day around
+        # 05:00-05:20, from what a live investigation on 26/09 traced to a normal sustained full-library
+        # read (not a fault) - 65C made this fire daily on totally expected, benign behavior.
+        expr: smartctl_device_temperature{temperature_type="current"} > 70
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "{{ $labels.instance }} device {{ $labels.device }} is over 65C"
-          description: "smartctl reports {{ $labels.device }} on {{ $labels.instance }} above 65C for 10 minutes."
+          summary: "{{ $labels.instance }} device {{ $labels.device }} is over 70C"
+          description: "smartctl reports {{ $labels.device }} on {{ $labels.instance }} above 70C for 10 minutes."
 
       - alert: SmartctlCriticalWarning
         expr: smartctl_device_critical_warning != 0
