@@ -1,18 +1,10 @@
 ---
+# katello-publish.yml runs this same role right after publishing, which is where retention normally
+# happens. This playbook stays as a standalone entry point for purging without a publish.
 - name: Purge old content view versions beyond retention
   hosts: "{{ lpkat_host | default('lpkat101') }}"
   gather_facts: false
   tasks:
-    - name: Purge old versions for each content view
-      ansible.builtin.command: >
-        hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
-        content-view purge
-        --name {{ item }}
-        --organization "{{ katello_organization }}"
-        --count {{ cv_retention_count | default(10) }}
-      become: true
-      loop: "{{ cv_retention_views | default(['CV_Rocky_10', 'CV_Proxmox']) }}"
-      register: purge_result
-      changed_when: "'deleted' in (purge_result.stdout | default(''))"
-      failed_when: purge_result.rc not in [0, 128]
-      no_log: true
+    - name: Purge content view versions beyond the retention count
+      include_role:
+        name: katello_cv_retention

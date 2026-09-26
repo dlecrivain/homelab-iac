@@ -1,0 +1,28 @@
+---
+# rc=128 is hammer's "nothing to purge" - not an error, just fewer versions than the retention count.
+- name: Purge content view versions beyond the retention count
+  ansible.builtin.command: >
+    hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
+    content-view purge
+    --name {{ item }}
+    --organization "{{ katello_organization }}"
+    --count {{ cv_retention_count | default(10) }}
+  become: true
+  loop: "{{ cv_retention_views | default(['CV_Rocky_10', 'CV_Proxmox']) }}"
+  register: cv_retention_purge
+  changed_when: "'deleted' in (cv_retention_purge.stdout | default(''))"
+  failed_when: cv_retention_purge.rc not in [0, 128]
+  no_log: true
+
+# Only the view name and whether anything was removed - never the registered cmd, which carries
+# the hammer password.
+- name: Record the purge outcome per content view for the report
+  ansible.builtin.set_fact:
+    katello_retention_results: >-
+      {{ (katello_retention_results | default([])) + [{
+        'name': item.item,
+        'purged': item.changed | default(false),
+      }] }}
+  loop: "{{ cv_retention_purge.results }}"
+  loop_control:
+    label: "{{ item.item }}"
