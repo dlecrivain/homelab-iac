@@ -28,7 +28,8 @@
       when: hostvars[migrate_vm_name].proxmox_node == migrate_to
 
 - name: Run the migration
-  hosts: "{{ migrate_vm_name }}"
+  # default() so a missing extra var surfaces as the check above rather than a parse error here.
+  hosts: "{{ migrate_vm_name | default('none') }}"
   gather_facts: false
   tasks:
     - name: Resolve a reachable Proxmox node for delegate_to
