@@ -55,6 +55,30 @@ groups:
           summary: "{{ $labels.id }} is over 90% full"
           description: "nvme_data storage usage on {{ $labels.id }} has been above 90% for 15 minutes - pve_placement/pve_rebalance may struggle to find room for new VMs."
 
+      # Losing quorum freezes every cluster operation: /etc/pve goes read-only, so no VM can be
+      # started, stopped, migrated or snapshotted and every pvesh/qm call in this repo's automation
+      # fails. Scoped to the cluster id on purpose - pve_up is also 0 for the stopped template
+      # (qemu/9000), which is entirely normal.
+      - alert: ClusterNotQuorate
+        expr: pve_up{id=~"cluster/.*"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Proxmox cluster {{ $labels.id }} has lost quorum"
+          description: "{{ $labels.id }} has been without quorum for 2 minutes - /etc/pve is read-only and no VM or migration operation will work. Check corosync on all three nodes (corosync-cfgtool -s)."
+
+      # Without this, ClusterNotQuorate and the pve_disk_usage alerts fail silently: a series that
+      # stops being scraped never evaluates to 0, it just disappears.
+      - alert: PveExporterDown
+        expr: up{job="pve_exporter"} == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "pve-exporter is not being scraped"
+          description: "Prometheus has been unable to scrape pve_exporter for 10 minutes - the cluster quorum and Proxmox storage alerts are blind until it returns."
+
       # The 10G mesh is a direct-cabled triangle between pve1/pve2/pve3 carrying live migration
       # (and corosync), with OpenFabric routing around a single failed link via the third node.
       # That failover is silent, so without these alerts a dead cable goes unnoticed until a
