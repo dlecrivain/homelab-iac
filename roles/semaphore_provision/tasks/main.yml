@@ -89,10 +89,13 @@
   when: not semaphore_provision_existing.stat.exists
   no_log: true
 
-- name: Clone this repo into /home/deploy/repos (bind-mounted into the Semaphore container as /repos)
+# Bind-mounted into the Semaphore container as /repos. The branch is named rather than left
+# implicit, so the checkout does not depend on whichever branch the remote currently defaults to.
+- name: Clone this repo into /home/deploy/repos
   ansible.builtin.git:
     repo: https://github.com/dlecrivain/homelab-iac
     dest: /home/deploy/repos/homelab-iac
+    version: main
   become: true
   become_user: deploy
 
