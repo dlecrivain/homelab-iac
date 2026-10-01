@@ -1,0 +1,62 @@
+---
+# Migrate one VM on demand, through the same pve_migrate_vm role the backup and patch playbooks
+# use - so it exercises the real snapshot cleanup, mesh link selection and post-migration
+# verification rather than a hand-written qm migrate. Also the way to check a mesh link end to end
+# after cabling or addressing changes.
+#
+#   -e migrate_vm_name=prometheus101 -e migrate_to=pve2
+#
+# The VM stays online throughout (--online --with-local-disks), so its disk is copied over the
+# 10G mesh link for that node pair; the report at the end shows which link was used.
+- name: Migrate a single VM to a chosen node
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Fail clearly if the required extra vars are missing
+      ansible.builtin.fail:
+        msg: "Pass both -e migrate_vm_name=<host> and -e migrate_to=<pve node>"
+      when: (migrate_vm_name is not defined) or (migrate_to is not defined)
+
+    - name: Fail clearly if this VM is not in the inventory
+      ansible.builtin.fail:
+        msg: "'{{ migrate_vm_name }}' is not a known host - check the name against the Proxmox inventory"
+      when: migrate_vm_name not in hostvars
+
+    - name: Fail clearly if the VM is already on the target node
+      ansible.builtin.fail:
+        msg: "{{ migrate_vm_name }} is already on {{ migrate_to }} - nothing to do"
+      when: hostvars[migrate_vm_name].proxmox_node == migrate_to
+
+- name: Run the migration
+  hosts: "{{ migrate_vm_name }}"
+  gather_facts: false
+  tasks:
+    - name: Resolve a reachable Proxmox node for delegate_to
+      include_role:
+        name: resolve_proxmox_api_host
+
+    - name: Record where this VM started from
+      ansible.builtin.set_fact:
+        migrate_source_node: "{{ proxmox_node }}"
+
+    - name: "Migrate {{ inventory_hostname }} from {{ proxmox_node }} to {{ migrate_to }}"
+      include_role:
+        name: pve_migrate_vm
+      vars:
+        migrate_vmid: "{{ proxmox_vmid }}"
+        migrate_target_node: "{{ migrate_to }}"
+        migrate_delegate_to: "{{ proxmox_node }}"
+
+    - name: Check services after the migration
+      include_role:
+        name: health_check
+      vars:
+        health_check_fail_on_unhealthy: true
+
+    - name: Report which network carried the migration
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} (vmid {{ proxmox_vmid }}) moved
+          {{ migrate_source_node }} -> {{ migrate_to }} over
+          {{ ('the 10G mesh link ' + migrate_mesh_network) if migrate_mesh_network
+             else 'the 1G management network (no mesh link defined for this pair)' }}.
