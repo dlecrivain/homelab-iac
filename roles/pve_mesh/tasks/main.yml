@@ -1,0 +1,71 @@
+---
+# Declarative source of truth for the 10G mesh: port naming, per-link addressing, OpenFabric
+# routing and the forwarding needed to transit a failed link via the third node. Hand-maintaining
+# these files is what let pve1 end up carrying pve2's MAC addresses and a colliding /31 address.
+- name: Fail clearly if this node has no mesh ports declared
+  ansible.builtin.fail:
+    msg: "pve_mesh_ports is not defined for {{ inventory_hostname }} - add it to host_vars/{{ inventory_hostname }}.yml"
+  when: pve_mesh_ports | default([]) | length == 0
+
+# Persistent naming is matched on MAC, so each node needs its own - copying another node's files
+# leaves the ports at their kernel names and every mesh stanza below inert.
+- name: Name each mesh port persistently by its own MAC
+  ansible.builtin.template:
+    src: mesh.link.j2
+    dest: "/etc/systemd/network/{{ 11 + idx }}-{{ item.name }}.link"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  loop: "{{ pve_mesh_ports }}"
+  loop_control:
+    index_var: idx
+    label: "{{ item.name }} ({{ item.mac }})"
+
+# Dropped into interfaces.d (already sourced by /etc/network/interfaces) rather than editing the
+# main file, so a mistake here can never touch vmbr0 and the management network with it.
+- name: Deploy the mesh interface definitions
+  ansible.builtin.template:
+    src: mesh.conf.j2
+    dest: /etc/network/interfaces.d/mesh.conf
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  register: pve_mesh_interfaces
+
+- name: Enable IPv4 forwarding so a node can transit traffic for the other two
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    sysctl_file: /etc/sysctl.d/99-pve-mesh-forward.conf
+    sysctl_set: true
+    reload: true
+  become: true
+
+- name: Deploy the OpenFabric routing config
+  ansible.builtin.template:
+    src: frr.conf.j2
+    dest: /etc/frr/frr.conf
+    owner: frr
+    group: frr
+    mode: '0640'
+  become: true
+  notify: Reload frr
+
+- name: Ensure frr is enabled and running
+  ansible.builtin.systemd:
+    name: frr
+    state: started
+    enabled: true
+  become: true
+
+# Deliberately no automatic ifup/ifdown of the mesh interfaces: bringing a link down mid-migration
+# would abort it, and a rename only applies to a downed port. Report instead and let an operator
+# apply it, either at the next reboot or by hand with console access available.
+- name: Report that the mesh interface definitions changed and are not applied yet
+  ansible.builtin.debug:
+    msg: >-
+      mesh.conf changed on {{ inventory_hostname }} - not applied automatically.
+      Apply with 'ifup {{ pve_mesh_ports | map(attribute='name') | join(' ') }}' (or at the next reboot).
+  when: pve_mesh_interfaces is changed

@@ -1,0 +1,10 @@
+# Managed by Ansible (roles/pve_mesh) - do not edit by hand.
+# Each port is a direct DAC cable to one peer, its own point-to-point /31, MTU 9000.
+{% for port in pve_mesh_ports %}
+auto {{ port.name }}
+iface {{ port.name }} inet static
+        mtu 9000
+        address {{ port.address }}
+# -> {{ port.peer }}
+
+{% endfor %}

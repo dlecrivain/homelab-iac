@@ -1,3 +1,18 @@
 ansible_host: 192.168.1.101
 ansible_user: root
 ansible_ssh_private_key_file: /root/.ssh/semaphore_ansible
+
+# 10G mesh: this node's half of the direct-cabled triangle. Each port is one DAC cable to one peer,
+# on its own /31 - the pair's subnet is also listed in group_vars/all.yml's pve_mesh_links, which
+# pve_migrate_vm reads to pick the migration network. Applied by roles/pve_mesh.
+pve_mesh_loopback: 10.10.20.1
+pve_mesh_openfabric_net: 49.0000.0000.0001.00
+pve_mesh_ports:
+  - name: mesh0
+    mac: "34:a2:a2:08:9a:31"
+    peer: pve2
+    address: 10.10.10.3/31
+  - name: mesh1
+    mac: "34:a2:a2:08:9a:32"
+    peer: pve3
+    address: 10.10.10.5/31

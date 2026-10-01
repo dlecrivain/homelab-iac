@@ -1,0 +1,23 @@
+# Managed by Ansible (roles/pve_mesh) - do not edit by hand.
+# OpenFabric advertises each node's {{ pve_mesh_loopback }}/32 loopback over every mesh port, so a
+# node keeps one stable address reachable from both peers and a single failed link reroutes via
+# the third node instead of falling back to the 1G management network.
+frr defaults datacenter
+hostname {{ inventory_hostname }}
+log syslog informational
+service integrated-vtysh-config
+!
+interface lo
+ ip router openfabric 1
+ openfabric passive
+!
+{% for port in pve_mesh_ports %}
+interface {{ port.name }}
+ ip router openfabric 1
+!
+{% endfor %}
+router openfabric 1
+ net {{ pve_mesh_openfabric_net }}
+!
+line vty
+!

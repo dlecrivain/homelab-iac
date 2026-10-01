@@ -1,0 +1,72 @@
+---
+# Brings the 10G mesh under Ansible: port naming, per-link addressing, OpenFabric routing and
+# forwarding. The interface definitions are written but never applied automatically - see
+# roles/pve_mesh for why - so a run is safe on a live cluster and reports what is left to apply.
+- name: Validate the declared mesh topology before touching anything
+  hosts: localhost
+  gather_facts: false
+  vars:
+    mesh_nodes: "{{ (target_pve_hosts | default('pve1,pve2,pve3')).split(',') }}"
+    all_ports: >-
+      {{ mesh_nodes
+         | map('extract', hostvars, 'pve_mesh_ports')
+         | select('defined') | list | flatten(levels=1) }}
+    all_pairs: >-
+      {%- set pairs = [] -%}
+      {%- for n in mesh_nodes -%}
+        {%- for p in hostvars[n].pve_mesh_ports | default([]) -%}
+          {%- set _ = pairs.append(([n, p.peer] | sort | join('-'))) -%}
+        {%- endfor -%}
+      {%- endfor -%}
+      {{ pairs }}
+  tasks:
+    - name: Every mesh address is declared exactly once across the fleet
+      ansible.builtin.assert:
+        that: (all_ports | map(attribute='address') | list | unique | length) == (all_ports | length)
+        fail_msg: >-
+          Duplicate mesh address declared: {{ all_ports | map(attribute='address') | list }}
+          - two nodes cannot share a point-to-point address.
+
+    - name: Every declared port's peer pair has a link defined in pve_mesh_links
+      ansible.builtin.assert:
+        that: item in pve_mesh_links
+        fail_msg: "Pair '{{ item }}' is cabled in host_vars but missing from pve_mesh_links in group_vars/all.yml"
+      loop: "{{ all_pairs | unique }}"
+
+    - name: Every link in pve_mesh_links is claimed by exactly two nodes
+      ansible.builtin.assert:
+        that: (all_pairs | select('equalto', item) | list | length) == 2
+        fail_msg: >-
+          Link '{{ item }}' is claimed by {{ all_pairs | select('equalto', item) | list | length }}
+          port(s) - each point-to-point link needs exactly one port at each end.
+      loop: "{{ pve_mesh_links.keys() | list }}"
+
+- name: Configure the 10G mesh on each node
+  hosts: "{{ target_pve_hosts | default('pve1,pve2,pve3') }}"
+  gather_facts: false
+  tasks:
+    - name: Apply the mesh configuration
+      include_role:
+        name: pve_mesh
+
+- name: Report mesh health
+  hosts: "{{ target_pve_hosts | default('pve1,pve2,pve3') }}"
+  gather_facts: false
+  tasks:
+    - name: Count OpenFabric adjacencies that are up
+      ansible.builtin.shell: >
+        set -o pipefail && vtysh -c 'show openfabric neighbor' | grep -c ' Up '
+      args:
+        executable: /bin/bash
+      become: true
+      register: mesh_adjacencies
+      changed_when: false
+      failed_when: false
+
+    # One adjacency per cabled port, so anything less means a link or the routing is down.
+    - name: Warn if this node does not see every peer
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} has {{ mesh_adjacencies.stdout | default(0) }} OpenFabric
+          adjacencies up, expected {{ pve_mesh_ports | length }}.
+      when: (mesh_adjacencies.stdout | default('0') | int) != (pve_mesh_ports | length)
