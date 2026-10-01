@@ -55,6 +55,39 @@ groups:
           summary: "{{ $labels.id }} is over 90% full"
           description: "nvme_data storage usage on {{ $labels.id }} has been above 90% for 15 minutes - pve_placement/pve_rebalance may struggle to find room for new VMs."
 
+      # The 10G mesh is a direct-cabled triangle between pve1/pve2/pve3 carrying live migration
+      # (and corosync), with OpenFabric routing around a single failed link via the third node.
+      # That failover is silent, so without these alerts a dead cable goes unnoticed until a
+      # second one fails or a migration quietly runs over the 1G management network instead.
+      - alert: MeshLinkDown
+        expr: node_network_carrier{device=~"mesh.*"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "10G mesh link {{ $labels.device }} is down on {{ $labels.instance }}"
+          description: "{{ $labels.device }} on {{ $labels.instance }} has had no carrier for 5 minutes - check the DAC cable and SFP+ cage. Traffic is routing via the third node in the meantime."
+
+      - alert: MeshNodeIsolated
+        expr: count by (instance) (node_network_carrier{device=~"mesh.*"} == 0) >= 2
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }} has lost both 10G mesh links"
+          description: "Both mesh interfaces on {{ $labels.instance }} are down - it is off the fibre network entirely, so migrations involving it fall back to the 1G management network and it has no mesh corosync path."
+
+      # Catches the asymmetric-MTU class of problem found on 01/10, where one end of a link was
+      # left at the default 1500 while its peer ran 9000 - jumbo frames then drop silently.
+      - alert: MeshLinkMtuUnexpected
+        expr: node_network_mtu_bytes{device=~"mesh.*"} != 9000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "10G mesh link {{ $labels.device }} on {{ $labels.instance }} is not at MTU 9000"
+          description: "{{ $labels.device }} on {{ $labels.instance }} reports MTU {{ $value }} instead of 9000 - a mismatch with its peer silently drops jumbo frames."
+
       - alert: DiskTemperatureHigh
         # 70C, not 65C: immich101's library disk (nvme_data) hits 66-69C for ~15min every day around
         # 05:00-05:20, from what a live investigation on 26/09 traced to a normal sustained full-library
