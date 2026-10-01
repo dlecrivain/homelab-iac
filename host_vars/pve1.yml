@@ -9,10 +9,10 @@ pve_mesh_loopback: 10.10.20.1
 pve_mesh_openfabric_net: 49.0000.0000.0001.00
 pve_mesh_ports:
   - name: mesh0
-    mac: "34:a2:a2:08:9a:31"
+    path: pci-0000:01:00.0
     peer: pve2
     address: 10.10.10.3/31
   - name: mesh1
-    mac: "34:a2:a2:08:9a:32"
+    path: pci-0000:01:00.1
     peer: pve3
     address: 10.10.10.5/31
