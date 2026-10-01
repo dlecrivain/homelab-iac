@@ -19,6 +19,17 @@ cv_retention_views:
 pve_safety_threshold: 0.80
 pve_rebalance_margin: 0.05
 vm_backup_node: pve1
+
+# Direct 10G mesh links, keyed by the node pair sorted alphabetically and joined with "-". Each
+# pair is its own point-to-point /31 on a dedicated cable, so the migration network depends on
+# which two nodes are involved - there is no single shared mesh subnet. A pair missing from this
+# map (a new node with no mesh cabling yet) falls back to the 1G management network, since PVE's
+# migration_network resolution hard-fails rather than falling back when a node has no matching
+# address of its own.
+pve_mesh_links:
+  pve1-pve2: 10.10.10.2/31
+  pve1-pve3: 10.10.10.4/31
+  pve2-pve3: 10.10.10.0/31
 vm_backup_storage: Stockage_SSD
 vm_backup_local_retention: 2
 vm_backup_pcloud_retention: 1
