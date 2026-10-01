@@ -1,15 +1,15 @@
 ---
 # Declarative source of truth for the 10G mesh: port naming, per-link addressing, OpenFabric
-# routing and the forwarding needed to transit a failed link via the third node. Hand-maintaining
-# these files is what let pve1 end up carrying pve2's MAC addresses and a colliding /31 address.
+# routing, and the forwarding a node needs to carry traffic for the other two. The assertions in
+# configure-pve-mesh.yml check the topology in host_vars against pve_mesh_links before this runs.
 - name: Fail clearly if this node has no mesh ports declared
   ansible.builtin.fail:
     msg: "pve_mesh_ports is not defined for {{ inventory_hostname }} - add it to host_vars/{{ inventory_hostname }}.yml"
   when: pve_mesh_ports | default([]) | length == 0
 
-# Persistent naming is matched on MAC, so each node needs its own - copying another node's files
-# leaves the ports at their kernel names and every mesh stanza below inert.
-- name: Name each mesh port persistently by its own MAC
+# Matched on PCI path, which is the same slot on every node, so these files are identical fleet-wide.
+# Without them the ports keep their kernel names and every mesh stanza below is inert.
+- name: Name each mesh port persistently
   ansible.builtin.template:
     src: mesh.link.j2
     dest: "/etc/systemd/network/{{ 11 + idx }}-{{ item.name }}.link"
@@ -20,10 +20,42 @@
   loop: "{{ pve_mesh_ports }}"
   loop_control:
     index_var: idx
-    label: "{{ item.name }} ({{ item.mac }})"
+    label: "{{ item.name }} ({{ item.path }})"
 
-# Dropped into interfaces.d (already sourced by /etc/network/interfaces) rather than editing the
-# main file, so a mistake here can never touch vmbr0 and the management network with it.
+- name: Read the main interfaces file
+  ansible.builtin.slurp:
+    src: /etc/network/interfaces
+  become: true
+  register: pve_mesh_main_interfaces
+
+# The definitions below live in interfaces.d. Writing them while the main file still declares the
+# same interfaces would define each one twice, so refuse rather than create that conflict.
+- name: Fail clearly if the mesh interfaces are still declared in the main interfaces file
+  ansible.builtin.fail:
+    msg: >-
+      /etc/network/interfaces on {{ inventory_hostname }} still declares mesh interfaces.
+      Remove those stanzas by hand first (keep the lo stanza), then run this again - the
+      definitions belong in /etc/network/interfaces.d/mesh.conf, which this role manages.
+  when: "'iface mesh' in (pve_mesh_main_interfaces.content | b64decode)"
+
+# OpenFabric advertises this address and corosync's mesh ring binds to it, so the mesh is not
+# usable without it. It sits in the lo stanza of the main interfaces file, which this role does
+# not manage, hence a check rather than a template.
+- name: Check that this node's mesh loopback address is configured
+  ansible.builtin.command: ip -4 -oneline address show lo
+  changed_when: false
+  register: pve_mesh_lo
+  become: true
+
+- name: Fail clearly if the mesh loopback address is missing
+  ansible.builtin.fail:
+    msg: >-
+      {{ pve_mesh_loopback }}/32 is not on lo on {{ inventory_hostname }}. Add
+      'post-up ip address add {{ pve_mesh_loopback }}/32 dev lo' to the lo stanza of
+      /etc/network/interfaces - OpenFabric advertises this address and corosync's mesh ring
+      binds to it.
+  when: pve_mesh_loopback not in pve_mesh_lo.stdout
+
 - name: Deploy the mesh interface definitions
   ansible.builtin.template:
     src: mesh.conf.j2
