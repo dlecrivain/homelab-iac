@@ -8,7 +8,7 @@
     --organization "{{ katello_organization }}"
     --count {{ cv_retention_count | default(10) }}
   become: true
-  loop: "{{ cv_retention_views | default(['CV_Rocky_10', 'CV_Proxmox']) }}"
+  loop: "{{ katello_content_views }}"
   register: cv_retention_purge
   changed_when: "'deleted' in (cv_retention_purge.stdout | default(''))"
   failed_when: cv_retention_purge.rc not in [0, 128]

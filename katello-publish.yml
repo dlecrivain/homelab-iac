@@ -12,7 +12,7 @@
         name: katello_promote
       vars:
         content_view_name: "{{ item }}"
-      loop: "{{ katello_publish_views | default(['CV_Rocky_10', 'CV_Proxmox']) }}"
+      loop: "{{ katello_content_views }}"
       loop_control:
         label: "{{ item }}"
 
