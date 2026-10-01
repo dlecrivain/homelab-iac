@@ -1,10 +1,9 @@
 ---
 # Same become/become_user logic podman_update already uses per-unit (roles/podman_update/tasks/update_unit.yml),
-# applied once here since image pruning acts on the whole host's image store, not a single unit. Every
-# podman_units entry on a host shares the same scope/become_user in practice, so the first entry is
-# representative. Without this, podman images/rmi ran as the plain connecting user - invisible to a
-# rootful store (needs root) and to a different rootless user's store alike (real bug: confirmed live,
-# image_retention had been silently pruning nothing at all, on every host, since it was introduced).
+# applied once here, since pruning acts on the host's whole image store rather than one unit. Every
+# podman_units entry on a host shares the same scope and become_user, so the first is representative.
+# Without it, podman images/rmi would run as the connecting user, which cannot see a rootful store or
+# another rootless user's store, and would prune nothing.
 - name: Determine become settings for image retention from this host's own podman_units
   ansible.builtin.set_fact:
     image_retention_unit: "{{ podman_units[0] }}"

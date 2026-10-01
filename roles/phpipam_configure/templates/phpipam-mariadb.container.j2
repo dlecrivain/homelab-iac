@@ -7,22 +7,14 @@ ContainerName=phpipam-mariadb
 Environment=MYSQL_ROOT_PASSWORD={{ phpipam_db_root_password }}
 Volume=/var/phpipam/mysql-data:/var/lib/mysql:Z
 Network=phpipam.network
-# Repeated "Bad magic header in tc log" crash-recovery failures on restart (22/08, four times on
-# 27/08). Tried StopTimeout=60 alone, then also disabling InnoDB's buffer-pool dump-at-shutdown/
-# load-at-startup (removes a slow, unrelated step from the shutdown window) - neither fully
-# eliminated it; each looked clean over several manual test cycles, then failed again on the very
-# next real configure-phpipam.yml run, so treat any "N clean cycles" claim about this specific
-# problem skeptically. Gave up trying to make every stop perfectly clean and instead made the
-# corruption harmless: phpIPAM is a plain PHP/PDO app, it never issues XA transactions, so tc.log
-# (which exists only to resolve in-doubt 2-phase-commit transactions across a crash) has zero
-# practical value here - wiping it before every start means mariadbd never encounters a stale or
-# corrupted one and never enters crash-recovery-via-tc.log at all. Kept StopTimeout=60 and the
-# buffer-pool settings too since they still reduce how often a stop needs saving in the first
-# place. Still needs a real configure-phpipam.yml run (not another manual test) to confirm.
+# A longer stop timeout, and skipping the buffer-pool dump/load, keep shutdown short enough to
+# complete cleanly. See also ExecStartPre below, which removes tc.log.
 StopTimeout=60
 Exec=--innodb-buffer-pool-dump-at-shutdown=0 --innodb-buffer-pool-load-at-startup=0
 
 [Service]
+# tc.log exists only to resolve in-doubt two-phase-commit transactions after a crash. phpIPAM never
+# issues XA transactions, so removing it before each start avoids recovery from a stale copy.
 ExecStartPre=/bin/rm -f /var/phpipam/mysql-data/tc.log
 Restart=always
 

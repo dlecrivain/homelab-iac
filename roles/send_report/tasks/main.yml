@@ -9,12 +9,10 @@
     report_duration_display: "{{ (report_duration_seconds | int // 3600) }}h {{ ((report_duration_seconds | int % 3600) // 60) }}m {{ (report_duration_seconds | int % 60) }}s"
   when: run_start_epoch is defined
 
-# If this fails with "No Suitable authentication method was found", the credentials were rejected -
-# it does not mean what it says. Gmail closes the connection on a bad App Password instead of
-# returning 535, and this module catches SMTPException broadly enough to relabel that as a missing
-# auth method. Verified on 01/10: both Semaphore hosts negotiate AUTH LOGIN/PLAIN fine after
-# STARTTLS, and a deliberately wrong password reproduces this exact message. Check SMTP_PASSWORD in
-# the Variable Group of the instance that failed - each Semaphore has its own, they are not synced.
+# A failure reading "No Suitable authentication method was found" means the credentials were
+# rejected, not that the server lacks an auth method: Gmail closes the connection on a bad App
+# Password rather than returning 535, and this module reports any SMTP error that way. Each
+# Semaphore instance has its own Variable Group, so check the one that failed.
 - name: Build and send the HTML report email
   community.general.mail:
     host: "{{ smtp_host }}"

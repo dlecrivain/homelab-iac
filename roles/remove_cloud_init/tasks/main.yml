@@ -9,8 +9,7 @@
   vars:
     snapshot_label: ansible_cloudinit_removal
 
-# ansible_host if set, else extracted from health_check_url - these hosts predate
-# provision-vm.yml's host_vars convention.
+# ansible_host when set, otherwise extracted from health_check_url.
 - name: Resolve this host's IP
   ansible.builtin.set_fact:
     rci_ip: >-

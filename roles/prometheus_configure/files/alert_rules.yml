@@ -101,8 +101,7 @@ groups:
           summary: "{{ $labels.instance }} has lost both 10G mesh links"
           description: "Both mesh interfaces on {{ $labels.instance }} are down - it is off the fibre network entirely, so migrations involving it fall back to the 1G management network and it has no mesh corosync path."
 
-      # Catches the asymmetric-MTU class of problem found on 01/10, where one end of a link was
-      # left at the default 1500 while its peer ran 9000 - jumbo frames then drop silently.
+      # An end left at the default 1500 while its peer runs 9000 drops jumbo frames silently.
       - alert: MeshLinkMtuUnexpected
         expr: node_network_mtu_bytes{device=~"mesh.*"} != 9000
         for: 10m
@@ -113,9 +112,8 @@ groups:
           description: "{{ $labels.device }} on {{ $labels.instance }} reports MTU {{ $value }} instead of 9000 - a mismatch with its peer silently drops jumbo frames."
 
       - alert: DiskTemperatureHigh
-        # 70C, not 65C: immich101's library disk (nvme_data) hits 66-69C for ~15min every day around
-        # 05:00-05:20, from what a live investigation on 26/09 traced to a normal sustained full-library
-        # read (not a fault) - 65C made this fire daily on totally expected, benign behavior.
+        # 70C, not 65C: a nightly full-library read on immich101 sustains 66-69C for about 15
+        # minutes, which is normal for this drive and made a 65C threshold fire every day.
         expr: smartctl_device_temperature{temperature_type="current"} > 70
         for: 10m
         labels:

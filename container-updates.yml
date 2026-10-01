@@ -14,7 +14,7 @@
             'semaphore102' in query('ansible.builtin.inventory_hostnames', target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101'))
           }}
 
-# Only when semaphore102 is targeted - used to align its images to match.
+# Only when semaphore102 is targeted: its images are aligned to these.
 - name: Capture semaphore101's current image versions
   hosts: semaphore101
   gather_facts: false
@@ -75,12 +75,9 @@
           when: host_overall_status == 'OK'
 
 - name: Update Podman containers on Quadlet-managed hosts
-  # semaphore101 is excluded: it's the reference other hosts (semaphore102) align to, never
-  # itself force-aligned to anything, and it's covered end-to-end (OS + containers) by
-  # update-semaphore-peer.yml. semaphore102 is included below, but Step 3 gives it
-  # align-to-semaphore101-by-digest treatment instead of the normal tag pull every other host
-  # gets - a normal pull here risks drift (a real regression seen in production: semaphore102
-  # got reverted from an aligned v2.18.29 back to the stale v2.18.27 tag before realignment ran).
+  # semaphore101 is excluded: it is the reference semaphore102 aligns to, and update-semaphore-peer.yml
+  # already covers it end to end. semaphore102 is included, but Step 3 aligns it to semaphore101 by
+  # digest instead of pulling a tag, so the two cannot drift apart.
   hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101') }}"
   gather_facts: false
   serial: 1

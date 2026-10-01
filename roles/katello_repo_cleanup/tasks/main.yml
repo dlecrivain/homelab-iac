@@ -34,8 +34,7 @@
       }}
   when: ansible_facts['pkg_mgr'] in ['dnf', 'yum']
 
-# Avoids selinux-policy-targeted version conflicts between the vendor repos and the Katello
-# content view - a real incident on patchmon101.
+# Vendor repos can offer package versions that conflict with the Katello content view.
 - name: Disable every enabled repo that isn't managed by Katello
   ansible.builtin.command: "dnf config-manager --set-disabled {{ katello_repo_cleanup_non_katello | join(' ') }}"
   become: true

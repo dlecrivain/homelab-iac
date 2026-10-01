@@ -1,7 +1,6 @@
 ---
-# --output json instead of hammer's ASCII table (unstable across versions, broke on 27/08). Not
-# relying on --order either - "id DESC" returned empty on this install - so fetch everything and
-# pick the highest id ourselves below instead of trusting hammer's own sort/pagination.
+# --output json rather than parsing hammer's ASCII table, which is not stable across versions.
+# Its --order is not relied on either: fetch every version and pick the highest id below.
 - name: Get all versions of this content view
   ansible.builtin.command: >
     hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}

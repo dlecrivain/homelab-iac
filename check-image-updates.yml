@@ -1,24 +1,12 @@
 ---
-# Detects available updates for images with no dedicated auto-bump mechanism of their own. A
-# same-major-line update is bumped into group_vars/all.yml immediately on detection, but the
-# container itself is never touched here - container-updates.yml (normally run via
-# full-updates.yml) is what actually applies it, like any other config change, the next time it
-# runs. A major-line jump (e.g. v3.x -> v4.x) is only ever reported, never auto-applied.
+# Detects updates for images and binaries that have no auto-bump mechanism of their own.
 #
-# phpIPAM's phpipam-web/phpipam-cron are in the watch list below like everyone else (both point
-# at the same phpipam_version - they always move together, same release). Semaphore is the one
-# exception: update-semaphore-peer.yml already applies its own bump immediately, tied to patching
-# semaphore102, so it's deliberately not in image_update_watch_list.
+# A same-major-line update is written into group_vars/all.yml on detection; the container itself is
+# never touched here, so the next container-updates run applies it like any other config change. A
+# major-line jump (v3.x -> v4.x) is only reported.
 #
-# Immich is excluded from the watch list entirely (not Ansible-managed, GHCR + digest pins + a
-# floating "release" tag with no version in the image reference at all) - it gets a completely
-# separate, read-only comparison instead: its own reported version against its GitHub releases.
-#
-# node_exporter and smartctl_exporter get the same same-major-line auto-bump treatment as the
-# Docker Hub images below, but via a separate GitHub Releases check further down (own play) -
-# they're native binaries installed fleet-wide by node_exporter_install/smartctl_exporter_install,
-# not a single container to compare a "live" version against, so they can't share the watch list's
-# live-catch-up tracking. A bump here applies the next time the relevant install role runs.
+# node_exporter and smartctl_exporter are checked against GitHub Releases in a separate play below,
+# since they are binaries rather than containers and have no live container to compare against.
 - name: Check Docker Hub for updates to unmanaged-bump images
   hosts: localhost
   gather_facts: false

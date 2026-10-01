@@ -19,31 +19,28 @@ cv_retention_views:
 pve_safety_threshold: 0.80
 pve_rebalance_margin: 0.05
 vm_backup_node: pve1
-
-# Direct 10G mesh links, keyed by the node pair sorted alphabetically and joined with "-". Each
-# pair is its own point-to-point /31 on a dedicated cable, so the migration network depends on
-# which two nodes are involved - there is no single shared mesh subnet. A pair missing from this
-# map (a new node with no mesh cabling yet) falls back to the 1G management network, since PVE's
-# migration_network resolution hard-fails rather than falling back when a node has no matching
-# address of its own.
-pve_mesh_links:
-  pve1-pve2: 10.10.10.2/31
-  pve1-pve3: 10.10.10.4/31
-  pve2-pve3: 10.10.10.0/31
 vm_backup_storage: Stockage_SSD
 vm_backup_local_retention: 2
 vm_backup_pcloud_retention: 1
 vm_backup_pcloud_base_path: "pcloud:Backups/VM"
+
+# Direct 10G mesh links, keyed by the node pair sorted alphabetically and joined with "-". Each
+# pair is its own point-to-point /31 on its own cable, so the migration network depends on which
+# two nodes are involved rather than one shared subnet. A pair absent from this map falls back to
+# the management network, which is also what PVE needs: it rejects a migration network outright
+# when a node holds no address on it.
+pve_mesh_links:
+  pve1-pve2: 10.10.10.2/31
+  pve1-pve3: 10.10.10.4/31
+  pve2-pve3: 10.10.10.0/31
 
 # update-semaphore-peer.yml: defaults to patching semaphore101 only (OS + containers), never
 # touching semaphore102, when run with no extra vars at all. The semaphore102-facing direction
 # (image alignment) still requires explicit -e peer_host=semaphore102 -e image_reference_host=semaphore101.
 peer_host: semaphore101
 
-# phpIPAM
-# "User token" security mode (not "SSL with ..."): those two require a real HTTPS connection and
-# 503 with "SSL connection is required for API" over plain HTTP - phpipam101 is HTTP-only for now.
-# "User token" does a login exchange for a session token instead.
+# phpIPAM. "User token" security mode, which exchanges a login for a session token: the SSL modes
+# require HTTPS, and phpipam101 serves plain HTTP.
 phpipam_api_app_id: "ansible"
 phpipam_api_username: "{{ lookup('env', 'PHPIPAM_API_USERNAME') }}"
 phpipam_api_password: "{{ lookup('env', 'PHPIPAM_API_PASSWORD') }}"
@@ -52,25 +49,17 @@ phpipam_subnet_cidr: "192.168.1.0/24"
 phpipam_search_start_ip: "192.168.1.111"
 phpipam_max_retries: 5
 
-# phpIPAM container stack (configure-phpipam.yml) - was set up by hand before this repo managed
-# it (docker-compose, then migrated to Quadlet manually), with both DB passwords hardcoded in
-# plaintext in the live .container files. Brought under Ansible with the exact same values so the
-# migration is a no-op for the running service - must be set in Semaphore's Variable Group before
-# the first configure-phpipam.yml run, or it would try to reset both passwords to empty strings.
+# phpIPAM container stack (configure-phpipam.yml). Both database passwords must be set in
+# Semaphore's Variable Group before the first run, otherwise the role would reset them to empty.
 phpipam_host: phpipam101
 phpipam_db_password: "{{ lookup('env', 'PHPIPAM_DB_PASSWORD') }}"
 phpipam_db_root_password: "{{ lookup('env', 'PHPIPAM_DB_ROOT_PASSWORD') }}"
 # Pinned instead of :latest so updates are a reviewable version bump (check-image-updates.yml
 # checks Docker Hub and self-heals this value) rather than a silent, unannounced image swap.
 phpipam_version: "v1.8.3"
-# phpipam-mariadb.container.j2 used to run docker.io/mariadb:latest, unlike every other image in
-# the fleet - container-updates.yml's routine podman_update pass would silently pull/restart it
-# against whatever upstream currently tags :latest, including an unreviewed major-version jump
-# that could fail to start against the existing datadir (needs mysql_upgrade). Pinned to the exact
-# version already running (confirmed via `podman exec phpipam-mariadb mariadb --version` on
-# phpipam101) so applying this pin is a no-op for the live container; not in image_update_watch_list
-# since a DB engine bump deserves a deliberate, manually-reviewed change here rather than an
-# automatic detect-and-bump.
+# Pinned rather than :latest so container-updates.yml can't pull a major version that fails to
+# start against the existing datadir. Deliberately not in image_update_watch_list: a database
+# engine bump is reviewed and applied by hand here.
 mariadb_version: "12.3.2"
 
 # Proxmox VM provisioning (provision-vm.yml)
@@ -84,61 +73,51 @@ fleet_network_prefix: 24
 fleet_network_gateway: "192.168.1.254"
 fleet_network_dns_servers: "192.168.1.254"
 
-# Katello registration (provision-vm.yml) - numeric IDs, distinct from katello_organization (a name string used by hammer content-view commands)
+# Katello registration (provision-vm.yml). Numeric IDs, unlike katello_organization, which is the
+# name string hammer's content-view commands expect.
 katello_activation_key: "ak-rocky-10-prod"
 katello_organization_id: 4
 katello_location_id: 2
 katello_operatingsystem_id: 7
 
-# BunkerWeb (configure-bunkerweb.yml) - OVH DNS-01 API credentials for Let's Encrypt, and the
-# admin UI password. Never committed: must be set in Semaphore's Variable Group before the
-# first run, or Let's Encrypt renewal / admin login will fail.
+# BunkerWeb (configure-bunkerweb.yml): OVH DNS-01 credentials for Let's Encrypt, and the admin UI
+# password. Set these in Semaphore's Variable Group before the first run.
 bunkerweb_ovh_application_key: "{{ lookup('env', 'BUNKERWEB_OVH_APPLICATION_KEY') }}"
 bunkerweb_ovh_application_secret: "{{ lookup('env', 'BUNKERWEB_OVH_APPLICATION_SECRET') }}"
 bunkerweb_ovh_consumer_key: "{{ lookup('env', 'BUNKERWEB_OVH_CONSUMER_KEY') }}"
 bunkerweb_admin_password: "{{ lookup('env', 'BUNKERWEB_ADMIN_PASSWORD') }}"
 
-# Monitoring (configure-prometheus.yml, configure-grafana.yml, configure-monitoring.yml,
-# prometheus_target role) - mirrors lpkat_host's exact pattern for the delegate_to target.
+# Monitoring (configure-prometheus.yml, configure-grafana.yml, configure-monitoring.yml and the
+# prometheus_target role).
 prometheus_host: prometheus101
 grafana_host: grafana101
 node_exporter_version: "1.12.1"
 smartctl_exporter_version: "0.14.0"
 
-# Reuses the same PROXMOX_TOKEN_SECRET env var inventory/proxmox.yml already requires, exposed
-# as a normal var here so prometheus_pve_exporter_configure can consume it. user/token_id match
-# inventory/proxmox.yml's own hardcoded values exactly - same Proxmox API token, same identity.
+# The same API token inventory/proxmox.yml uses, exposed as a normal var so
+# prometheus_pve_exporter_configure can consume it. user and token_id must match that file.
 proxmox_token_secret: "{{ lookup('env', 'PROXMOX_TOKEN_SECRET') }}"
 proxmox_api_user: "ansible@pve"
 proxmox_api_token_id: "automation"
 
-# New secret: must be set in Semaphore's Variable Group before the first configure-grafana.yml run.
+# Must be set in Semaphore's Variable Group before the first configure-grafana.yml run.
 grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') }}"
 
-# Pinned versions for images with no dedicated auto-bump mechanism of their own (Semaphore is the
-# only exception left - update-semaphore-peer.yml applies its bump immediately, tied to patching
-# semaphore102, so it isn't in image_update_watch_list below). check-image-updates.yml checks
-# Docker Hub and bumps these in place when a same-major-line update is available - it never
-# touches the container itself, the next container-updates run applies it naturally, since it's
-# just a normal config change like any other (that's what container-updates.yml is for).
+# Pinned image versions. check-image-updates.yml bumps these in place when a same-major-line
+# update is available; the container itself is left alone, so the next container-updates run
+# applies it like any other config change. Semaphore has its own bump playbook instead.
 prometheus_version: "v3.15.0"
 alertmanager_version: "v0.34.1"
 grafana_version: "13.2.3"
 bunkerweb_version: "1.6.15"
 adguard_version: "v0.107.79"
-# phpipam_version itself is already declared above, in the phpIPAM container stack section
-# Used to run as a static file with the tag hardcoded in git (files/pve-exporter.container) -
-# templated and pinned the same way as everything else above, now that it's in the watch list too.
+# phpipam_version is declared above, with the phpIPAM container stack.
 pve_exporter_version: "3.10.0"
 
-# Docker Hub repos check-image-updates.yml watches, paired with the var it bumps and the host
-# whose live container it compares against to know whether a detected bump has actually been
-# applied yet (vs. still pending the next container-updates run). phpipam-web and phpipam-cron
-# both point at the same phpipam_version - they're the same phpIPAM release and always move
-# together. Semaphore isn't here - it already has its own dedicated, immediate-apply bump
-# playbook. Immich is excluded entirely (not Ansible-managed, uses GHCR + digest pins + a floating
-# "release" tag) - check-image-updates.yml instead just compares Immich's own reported version
-# against its GitHub releases, informational only.
+# Docker Hub repos check-image-updates.yml watches: the var to bump, and the host whose live
+# container tells it whether a bump has been applied yet. phpipam-web and phpipam-cron share
+# phpipam_version - same release, they always move together. Semaphore has its own bump playbook,
+# and Immich is compared against its GitHub releases instead (informational only).
 image_update_watch_list:
   - name: prometheus
     docker_repo: prom/prometheus
