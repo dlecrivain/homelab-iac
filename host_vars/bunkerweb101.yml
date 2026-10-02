@@ -124,3 +124,11 @@ bunkerweb_services:
       REVERSE_PROXY_SEND_TIMEOUT: 3600s
       REVERSE_PROXY_READ_TIMEOUT: 3600s
       MAX_CLIENT_SIZE: 0
+
+  - name: adguard
+    domain: adguard.lecrivaindaniel.fr
+    extra:
+      REVERSE_PROXY_URL: "/"
+      # The all-in-one container also publishes 3000 (first-run setup wizard) and 443; the
+      # web UI itself is served on 80.
+      REVERSE_PROXY_HOST: "http://192.168.1.113"
