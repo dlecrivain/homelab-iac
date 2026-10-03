@@ -1,0 +1,35 @@
+---
+# On-demand global rebalance, through the same pve_rebalance role pve-updates.yml runs once every
+# host has been patched. Each move is a live migration over the 10G mesh link for its node pair,
+# followed by a health check that fails the run if the VM does not come back.
+#
+# Applies the plan by default. To see it without moving anything:
+#
+#   -e rebalance_dry_run=true
+#
+# The plan balances VM count and memory usage across the nodes. It does not reserve headroom for the
+# largest VM, so on nodes with unequal memory it can leave no single node able to host that VM if
+# another one fails.
+- name: Rebalance VMs across the cluster
+  hosts: "{{ target_pve_hosts | default('pve1,pve2,pve3') }}"
+  gather_facts: false
+  run_once: true
+  vars:
+    pve_all_nodes: "{{ (target_pve_hosts | default('pve1,pve2,pve3')).split(',') }}"
+  tasks:
+    # Rather than assuming the first node is up, which is exactly what a rebalance may be recovering
+    # from. group_vars reads proxmox_api_host from the fact this sets.
+    - name: Resolve a reachable Proxmox node for delegate_to
+      include_role:
+        name: resolve_proxmox_api_host
+
+    - name: Compute and apply the rebalance plan
+      include_role:
+        name: pve_rebalance
+
+    # The role prints the plan itself; this is the one-line outcome for the task log.
+    - name: Report what the rebalance did
+      ansible.builtin.debug:
+        msg: >-
+          {{ rebalance_moves | length }} move(s)
+          {{ 'planned only - rebalance_dry_run is set' if (rebalance_dry_run | default(false) | bool) else 'applied' }}.
