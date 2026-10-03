@@ -77,6 +77,9 @@
   become: true
   when: pve_corosync_changes_pending
 
+# Restoring this copy verbatim does not roll the cluster back: its config_version is lower than the
+# one now running, so corosync ignores it. A rollback means restoring the content and raising the
+# version above the current one.
 - name: Keep a copy of the configuration being replaced
   ansible.builtin.copy:
     content: "{{ pve_corosync_live }}"
