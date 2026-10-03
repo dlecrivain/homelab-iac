@@ -4,7 +4,9 @@ After=network-online.target
 Wants=network-online.target
 
 [Container]
-Image=docker.io/library/postgres:16
+# Fully pinned rather than :16 - a floating minor tag lets an ordinary container restart change the
+# engine version, and update-semaphore-peer.yml aligns the two instances by digest for that reason.
+Image=docker.io/library/postgres:16.15
 ContainerName=semaphore_db
 Network=semaphore-network.network
 Volume=semaphore_postgres.volume:/var/lib/postgresql/data:Z
