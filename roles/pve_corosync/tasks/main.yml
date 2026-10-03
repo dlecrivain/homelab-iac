@@ -47,12 +47,15 @@
       {{ pve_corosync_config_version }}. Bump pve_corosync_config_version in group_vars/all.yml.
   when: pve_corosync_changes_pending
 
+# check_mode false because it only reads: a dry-run must reach the assertion below with a real
+# answer, otherwise it would report a healthy cluster as not quorate and stop there.
 - name: Check whether the cluster is quorate
   ansible.builtin.command: corosync-quorumtool -s
   become: true
   register: pve_corosync_quorum
   changed_when: false
   failed_when: false
+  check_mode: false
   when: pve_corosync_changes_pending
 
 - name: Refuse to reconfigure a cluster that is not quorate
