@@ -1,17 +1,7 @@
 ---
-- name: Test pve_rebalance in isolation (dry-run by default)
-  hosts: pve1
-  gather_facts: false
+# Shows the plan pve-rebalance.yml would apply, without moving anything. Deliberately the same
+# playbook with the dry-run flag set rather than a second implementation, so the preview cannot
+# compute a different plan from the one that then gets applied.
+- import_playbook: pve-rebalance.yml
   vars:
-    pve_all_nodes:
-      - pve1
-      - pve2
-      - pve3
-    proxmox_api_host: "{{ hostvars['pve1'].ansible_host }}"
-    test_dry_run: "{{ dry_run_override | default(true) }}"
-  tasks:
-    - name: Compute the rebalance plan
-      include_role:
-        name: pve_rebalance
-      vars:
-        rebalance_dry_run: "{{ test_dry_run }}"
+    rebalance_dry_run: true
