@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 import sys
 
@@ -21,6 +22,25 @@ def get_node_vms(node):
 def get_storage_status(node, storage_id):
     raw = subprocess.check_output(['pvesh', 'get', f'/nodes/{node}/storage/{storage_id}/status', '--output-format', 'json'])
     return json.loads(raw)
+
+DISK_KEY = re.compile(r'^(?:scsi|sata|ide|virtio)\d+$|^efidisk\d+$|^tpmstate\d+$')
+SIZE = re.compile(r'(?:^|,)size=(\d+(?:\.\d+)?)([KMGT]?)(?:,|$)')
+SIZE_UNIT = {'': 1, 'K': 1024, 'M': 1024 ** 2, 'G': 1024 ** 3, 'T': 1024 ** 4}
+
+# /cluster/resources and /nodes/{node}/qemu only report maxdisk, which is the boot disk alone - for
+# a multi-disk VM that understates what a migration has to copy by an order of magnitude. Every
+# disk key in the VM's own config carries its own size=, so sum those instead.
+def get_vm_allocated_disk(node, vmid):
+    raw = subprocess.check_output(
+        ['pvesh', 'get', f'/nodes/{node}/qemu/{vmid}/config', '--output-format', 'json'])
+    total = 0
+    for key, value in json.loads(raw).items():
+        if not DISK_KEY.match(key) or not isinstance(value, str):
+            continue
+        match = SIZE.search(value)
+        if match:
+            total += int(float(match.group(1)) * SIZE_UNIT[match.group(2)])
+    return total
 
 def get_vms_to_evacuate(node):
     vms = get_node_vms(node)
@@ -46,9 +66,10 @@ for node in target_nodes:
 placements = []
 for vm in vms_to_move:
     vm_mem = vm.get('maxmem', 0)
-    # Allocated/nominal disk size, not actual bytes written - nvme_data is thin-provisioned,
-    # so a VM can grow up to this size over time even if it barely uses any space today.
-    vm_disk = vm.get('maxdisk', 0)
+    # Allocated/nominal size, not actual bytes written - nvme_data is thin-provisioned, so a VM can
+    # grow up to this over time even if it barely uses any space today. Falls back to maxdisk only
+    # if the config yielded nothing, which would otherwise leave the check with no figure at all.
+    vm_disk = get_vm_allocated_disk(source_node, vm['vmid']) or vm.get('maxdisk', 0)
 
     safe_nodes = [
         n for n in target_nodes
