@@ -125,7 +125,7 @@ grafana_version: "13.2.3"
 bunkerweb_version: "1.6.15"
 adguard_version: "v0.107.79"
 # phpipam_version is declared above, with the phpIPAM container stack.
-pve_exporter_version: "3.10.0"
+pve_exporter_version: "3.10.1"
 
 # Immich (configure-immich.yml). Pinned rather than :release so a container restart cannot change
 # version on its own: Immich's upgrades run database migrations, which belong in a run that snapshots
