@@ -6,8 +6,8 @@ source_node = sys.argv[1]
 target_nodes = sys.argv[2].split(',')
 SAFETY_THRESHOLD = float(sys.argv[3])  # never push a node above this fraction of memory usage
 STORAGE_ID = sys.argv[4]  # the shared storage name VM disks are migrated onto (e.g. nvme_data)
-# VMs whose disk lives on node-local storage that isn't present on the other nodes (e.g. immich101
-# on pve1's Stockage_SSD) can't be live-migrated at all - shut down for the maintenance window instead.
+# VMs that cannot be live-migrated, because their storage is not available on the other nodes, are
+# shut down for the maintenance window instead of being given a target node.
 EXCLUDE_NAMES = sys.argv[5].split(',') if len(sys.argv) > 5 and sys.argv[5] else []
 
 def get_node_status(node):
