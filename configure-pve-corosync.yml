@@ -1,0 +1,71 @@
+---
+# Brings /etc/pve/corosync.conf under Ansible, including the second ring that runs over the 10G mesh.
+# The file is cluster-replicated, so it is written once from a single node and every other node picks
+# it up through pmxcfs. Any change needs pve_corosync_config_version bumped in group_vars/all.yml,
+# otherwise corosync ignores the new file; roles/pve_corosync refuses the run if that was forgotten.
+- name: Validate the declared cluster configuration before touching anything
+  hosts: localhost
+  gather_facts: false
+  vars:
+    ring0_addrs: "{{ pve_corosync_nodes | map('extract', hostvars, 'ansible_host') | list }}"
+    ring1_addrs: "{{ pve_corosync_nodes | map('extract', hostvars, 'pve_mesh_loopback') | list }}"
+    node_ids: "{{ pve_corosync_nodes | map('extract', hostvars, 'pve_corosync_nodeid') | list }}"
+  tasks:
+    - name: Every cluster member declares a node id, a management address and a mesh loopback
+      ansible.builtin.assert:
+        that:
+          - hostvars[item].pve_corosync_nodeid is defined
+          - hostvars[item].ansible_host is defined
+          - hostvars[item].pve_mesh_loopback is defined
+        fail_msg: "{{ item }} is listed in pve_corosync_nodes but is missing one of nodeid, ansible_host or pve_mesh_loopback"
+      loop: "{{ pve_corosync_nodes }}"
+
+    - name: Node ids are unique
+      ansible.builtin.assert:
+        that: (node_ids | unique | length) == (node_ids | length)
+        fail_msg: "Duplicate corosync node id declared: {{ node_ids }}"
+
+    - name: Ring addresses are unique on both rings
+      ansible.builtin.assert:
+        that:
+          - (ring0_addrs | unique | length) == (ring0_addrs | length)
+          - (ring1_addrs | unique | length) == (ring1_addrs | length)
+        fail_msg: "Duplicate ring address: ring0 {{ ring0_addrs }}, ring1 {{ ring1_addrs }}"
+
+    # link_mode passive picks the highest-priority link that is up, so equal priorities would leave
+    # the choice between management and mesh undefined.
+    - name: The two rings have different link priorities
+      ansible.builtin.assert:
+        that: pve_corosync_ring0_priority | int != pve_corosync_ring1_priority | int
+        fail_msg: "ring0 and ring1 both have priority {{ pve_corosync_ring0_priority }}"
+
+- name: Install the cluster's corosync configuration
+  hosts: "{{ target_pve_hosts | default('pve1,pve2,pve3') }}"
+  gather_facts: false
+  tasks:
+    - name: Write the replicated configuration from one node
+      include_role:
+        name: pve_corosync
+      run_once: true
+
+- name: Verify both rings on every node
+  hosts: "{{ target_pve_hosts | default('pve1,pve2,pve3') }}"
+  gather_facts: false
+  tasks:
+    - name: Count the knet links reported as connected
+      ansible.builtin.shell: >
+        set -o pipefail && corosync-cfgtool -s | grep -c connected
+      args:
+        executable: /bin/bash
+      become: true
+      register: corosync_links
+      changed_when: false
+      failed_when: false
+
+    # One entry per peer per ring, so two rings across a three-node cluster means four.
+    - name: Warn if this node does not have every peer up on both rings
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} reports {{ corosync_links.stdout | default(0) }} connected knet
+          links, expected {{ (pve_corosync_nodes | length - 1) * 2 }}. Check corosync-cfgtool -s.
+      when: (corosync_links.stdout | default('0') | int) != ((pve_corosync_nodes | length - 1) * 2)

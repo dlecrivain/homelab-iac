@@ -1,0 +1,92 @@
+---
+# /etc/pve/corosync.conf is the cluster's authoritative copy: pmxcfs replicates it and every node
+# regenerates its own /etc/corosync/corosync.conf from it. It is therefore written once, from a
+# single node - the calling playbook uses run_once for that reason.
+- name: Read the configuration currently in effect
+  ansible.builtin.slurp:
+    src: /etc/pve/corosync.conf
+  become: true
+  register: pve_corosync_current
+
+- name: Decode the running configuration
+  ansible.builtin.set_fact:
+    pve_corosync_live: "{{ pve_corosync_current.content | b64decode }}"
+
+- name: Render the intended configuration
+  ansible.builtin.set_fact:
+    pve_corosync_intended: "{{ lookup('ansible.builtin.template', 'corosync.conf.j2') }}"
+
+- name: Read the version and membership on each side
+  ansible.builtin.set_fact:
+    pve_corosync_running_version: >-
+      {{ pve_corosync_live | regex_search('config_version:\s*([0-9]+)', '\1') | first }}
+    pve_corosync_running_nodes: >-
+      {{ pve_corosync_live | regex_findall('nodeid:') | length }}
+    pve_corosync_intended_nodes: >-
+      {{ pve_corosync_intended | regex_findall('nodeid:') | length }}
+
+- name: Note whether anything would change
+  ansible.builtin.set_fact:
+    pve_corosync_changes_pending: "{{ pve_corosync_intended != pve_corosync_live }}"
+
+# A nodelist shorter than the running one strips a member and takes quorum with it, which is the one
+# mistake this file must never make. Adding or removing a node is a pvecm operation.
+- name: Refuse to change how many nodes the cluster has
+  ansible.builtin.assert:
+    that: pve_corosync_intended_nodes | int == pve_corosync_running_nodes | int
+    fail_msg: >-
+      pve_corosync_nodes lists {{ pve_corosync_intended_nodes }} node(s) while the running cluster
+      has {{ pve_corosync_running_nodes }}. Refusing to rewrite the nodelist.
+
+# corosync silently ignores a configuration whose config_version has not increased.
+- name: Refuse a change that does not bump config_version
+  ansible.builtin.assert:
+    that: pve_corosync_config_version | int > pve_corosync_running_version | int
+    fail_msg: >-
+      The rendered configuration differs from the running one but config_version is still
+      {{ pve_corosync_config_version }}. Bump pve_corosync_config_version in group_vars/all.yml.
+  when: pve_corosync_changes_pending
+
+- name: Check whether the cluster is quorate
+  ansible.builtin.command: corosync-quorumtool -s
+  become: true
+  register: pve_corosync_quorum
+  changed_when: false
+  failed_when: false
+  when: pve_corosync_changes_pending
+
+- name: Refuse to reconfigure a cluster that is not quorate
+  ansible.builtin.assert:
+    that: >-
+      pve_corosync_quorum.stdout is search('Quorate:\s+Yes')
+    fail_msg: >-
+      The cluster is not quorate, so a corosync change could leave it unable to recover. Resolve
+      that first. corosync-quorumtool said: {{ pve_corosync_quorum.stdout | default('(no output)') }}
+  when: pve_corosync_changes_pending
+
+- name: Ensure the local backup directory exists
+  ansible.builtin.file:
+    path: "{{ pve_corosync_backup_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  become: true
+  when: pve_corosync_changes_pending
+
+- name: Keep a copy of the configuration being replaced
+  ansible.builtin.copy:
+    content: "{{ pve_corosync_live }}"
+    dest: "{{ pve_corosync_backup_dir }}/corosync.conf.v{{ pve_corosync_running_version }}"
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+  when: pve_corosync_changes_pending
+
+# No owner/group/mode: pmxcfs assigns its own and rejects attempts to change them.
+- name: Install the configuration, which pmxcfs replicates to every node
+  ansible.builtin.copy:
+    content: "{{ pve_corosync_intended }}"
+    dest: /etc/pve/corosync.conf
+  become: true

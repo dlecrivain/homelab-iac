@@ -36,6 +36,17 @@ pve_mesh_links:
   pve1-pve3: 10.10.10.4/31
   pve2-pve3: 10.10.10.0/31
 
+# Corosync (configure-pve-corosync.yml). ring0 is the management network, ring1 the 10G mesh reached
+# through each node's routed loopback. Under link_mode passive the higher knet_link_priority wins, so
+# cluster traffic takes the mesh and management stays as the fallback that survives a mesh outage.
+# pve_corosync_nodes is the cluster's membership and must list every node. config_version has to be
+# raised with any change below, or corosync ignores the new file.
+pve_cluster_name: mon-cluster
+pve_corosync_nodes: [pve1, pve2, pve3]
+pve_corosync_config_version: 4
+pve_corosync_ring0_priority: 10
+pve_corosync_ring1_priority: 20
+
 # update-semaphore-peer.yml: defaults to patching semaphore101 only (OS + containers), never
 # touching semaphore102, when run with no extra vars at all. The semaphore102-facing direction
 # (image alignment) still requires explicit -e peer_host=semaphore102 -e image_reference_host=semaphore101.

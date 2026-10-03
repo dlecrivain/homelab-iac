@@ -1,0 +1,4 @@
+---
+# Where a timestamped copy of the previous configuration is kept before a change. Deliberately
+# outside /etc/pve, which is replicated to every node.
+pve_corosync_backup_dir: /var/backups/corosync

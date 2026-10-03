@@ -16,3 +16,7 @@ pve_mesh_ports:
     path: pci-0000:01:00.1
     peer: pve1
     address: 10.10.10.4/31
+
+# Corosync node id. It must keep matching the id the running cluster already assigned to
+# this node - configure-pve-corosync.yml refuses a run that would change the membership.
+pve_corosync_nodeid: 3

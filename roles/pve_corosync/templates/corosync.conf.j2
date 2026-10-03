@@ -1,0 +1,38 @@
+logging {
+  debug: off
+  to_syslog: yes
+}
+
+nodelist {
+{% for node in pve_corosync_nodes %}
+  node {
+    name: {{ node }}
+    nodeid: {{ hostvars[node].pve_corosync_nodeid }}
+    quorum_votes: 1
+    ring0_addr: {{ hostvars[node].ansible_host }}
+    ring1_addr: {{ hostvars[node].pve_mesh_loopback }}
+  }
+{% endfor %}
+}
+
+quorum {
+  provider: corosync_votequorum
+}
+
+totem {
+  cluster_name: {{ pve_cluster_name }}
+  config_version: {{ pve_corosync_config_version }}
+  interface {
+    linknumber: 0
+    knet_link_priority: {{ pve_corosync_ring0_priority }}
+  }
+  interface {
+    linknumber: 1
+    knet_link_priority: {{ pve_corosync_ring1_priority }}
+  }
+  ip_version: ipv4-6
+  link_mode: passive
+  secauth: on
+  version: 2
+}
+
