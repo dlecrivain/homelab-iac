@@ -1,0 +1,4 @@
+---
+# The rootless user Immich's containers run as, which is not the user Ansible connects with - hence
+# the explicit UID lookup and XDG_RUNTIME_DIR/DBUS_SESSION_BUS_ADDRESS below.
+immich_user: immich

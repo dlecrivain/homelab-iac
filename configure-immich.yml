@@ -1,0 +1,14 @@
+---
+- name: Configure Immich's Podman Quadlet units
+  hosts: immich101
+  gather_facts: false
+  tasks:
+    - name: Deploy the Immich Quadlet units
+      include_role:
+        name: immich_configure
+
+    - name: Check services after config deploy
+      include_role:
+        name: health_check
+      vars:
+        health_check_fail_on_unhealthy: true

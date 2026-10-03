@@ -238,7 +238,8 @@
         - binary_update_bump_result.changed | default(false)
         - binary_update_git_push.rc != 0
 
-# Informational only - Immich isn't Ansible-managed and is never touched here.
+# Informational only - nothing is changed here. immich_version in group_vars pins the deployed
+# version; bumping it is a reviewed edit that container-updates.yml then applies.
 - name: Compare Immich's reported version against its latest GitHub release
   hosts: localhost
   gather_facts: false
@@ -400,7 +401,7 @@
           <p>Review manually - a major version jump can include breaking changes.</p>
           {% endif %}
           {% if immich_update_available | default(false) %}
-          <h3>Immich (informational only - not Ansible-managed)</h3>
+          <h3>Immich (informational only - bump immich_version to apply)</h3>
           <table>
             <tr><th>Running</th><th>Latest</th><th>Published</th></tr>
             <tr class="status-warning">

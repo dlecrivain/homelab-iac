@@ -1,0 +1,17 @@
+[Unit]
+Description=Immich Postgres
+
+[Container]
+Image={{ immich_postgres_image }}
+ContainerName=immich_postgres
+EnvironmentFile=/var/lib/immich/postgres.env
+Volume=/var/lib/immich/postgres:/var/lib/postgresql/data:Z
+Network=immich.network
+NetworkAlias=database
+ShmSize=128mb
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

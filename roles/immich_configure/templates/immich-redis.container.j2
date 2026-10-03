@@ -1,0 +1,15 @@
+[Unit]
+Description=Immich Redis
+
+[Container]
+Image={{ immich_redis_image }}
+ContainerName=immich_redis
+Network=immich.network
+NetworkAlias=redis
+HealthCmd=redis-cli ping || exit 1
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

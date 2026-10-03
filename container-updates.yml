@@ -161,6 +161,14 @@
             - not (snapshot_already_exists | default(false))
             - inventory_hostname == 'adguard101'
 
+        - name: "Step 2.5 (immich101 only) - Re-render the Immich Quadlets first, same reason as above"
+          include_role:
+            name: immich_configure
+          when:
+            - podman_units is defined
+            - not (snapshot_already_exists | default(false))
+            - inventory_hostname == 'immich101'
+
         - name: Step 3 - Update Podman containers (normal tag pull)
           include_role:
             name: podman_update

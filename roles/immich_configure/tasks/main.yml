@@ -1,0 +1,83 @@
+---
+- name: Get the UID Immich's rootless containers run under
+  ansible.builtin.command: "id -u {{ immich_user }}"
+  register: immich_uid
+  changed_when: false
+  check_mode: false
+
+# systemctl --user needs to reach that user's own session bus, not the connecting user's.
+- name: Set the environment for cross-user rootless systemctl
+  ansible.builtin.set_fact:
+    immich_systemd_env:
+      XDG_RUNTIME_DIR: "/run/user/{{ immich_uid.stdout }}"
+      DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ immich_uid.stdout }}/bus"
+
+- name: Ensure the rootless Quadlet directory exists
+  ansible.builtin.file:
+    path: "/home/{{ immich_user }}/.config/containers/systemd"
+    state: directory
+    owner: "{{ immich_user }}"
+    group: "{{ immich_user }}"
+    mode: '0755'
+  become: true
+
+- name: Deploy the Immich network Quadlet
+  ansible.builtin.copy:
+    src: immich.network
+    dest: "/home/{{ immich_user }}/.config/containers/systemd/immich.network"
+    owner: "{{ immich_user }}"
+    group: "{{ immich_user }}"
+    mode: '0644'
+  become: true
+  register: immich_network_result
+
+# The two Immich images share immich_version - same release, they always move together. Postgres and
+# Valkey are pinned by digest instead: neither follows Immich's release cycle, and the Postgres image
+# carries the vector extensions the database depends on.
+- name: Deploy the Immich Quadlet units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/home/{{ immich_user }}/.config/containers/systemd/{{ item }}"
+    owner: "{{ immich_user }}"
+    group: "{{ immich_user }}"
+    mode: '0644'
+  become: true
+  loop:
+    - immich-postgres.container
+    - immich-redis.container
+    - immich-machine-learning.container
+    - immich-server.container
+  register: immich_quadlet_result
+
+# Named consistently with the other *_configure roles: container-updates.yml's report reads this to
+# know a Step 2.5 re-render already updated the containers.
+- name: Determine whether anything actually changed
+  ansible.builtin.set_fact:
+    immich_config_changed: >-
+      {{
+        immich_network_result is changed
+        or immich_quadlet_result is changed
+      }}
+
+- name: Apply any unit change
+  become: true
+  become_user: "{{ immich_user }}"
+  environment: "{{ immich_systemd_env }}"
+  when: immich_config_changed
+  block:
+    - name: Reload the user systemd instance to pick up the regenerated units
+      ansible.builtin.systemd:
+        daemon_reload: true
+        scope: user
+
+    # In dependency order: immich-server Requires= both postgres and redis.
+    - name: Restart the Immich units
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: restarted
+        scope: user
+      loop:
+        - immich-postgres.service
+        - immich-redis.service
+        - immich-machine-learning.service
+        - immich-server.service

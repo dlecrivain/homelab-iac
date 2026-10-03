@@ -1,0 +1,19 @@
+[Unit]
+Description=Immich Server
+After=immich-postgres.service immich-redis.service
+Requires=immich-postgres.service immich-redis.service
+
+[Container]
+Image=ghcr.io/immich-app/immich-server:{{ immich_version }}
+ContainerName=immich_server
+EnvironmentFile=/var/lib/immich/.env
+Volume=/var/lib/immich/photos:/data:Z
+Volume=/etc/localtime:/etc/localtime:ro
+PublishPort=2283:2283
+Network=immich.network
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

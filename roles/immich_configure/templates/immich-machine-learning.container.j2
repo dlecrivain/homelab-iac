@@ -1,0 +1,15 @@
+[Unit]
+Description=Immich Machine Learning
+
+[Container]
+Image=ghcr.io/immich-app/immich-machine-learning:{{ immich_version }}
+ContainerName=immich_machine_learning
+EnvironmentFile=/var/lib/immich/.env
+Volume=immich_model-cache:/cache:Z
+Network=immich.network
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target
