@@ -8,11 +8,19 @@
     mode: '0755'
   become: true
   loop:
-    - /var/phpipam/mysql-data
     - /var/phpipam/logo
     - /var/phpipam/ca
     - /var/phpipam/config-override
     - /var/phpipam/apache-override
+
+# Existence only, deliberately without owner/group/mode: MariaDB's datadir belongs to the mysql user
+# inside the container (UID 999 on the host), and claiming it for root takes away its permission to
+# create files there. The image's entrypoint sets the ownership when it initializes the datadir.
+- name: Ensure the MariaDB datadir exists, leaving its ownership to the container
+  ansible.builtin.file:
+    path: /var/phpipam/mysql-data
+    state: directory
+  become: true
 
 # Bind-mounted over /phpipam/config.docker.php, with the BunkerWeb HTTPS fix and api_allow_unsafe
 # tweak baked in, so no separate config.php override is needed.
