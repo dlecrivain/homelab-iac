@@ -43,7 +43,7 @@ pve_mesh_links:
 # raised with any change below, or corosync ignores the new file.
 pve_cluster_name: mon-cluster
 pve_corosync_nodes: [pve1, pve2, pve3]
-pve_corosync_config_version: 4
+pve_corosync_config_version: 5
 pve_corosync_ring0_priority: 10
 pve_corosync_ring1_priority: 20
 
