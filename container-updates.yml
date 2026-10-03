@@ -273,6 +273,7 @@
             + (['phpipam-web', 'phpipam-cron'] if (hostvars[phpipam_host | default('phpipam101')].phpipam_config_changed | default(false)) else [])
             + (['bunkerweb-aio'] if (hostvars['bunkerweb101'].bunkerweb_config_changed | default(false)) else [])
             + (['adguardhome'] if (hostvars['adguard101'].adguard_config_changed | default(false)) else [])
+            + (['immich_server', 'immich_machine_learning'] if (hostvars['immich101'].immich_config_changed | default(false)) else [])
           }}
 
     - name: Capture this stage's report body
