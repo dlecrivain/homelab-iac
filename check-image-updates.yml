@@ -273,9 +273,12 @@
           ansible.builtin.set_fact:
             immich_update_available: "{{ immich_running_version != immich_latest_version }}"
 
-# Pull only - never restarts/redeploys anything, purely informational, no git writes.
+# Never restarts, redeploys or writes to git. It does pull, though, which refreshes the local image
+# cache and so repoints any floating tag - harmless where the deployed tag is pinned, but it would
+# move semaphore102's tags off the digests update-semaphore-peer.yml aligned them to, so both
+# Semaphore instances are excluded: the peer must match the reference, not whatever is newest.
 - name: Read-only scan of every other podman-managed container for a newer image
-  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101') }}"
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101:!semaphore102') }}"
   gather_facts: false
   vars:
     watched_container_names: "{{ hostvars['localhost'].image_update_watch_list | map(attribute='container_name') | list }}"
