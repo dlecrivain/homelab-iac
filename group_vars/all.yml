@@ -105,7 +105,7 @@ bunkerweb_admin_password: "{{ lookup('env', 'BUNKERWEB_ADMIN_PASSWORD') }}"
 prometheus_host: prometheus101
 grafana_host: grafana101
 node_exporter_version: "1.12.1"
-smartctl_exporter_version: "0.14.0"
+smartctl_exporter_version: "0.15.0"
 
 # The same API token inventory/proxmox.yml uses, exposed as a normal var so
 # prometheus_pve_exporter_configure can consume it. user and token_id must match that file.
