@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# Minimal client for the Semaphore API: list templates, start a task, wait for it, read its output.
+#
+#   semaphore-ctl templates
+#   semaphore-ctl recent [N]
+#   semaphore-ctl run <template-id> [--args '<json array>'] [--why '<text>']
+#   semaphore-ctl status <task-id>
+#   semaphore-ctl wait <task-id> [timeout-seconds]
+#   semaphore-ctl log <task-id> [--errors | --tail N]
+#
+# The API token is read from a file that nobody else may read, and is handed to curl through a
+# config descriptor so it never appears on a command line. Starting a task is limited to the
+# template ids listed in an allowlist file (one id per line, '#' starts a comment); without that
+# file nothing can be started, while reading stays available.
+set -euo pipefail
+
+SEMAPHORE_URL=${SEMAPHORE_URL:-http://192.168.1.117:3000}
+SEMAPHORE_PROJECT=${SEMAPHORE_PROJECT:-1}
+CONFIG_DIR=${SEMAPHORE_CONFIG_DIR:-$HOME/.config/semaphore}
+TOKEN_FILE=${SEMAPHORE_TOKEN_FILE:-$CONFIG_DIR/semaphore101.token}
+ALLOW_FILE=${SEMAPHORE_ALLOW_FILE:-$CONFIG_DIR/allowed-templates}
+
+die() { echo "semaphore-ctl: $*" >&2; exit 1; }
+
+[ -f "$TOKEN_FILE" ] || die "token file $TOKEN_FILE not found"
+case "$(stat -c %a "$TOKEN_FILE")" in 400|600) ;; *) die "$TOKEN_FILE must be mode 600" ;; esac
+
+auth_header() { printf 'header = "Authorization: Bearer %s"\n' "$(tr -d '[:space:]' < "$TOKEN_FILE")"; }
+
+# api METHOD PATH [JSON-BODY] - prints the response body, fails on a non-2xx status.
+api() {
+  local out code
+  if [ -n "${3:-}" ]; then
+    out=$(curl -sS -m 30 -X "$1" -H 'Content-Type: application/json' -d "$3" -w '\n%{http_code}' -K <(auth_header) "$SEMAPHORE_URL$2")
+  else
+    out=$(curl -sS -m 30 -X "$1" -w '\n%{http_code}' -K <(auth_header) "$SEMAPHORE_URL$2")
+  fi
+  code=${out##*$'\n'}
+  out=${out%$'\n'*}
+  case "$code" in 2??) printf '%s\n' "$out" ;; *) die "HTTP $code from $2: ${out:0:300}" ;; esac
+}
+
+allowed_ids() { [ -f "$ALLOW_FILE" ] && sed 's/#.*//' "$ALLOW_FILE" | tr -s '[:space:]' '\n' | grep -E '^[0-9]+$' || true; }
+
+cmd_templates() {
+  api GET "/api/project/$SEMAPHORE_PROJECT/templates" | ALLOWED="$(allowed_ids | tr '\n' ' ')" python3 -c '
+import json, os, sys
+allowed = set(os.environ["ALLOWED"].split())
+print("  * = may be started from here")
+for t in sorted(json.load(sys.stdin), key=lambda t: t["id"]):
+    mark = "*" if str(t["id"]) in allowed else " "
+    print("%s %3d  %-32s %s" % (mark, t["id"], t["name"][:32], t["playbook"]))
+'
+}
+
+cmd_recent() {
+  api GET "/api/project/$SEMAPHORE_PROJECT/tasks/last" | N="${1:-15}" python3 -c '
+import json, os, sys
+for t in sorted(json.load(sys.stdin), key=lambda t: t["id"], reverse=True)[: int(os.environ["N"])]:
+    print("%5d  %-9s %s  %s" % (t["id"], t.get("status", "?"), str(t.get("created", ""))[:16], t.get("tpl_alias", "")))
+'
+}
+
+cmd_run() {
+  local id=${1:?template id required}; shift
+  local args="" why="started by semaphore-ctl"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --args) args=${2:?}; shift 2 ;;
+      --why)  why=${2:?};  shift 2 ;;
+      *) die "unknown option $1" ;;
+    esac
+  done
+  [[ $id =~ ^[0-9]+$ ]] || die "template id must be a number"
+  allowed_ids | grep -qx "$id" || die "template $id is not in $ALLOW_FILE - refusing to start it"
+  local body
+  body=$(ID="$id" ARGS="$args" WHY="$why" python3 -c '
+import json, os
+b = {"template_id": int(os.environ["ID"]), "message": os.environ["WHY"]}
+if os.environ["ARGS"]:
+    json.loads(os.environ["ARGS"])
+    b["arguments"] = os.environ["ARGS"]
+print(json.dumps(b))
+')
+  api POST "/api/project/$SEMAPHORE_PROJECT/tasks" "$body" | python3 -c '
+import json, sys
+t = json.load(sys.stdin)
+print("task %s started (template %s)" % (t["id"], t["template_id"]))
+'
+}
+
+task_status() { api GET "/api/project/$SEMAPHORE_PROJECT/tasks/$1" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status","?"))'; }
+
+cmd_status() {
+  api GET "/api/project/$SEMAPHORE_PROJECT/tasks/${1:?task id required}" | python3 -c '
+import json, sys
+t = json.load(sys.stdin)
+print("task %s: %s  template=%s" % (t["id"], t.get("status"), t.get("tpl_alias", t.get("template_id"))))
+print("  created %s  start %s  end %s" % (t.get("created"), t.get("start"), t.get("end")))
+if t.get("message"): print("  message:", t["message"])
+'
+}
+
+cmd_wait() {
+  local id=${1:?task id required} limit=${2:-3000} waited=0 s
+  while :; do
+    s=$(task_status "$id")
+    case "$s" in
+      success) echo "task $id: success"; return 0 ;;
+      error|stopped) echo "task $id: $s"; return 1 ;;
+    esac
+    [ "$waited" -ge "$limit" ] && { echo "task $id: still $s after ${limit}s"; return 2; }
+    sleep 10; waited=$((waited + 10))
+  done
+}
+
+cmd_log() {
+  local id=${1:?task id required}; shift
+  local mode=all n=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --errors) mode=errors; shift ;;
+      --tail)   mode=tail; n=${2:?}; shift 2 ;;
+      *) die "unknown option $1" ;;
+    esac
+  done
+  api GET "/api/project/$SEMAPHORE_PROJECT/tasks/$id/output" | MODE="$mode" N="$n" python3 -c '
+import json, os, re, sys
+lines = [re.sub(r"\x1b\[[0-9;]*m", "", r["output"]) for r in json.load(sys.stdin)]
+mode, n = os.environ["MODE"], int(os.environ["N"])
+if mode == "tail":
+    lines = lines[-n:]
+elif mode == "errors":
+    hit = [i for i, l in enumerate(lines) if re.search(r"^(fatal|FAILED|\[ERROR\]|ERROR)|failed=[1-9]|unreachable=[1-9]", l)]
+    keep = set()
+    for i in hit:
+        keep.update(range(max(0, i - 6), min(len(lines), i + 8)))
+    recap = [i for i, l in enumerate(lines) if "PLAY RECAP" in l]
+    if recap: keep.update(range(recap[-1], len(lines)))
+    lines = [lines[i] for i in sorted(keep)] or ["(no error lines found)"]
+print("\n".join(lines))
+'
+}
+
+case "${1:-}" in
+  templates) shift; cmd_templates "$@" ;;
+  recent)    shift; cmd_recent "$@" ;;
+  run)       shift; cmd_run "$@" ;;
+  status)    shift; cmd_status "$@" ;;
+  wait)      shift; cmd_wait "$@" ;;
+  log)       shift; cmd_log "$@" ;;
+  *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac
