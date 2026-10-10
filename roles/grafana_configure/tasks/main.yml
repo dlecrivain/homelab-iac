@@ -47,6 +47,7 @@
     - proxmox-pve-exporter.json
     - smartctl-exporter.json
     - fleet-alerts.json
+    - disk-wear.json
   register: grafana_dashboard_deploy_result
 
 - name: Deploy the admin secrets env file

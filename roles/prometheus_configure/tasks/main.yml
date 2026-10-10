@@ -43,6 +43,17 @@
   become: true
   register: prometheus_alert_rules_result
 
+# Templated for the endurance ratings in disk_rated_endurance_tbw.
+- name: Deploy the disk wear recording rules
+  ansible.builtin.template:
+    src: disk_wear.rules.yml.j2
+    dest: /etc/prometheus/disk_wear.rules.yml
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  register: prometheus_disk_wear_rules_result
+
 - name: Deploy the Prometheus config
   ansible.builtin.template:
     src: prometheus.yml.j2
@@ -118,6 +129,7 @@
     prometheus_config_changed: >-
       {{
         prometheus_alert_rules_result is changed
+        or prometheus_disk_wear_rules_result is changed
         or prometheus_config_result is changed
         or alertmanager_config_result is changed
         or prometheus_network_result is changed

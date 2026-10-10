@@ -1,0 +1,58 @@
+# Recording rules behind the "Disk wear" Grafana dashboard. Every disk gets the same figures
+# whichever way its vendor reports wear:
+#
+#   disk:wear_used_percent                       worst of the drive's own figure, the share of its
+#                                                rated endurance already written (NVMe) and 100
+#                                                minus its wear attribute (SATA)
+#   disk:wear_end_timestamp_seconds              end of life if wear continues at its average rate
+#                                                since the drive was first powered on
+#   disk:wear_end_timestamp_recent_seconds       same, at the write rate of the last 30 days (NVMe)
+#
+# SATA drives only report wear in whole percent, so their dates are coarse; the 1 % floor in
+# disk:wear_end_timestamp_seconds keeps a drive that reports 0 % from dividing by zero, and gives
+# the earliest date compatible with what it reports.
+groups:
+  - name: disk_wear
+    interval: 1m
+    rules:
+{% for model, tbw in disk_rated_endurance_tbw.items() %}
+      - record: disk:rated_endurance_bytes
+        expr: vector({{ tbw }}e12)
+        labels:
+          model_name: {{ model }}
+
+{% endfor %}
+      - record: disk:rated_endurance_bytes_by_device
+        expr: max by (instance, device) (smartctl_device * on (model_name) group_left () disk:rated_endurance_bytes)
+
+      - record: disk:nvme_wear_by_writes_percent
+        expr: 100 * max by (instance, device) (smartctl_device_bytes_written) / disk:rated_endurance_bytes_by_device
+
+      # Each source gets its own "source" label so that "or" keeps all of them for the same disk and
+      # the max picks the most pessimistic.
+      - record: disk:wear_used_percent
+        expr: |
+          max by (instance, device) (
+              label_replace(smartctl_device_percentage_used, "source", "drive", "", "")
+            or
+              label_replace(disk:nvme_wear_by_writes_percent, "source", "writes", "", "")
+            or
+              label_replace(
+                100 - smartctl_device_attribute{attribute_value_type="value", attribute_name=~"Wear_Leveling_Count|Media_Wearout_Indicator|Lifetime_Remaining%"},
+                "source", "attribute", "", "")
+          )
+
+      - record: disk:wear_end_timestamp_seconds
+        expr: >-
+          time()
+          + (100 - disk:wear_used_percent) / clamp_min(disk:wear_used_percent, 1)
+          * on (instance, device) smartctl_device_power_on_seconds
+
+      - record: disk:write_rate_30d_bytes_per_second
+        expr: max by (instance, device) (rate(smartctl_device_bytes_written[30d]))
+
+      - record: disk:wear_end_timestamp_recent_seconds
+        expr: >-
+          time()
+          + (100 - disk:wear_used_percent) / 100 * disk:rated_endurance_bytes_by_device
+          / disk:write_rate_30d_bytes_per_second

@@ -117,6 +117,13 @@ grafana_host: grafana101
 node_exporter_version: "1.12.1"
 smartctl_exporter_version: "0.15.0"
 
+# Manufacturer endurance rating (TBW) of each NVMe model, by the name smartctl reports. The disk wear
+# rules use it to estimate wear from bytes written, because the drive's own percentage_used moves in
+# whole percent and can lag behind the rating.
+disk_rated_endurance_tbw:
+  CT1000P3SSD8: 220    # Crucial P3 1 TB
+  CT1000P5PSSD8: 600   # Crucial P5 Plus 1 TB
+
 # The same API token inventory/proxmox.yml uses, exposed as a normal var so
 # prometheus_pve_exporter_configure can consume it. user and token_id must match that file.
 proxmox_token_secret: "{{ lookup('env', 'PROXMOX_TOKEN_SECRET') }}"
