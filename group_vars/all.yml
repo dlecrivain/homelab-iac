@@ -10,6 +10,13 @@ smtp_user: "{{ lookup('env', 'SMTP_USER') }}"
 smtp_password: "{{ lookup('env', 'SMTP_PASSWORD') }}"
 notify_email_to: "{{ lookup('env', 'NOTIFY_EMAIL_TO') }}"
 github_push_token: "{{ lookup('env', 'GITHUB_PUSH_TOKEN') }}"
+# Where the playbooks that commit back to this repository (version bumps, the host_vars of a
+# provisioned or decommissioned VM) push, and who they commit as. See tasks/commit_and_push.yml.
+git_repository: dlecrivain/homelab-iac
+git_push_branch: main
+git_push_url: "https://{{ github_push_token }}@github.com/{{ git_repository }}"
+git_commit_name: dlecrivain
+git_commit_email: d.lecrivain47@gmail.com
 katello_hammer_username: "{{ lookup('env', 'KATELLO_HAMMER_USERNAME') }}"
 katello_hammer_password: "{{ lookup('env', 'KATELLO_HAMMER_PASSWORD') }}"
 cv_retention_count: 10

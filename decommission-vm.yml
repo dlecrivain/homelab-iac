@@ -108,39 +108,10 @@
           args:
             chdir: "{{ playbook_dir }}"
 
-        - name: Configure a git identity for this commit (harmless if already set)
-          ansible.builtin.command: "{{ item }}"
-          loop:
-            - git config user.email "d.lecrivain47@gmail.com"
-            - git config user.name "dlecrivain"
-          args:
-            chdir: "{{ playbook_dir }}"
-          changed_when: false
-
-        - name: Commit the removal
-          ansible.builtin.command: >-
-            git commit -m "Remove host_vars for {{ new_vm_name }}, decommissioned via decommission-vm.yml"
-          args:
-            chdir: "{{ playbook_dir }}"
-
-        - name: Push the commit to origin/main
-          ansible.builtin.command: "git push https://{{ github_push_token }}@github.com/dlecrivain/homelab-iac main"
-          args:
-            chdir: "{{ playbook_dir }}"
-          register: decom_git_push
-          failed_when: false
-          no_log: true
-
-        - name: Fail with a token-redacted error if the push failed
-          ansible.builtin.fail:
-            msg: >-
-              git push failed (rc={{ decom_git_push.rc }}):
-              {{
-                (decom_git_push.stderr | default('')) | replace(github_push_token, '***REDACTED***')
-                if (github_push_token | default('') | length > 0)
-                else (decom_git_push.stderr | default('')) + ' (github_push_token is empty - GITHUB_PUSH_TOKEN missing from this template''s Variable Group)'
-              }}
-          when: decom_git_push.rc != 0
+        - name: Commit and push the removal
+          include_tasks: tasks/commit_and_push.yml
+          vars:
+            commit_message: "Remove host_vars for {{ new_vm_name }}, decommissioned via decommission-vm.yml"
 
 - name: Send the decommission report
   hosts: localhost

@@ -1,0 +1,43 @@
+---
+# Commits the changes a playbook has made to this repository's working copy and pushes them. Included
+# by every playbook that commits back (version bumps, the host_vars of a provisioned or decommissioned
+# VM), so the identity, the push and the token redaction exist once.
+#
+#   commit_message       required
+#   commit_all_tracked   commit every modified tracked file; default false, which commits only what the
+#                        caller has staged (a new file needs git add, a removal git rm)
+- name: Configure the git identity for this commit
+  ansible.builtin.command:
+    argv: [git, config, "{{ item.key }}", "{{ item.value }}"]
+    chdir: "{{ playbook_dir }}"
+  loop:
+    - { key: user.email, value: "{{ git_commit_email }}" }
+    - { key: user.name, value: "{{ git_commit_name }}" }
+  loop_control:
+    label: "{{ item.key }}"
+  changed_when: false
+
+- name: Commit
+  ansible.builtin.command:
+    argv: "{{ ['git', 'commit'] + (['-a'] if commit_all_tracked | default(false) else []) + ['-m', commit_message] }}"
+    chdir: "{{ playbook_dir }}"
+
+- name: Push the commit
+  ansible.builtin.command:
+    argv: [git, push, "{{ git_push_url }}", "{{ git_push_branch }}"]
+    chdir: "{{ playbook_dir }}"
+  register: commit_push_result
+  failed_when: false
+  no_log: true
+
+# The push URL carries the token, so git's own error output is redacted before it is shown.
+- name: Fail with a token-redacted error if the push failed
+  ansible.builtin.fail:
+    msg: >-
+      git push failed (rc={{ commit_push_result.rc }}):
+      {{
+        (commit_push_result.stderr | default('')) | replace(github_push_token, '***REDACTED***')
+        if (github_push_token | default('') | length > 0)
+        else (commit_push_result.stderr | default('')) + " (github_push_token is empty - GITHUB_PUSH_TOKEN missing from this template's Variable Group)"
+      }}
+  when: commit_push_result.rc != 0

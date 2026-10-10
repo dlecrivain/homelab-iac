@@ -62,44 +62,12 @@
         label: "{{ item.name }}"
       register: image_update_bump_result
 
-    - name: Configure a git identity for this commit (harmless if already set)
-      ansible.builtin.command: "{{ item }}"
-      loop:
-        - git config user.email "d.lecrivain47@gmail.com"
-        - git config user.name "dlecrivain"
-      args:
-        chdir: "{{ playbook_dir }}"
-      changed_when: false
+    - name: Commit and push the version bump(s)
+      include_tasks: tasks/commit_and_push.yml
+      vars:
+        commit_message: "Bump pinned image version(s): {{ image_update_checks | selectattr('bump_needed') | map(attribute='name') | join(', ') }} (detected by check-image-updates.yml)"
+        commit_all_tracked: true
       when: image_update_bump_result.changed | default(false)
-
-    - name: Commit the version bump(s)
-      ansible.builtin.command: >-
-        git commit -am "Bump pinned image version(s): {{ image_update_checks | selectattr('bump_needed') | map(attribute='name') | join(', ') }} (detected by check-image-updates.yml)"
-      args:
-        chdir: "{{ playbook_dir }}"
-      when: image_update_bump_result.changed | default(false)
-
-    - name: Push the commit to origin/main
-      ansible.builtin.command: "git push https://{{ github_push_token }}@github.com/dlecrivain/homelab-iac main"
-      args:
-        chdir: "{{ playbook_dir }}"
-      register: image_update_git_push
-      failed_when: false
-      no_log: true
-      when: image_update_bump_result.changed | default(false)
-
-    - name: Fail with a token-redacted error if the push failed
-      ansible.builtin.fail:
-        msg: >-
-          git push failed (rc={{ image_update_git_push.rc }}):
-          {{
-            (image_update_git_push.stderr | default('')) | replace(github_push_token, '***REDACTED***')
-            if (github_push_token | default('') | length > 0)
-            else (image_update_git_push.stderr | default('')) + ' (github_push_token is empty - GITHUB_PUSH_TOKEN missing from this template''s Variable Group)'
-          }}
-      when:
-        - image_update_bump_result.changed | default(false)
-        - image_update_git_push.rc != 0
 
 - name: Check whether each watched image's live container has caught up to its target version yet
   hosts: "{{ prometheus_host | default('prometheus101') }},{{ grafana_host | default('grafana101') }},{{ phpipam_host | default('phpipam101') }},bunkerweb101,adguard101"
@@ -199,44 +167,12 @@
         label: "{{ item.name }}"
       register: binary_update_bump_result
 
-    - name: Configure a git identity for this commit (harmless if already set)
-      ansible.builtin.command: "{{ item }}"
-      loop:
-        - git config user.email "d.lecrivain47@gmail.com"
-        - git config user.name "dlecrivain"
-      args:
-        chdir: "{{ playbook_dir }}"
-      changed_when: false
+    - name: Commit and push the version bump(s)
+      include_tasks: tasks/commit_and_push.yml
+      vars:
+        commit_message: "Bump pinned binary version(s): {{ binary_update_checks | selectattr('bump_needed') | map(attribute='name') | join(', ') }} (detected by check-image-updates.yml)"
+        commit_all_tracked: true
       when: binary_update_bump_result.changed | default(false)
-
-    - name: Commit the version bump(s)
-      ansible.builtin.command: >-
-        git commit -am "Bump pinned binary version(s): {{ binary_update_checks | selectattr('bump_needed') | map(attribute='name') | join(', ') }} (detected by check-image-updates.yml)"
-      args:
-        chdir: "{{ playbook_dir }}"
-      when: binary_update_bump_result.changed | default(false)
-
-    - name: Push the commit to origin/main
-      ansible.builtin.command: "git push https://{{ github_push_token }}@github.com/dlecrivain/homelab-iac main"
-      args:
-        chdir: "{{ playbook_dir }}"
-      register: binary_update_git_push
-      failed_when: false
-      no_log: true
-      when: binary_update_bump_result.changed | default(false)
-
-    - name: Fail with a token-redacted error if the push failed
-      ansible.builtin.fail:
-        msg: >-
-          git push failed (rc={{ binary_update_git_push.rc }}):
-          {{
-            (binary_update_git_push.stderr | default('')) | replace(github_push_token, '***REDACTED***')
-            if (github_push_token | default('') | length > 0)
-            else (binary_update_git_push.stderr | default('')) + ' (github_push_token is empty - GITHUB_PUSH_TOKEN missing from this template''s Variable Group)'
-          }}
-      when:
-        - binary_update_bump_result.changed | default(false)
-        - binary_update_git_push.rc != 0
 
 # A patch release is written into group_vars/all.yml and pushed, so container-updates.yml applies it
 # like any other pinned image. A minor or major release is only reported: Immich's minor releases
@@ -302,44 +238,12 @@
                 replace: 'immich_version: "{{ immich_patch_bump_target }}"'
               register: immich_bump_result
 
-            - name: Configure a git identity for this commit (harmless if already set)
-              ansible.builtin.command: "{{ item }}"
-              loop:
-                - git config user.email "d.lecrivain47@gmail.com"
-                - git config user.name "dlecrivain"
-              args:
-                chdir: "{{ playbook_dir }}"
-              changed_when: false
+            - name: Commit and push the Immich patch bump
+              include_tasks: tasks/commit_and_push.yml
+              vars:
+                commit_message: "Bump pinned Immich version to {{ immich_patch_bump_target }} (patch release detected by check-image-updates.yml)"
+                commit_all_tracked: true
               when: immich_bump_result is changed
-
-            - name: Commit the Immich patch bump
-              ansible.builtin.command: >-
-                git commit -am "Bump pinned Immich version to {{ immich_patch_bump_target }} (patch release detected by check-image-updates.yml)"
-              args:
-                chdir: "{{ playbook_dir }}"
-              when: immich_bump_result is changed
-
-            - name: Push the commit to origin/main
-              ansible.builtin.command: "git push https://{{ github_push_token }}@github.com/dlecrivain/homelab-iac main"
-              args:
-                chdir: "{{ playbook_dir }}"
-              register: immich_bump_git_push
-              failed_when: false
-              no_log: true
-              when: immich_bump_result is changed
-
-            - name: Fail with a token-redacted error if the push failed
-              ansible.builtin.fail:
-                msg: >-
-                  git push failed (rc={{ immich_bump_git_push.rc }}):
-                  {{
-                    (immich_bump_git_push.stderr | default('')) | replace(github_push_token, '***REDACTED***')
-                    if (github_push_token | default('') | length > 0)
-                    else (immich_bump_git_push.stderr | default('')) + ' (github_push_token is empty - GITHUB_PUSH_TOKEN missing from this template''s Variable Group)'
-                  }}
-              when:
-                - immich_bump_result is changed
-                - immich_bump_git_push.rc != 0
 
 # Never restarts, redeploys or writes to git. It does pull, though, which refreshes the local image
 # cache and so repoints any floating tag - harmless where the deployed tag is pinned, but it would

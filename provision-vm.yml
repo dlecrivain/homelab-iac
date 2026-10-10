@@ -155,45 +155,16 @@
           ansible_host: {{ resolved_new_ip }} # static IP assigned via phpIPAM by provision-vm.yml
           ansible_user: deploy
 
-    - name: Configure a git identity for this commit (harmless if already set)
-      ansible.builtin.command: "{{ item }}"
-      loop:
-        - git config user.email "d.lecrivain47@gmail.com"
-        - git config user.name "dlecrivain"
-      args:
-        chdir: "{{ playbook_dir }}"
-      changed_when: false
-
-    - name: Stage the new host_vars file (untracked - git commit -am only picks up tracked changes)
+    - name: Stage the new host_vars file, which git does not track yet
       ansible.builtin.command: "git add host_vars/{{ new_vm_name }}.yml"
       args:
         chdir: "{{ playbook_dir }}"
       changed_when: false
 
-    - name: Commit the new host_vars file
-      ansible.builtin.command: >-
-        git commit -m "Add host_vars for {{ new_vm_name }} ({{ resolved_new_ip }}), provisioned via provision-vm.yml"
-      args:
-        chdir: "{{ playbook_dir }}"
-
-    - name: Push the commit to origin/main
-      ansible.builtin.command: "git push https://{{ github_push_token }}@github.com/dlecrivain/homelab-iac main"
-      args:
-        chdir: "{{ playbook_dir }}"
-      register: provision_git_push
-      failed_when: false
-      no_log: true
-
-    - name: Fail with a token-redacted error if the push failed
-      ansible.builtin.fail:
-        msg: >-
-          git push failed (rc={{ provision_git_push.rc }}):
-          {{
-            (provision_git_push.stderr | default('')) | replace(github_push_token, '***REDACTED***')
-            if (github_push_token | default('') | length > 0)
-            else (provision_git_push.stderr | default('')) + ' (github_push_token is empty - GITHUB_PUSH_TOKEN missing from this template''s Variable Group)'
-          }}
-      when: provision_git_push.rc != 0
+    - name: Commit and push the new host_vars file
+      include_tasks: tasks/commit_and_push.yml
+      vars:
+        commit_message: "Add host_vars for {{ new_vm_name }} ({{ resolved_new_ip }}), provisioned via provision-vm.yml"
 
 - name: Rebalance the cluster now that the new VM has landed on pve1
   hosts: "{{ pve_clone_node | default('pve1') }}"
