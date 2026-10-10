@@ -129,6 +129,14 @@
             - not (snapshot_already_exists | default(false))
             - inventory_hostname == (prometheus_host | default('prometheus101'))
 
+        - name: "Step 2.5 (prometheus101 only) - Re-render the pve-exporter Quadlet, same reason as above"
+          include_role:
+            name: prometheus_pve_exporter_configure
+          when:
+            - podman_units is defined
+            - not (snapshot_already_exists | default(false))
+            - inventory_hostname == (prometheus_host | default('prometheus101'))
+
         - name: "Step 2.5 (grafana101 only) - Re-render the Grafana Quadlet first, same reason as above"
           include_role:
             name: grafana_configure
@@ -274,6 +282,7 @@
             + (['bunkerweb-aio'] if (hostvars['bunkerweb101'].bunkerweb_config_changed | default(false)) else [])
             + (['adguardhome'] if (hostvars['adguard101'].adguard_config_changed | default(false)) else [])
             + (['immich_server', 'immich_machine_learning'] if (hostvars['immich101'].immich_config_changed | default(false)) else [])
+            + (['pve-exporter'] if (hostvars[prometheus_host | default('prometheus101')].pve_exporter_config_changed | default(false)) else [])
           }}
 
     - name: Capture this stage's report body

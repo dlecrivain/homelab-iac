@@ -53,9 +53,20 @@
   become: true
   register: pve_exporter_quadlet_result
 
+# Named consistently with the other *_configure roles: container-updates.yml's report reads this to
+# know a Step 2.5 re-render already updated the container.
+- name: Determine whether anything actually changed
+  ansible.builtin.set_fact:
+    pve_exporter_config_changed: >-
+      {{
+        pve_exporter_config_result is changed
+        or pve_exporter_network_result is changed
+        or pve_exporter_quadlet_result is changed
+      }}
+
 - name: Reload systemd and restart pve-exporter if anything changed
   become: true
-  when: pve_exporter_config_result is changed or pve_exporter_network_result is changed or pve_exporter_quadlet_result is changed
+  when: pve_exporter_config_changed
   block:
     - name: Reload systemd
       ansible.builtin.systemd:
