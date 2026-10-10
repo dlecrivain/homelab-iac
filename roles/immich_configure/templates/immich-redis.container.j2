@@ -10,6 +10,7 @@ HealthCmd=redis-cli ping || exit 1
 
 [Service]
 Restart=always
+TimeoutStartSec=300
 
 [Install]
 WantedBy=default.target
