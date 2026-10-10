@@ -127,34 +127,51 @@ for vm in movable:
     place(vm, best_node)
 
 # Only report moves where the VM isn't already on its ideal node, and where
-# moving it actually closes a meaningful gap between the source and target
-# node's current usage (avoids migrating VMs for a marginal rebalance). A VM that
+# moving it narrows a meaningful gap between the source and target
+# node's usage (avoids migrating VMs for a marginal rebalance). A VM that
 # currently shares a node with one of its anti-affinity peers skips that margin check,
 # until a move has already separated them.
 positions = {vm.get('name'): vm['node'] for vm in vms}
 moves = []
-for vm in movable:
-    name = vm.get('name')
-    target = assignment[vm['vmid']]
-    if vm['node'] == target:
-        continue
-
-    shares_node_with_peer = any(positions.get(peer) == vm['node'] for peer in PEERS.get(name, ()))
-    if not shares_node_with_peer:
-        source_usage = usage_pct(vm['node'], node_used[vm['node']])
-        target_usage = usage_pct(target, node_used[target])
-        if source_usage - target_usage < IMPROVEMENT_MARGIN:
+moved = set()
+# A move changes the usage the others are judged against, so VMs are swept again until a full pass
+# adds nothing; applying the plan then leaves nothing for a second plan to propose. Each VM moves at
+# most once.
+accepted_a_move = True
+while accepted_a_move:
+    accepted_a_move = False
+    for vm in movable:
+        name = vm.get('name')
+        if vm['vmid'] in moved:
+            continue
+        target = assignment[vm['vmid']]
+        current = positions[name]
+        if current == target:
             continue
 
-    moves.append({
-        'vmid': vm['vmid'],
-        'name': vm.get('name', f"vm-{vm['vmid']}"),
-        'current_node': vm['node'],
-        'target_node': target,
-        'mem_required': vm.get('maxmem', 0),
-        'disk_required': vm_disk[vm['vmid']]
-    })
-    positions[name] = target
+        shares_node_with_peer = any(positions.get(peer) == current for peer in PEERS.get(name, ()))
+        if not shares_node_with_peer:
+            mem = vm.get('maxmem', 0)
+            gap = usage_pct(current, node_used[current]) - usage_pct(target, node_used[target])
+            gap_after = usage_pct(current, node_used[current] - mem) - usage_pct(target, node_used[target] + mem)
+            # The gap must be worth closing, and the move must actually narrow it: otherwise two
+            # VMs of the same size would simply be swapped back and forth between two nodes.
+            if gap < IMPROVEMENT_MARGIN or abs(gap_after) >= gap:
+                continue
+
+        moves.append({
+            'vmid': vm['vmid'],
+            'name': vm.get('name', f"vm-{vm['vmid']}"),
+            'current_node': vm['node'],
+            'target_node': target,
+            'mem_required': vm.get('maxmem', 0),
+            'disk_required': vm_disk[vm['vmid']]
+        })
+        moved.add(vm['vmid'])
+        positions[name] = target
+        node_used[current] -= vm.get('maxmem', 0)
+        node_used[target] += vm.get('maxmem', 0)
+        accepted_a_move = True
 
 for group in ANTI_AFFINITY:
     by_node = {}
