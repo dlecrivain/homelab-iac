@@ -18,7 +18,7 @@
       "id": 1,
       "type": "table",
       "title": "Disk wear and estimated end of life",
-      "description": "Wear used is the worst of the drive's own figure, the share of its rated endurance already written (NVMe) and 100 minus its wear attribute (SATA), from roles/prometheus_configure/templates/disk_wear.rules.yml.j2. The first end-of-life date extends the average wear per powered-on hour since the drive was new; the second extends the write rate of the last 30 days and exists for NVMe only. SATA drives report wear in whole percent, so their dates are coarse. The rated endurance is the manufacturer's figure (disk_rated_endurance_tbw).",
+      "description": "Wear used is the worst of the drive's own figure, the share of its rated endurance already written (NVMe) and 100 minus its wear attribute (SATA), from roles/prometheus_configure/templates/disk_wear.rules.yml.j2. The first end-of-life estimate extends the average wear per powered-on hour since the drive was new; the second extends the write rate of the last 30 days and exists for NVMe only. Each is the date followed by the time left, so the column sorts chronologically. SATA drives report wear in whole percent, so their dates are coarse. The rated endurance is the manufacturer's figure (disk_rated_endurance_tbw).",
       "gridPos": {
         "h": 11,
         "w": 24,
@@ -65,7 +65,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (instance, device) (disk:wear_end_timestamp_seconds * 1000 < (time() + 30 * 365.25 * 86400) * 1000)",
+          "expr": "max by (instance, device, eol_avg) (label_join(label_join(label_replace(label_replace(label_replace(label_replace(label_replace(count_values by (instance, device) (\"yr\", year(disk:wear_end_timestamp_seconds)) * on (instance, device) group_left (mo) count_values by (instance, device) (\"mo\", month(disk:wear_end_timestamp_seconds)) * on (instance, device) group_left (da) count_values by (instance, device) (\"da\", day_of_month(disk:wear_end_timestamp_seconds)) * on (instance, device) group_left (years) count_values by (instance, device) (\"years\", floor((disk:wear_end_timestamp_seconds - time()) / 31557600)) * on (instance, device) group_left (days) count_values by (instance, device) (\"days\", floor(((disk:wear_end_timestamp_seconds - time()) % 31557600) / 86400)), \"mo\", \"0$1\", \"mo\", \"^([0-9])$\"), \"da\", \"0$1\", \"da\", \"^([0-9])$\"), \"open\", \" (\", \"\", \"\"), \"year_unit\", \"y \", \"\", \"\"), \"close\", \"d)\", \"\", \"\"), \"date\", \"-\", \"yr\", \"mo\", \"da\"), \"eol_avg\", \"\", \"date\", \"open\", \"years\", \"year_unit\", \"days\", \"close\"))",
           "refId": "D",
           "instant": true,
           "format": "table"
@@ -75,7 +75,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (instance, device) (disk:wear_end_timestamp_recent_seconds * 1000 < (time() + 30 * 365.25 * 86400) * 1000)",
+          "expr": "max by (instance, device, eol_recent) (label_join(label_join(label_replace(label_replace(label_replace(label_replace(label_replace(count_values by (instance, device) (\"yr\", year(disk:wear_end_timestamp_recent_seconds)) * on (instance, device) group_left (mo) count_values by (instance, device) (\"mo\", month(disk:wear_end_timestamp_recent_seconds)) * on (instance, device) group_left (da) count_values by (instance, device) (\"da\", day_of_month(disk:wear_end_timestamp_recent_seconds)) * on (instance, device) group_left (years) count_values by (instance, device) (\"years\", floor((disk:wear_end_timestamp_recent_seconds - time()) / 31557600)) * on (instance, device) group_left (days) count_values by (instance, device) (\"days\", floor(((disk:wear_end_timestamp_recent_seconds - time()) % 31557600) / 86400)), \"mo\", \"0$1\", \"mo\", \"^([0-9])$\"), \"da\", \"0$1\", \"da\", \"^([0-9])$\"), \"open\", \" (\", \"\", \"\"), \"year_unit\", \"y \", \"\", \"\"), \"close\", \"d)\", \"\", \"\"), \"date\", \"-\", \"yr\", \"mo\", \"da\"), \"eol_recent\", \"\", \"date\", \"open\", \"years\", \"year_unit\", \"days\", \"close\"))",
           "refId": "E",
           "instant": true,
           "format": "table"
@@ -101,6 +101,8 @@
           "options": {
             "excludeByName": {
               "Time": true,
+              "Value #D": true,
+              "Value #E": true,
               "Value #F": true
             },
             "indexByName": {
@@ -110,8 +112,8 @@
               "Value #A": 3,
               "Value #B": 4,
               "Value #C": 5,
-              "Value #D": 6,
-              "Value #E": 7
+              "eol_avg": 6,
+              "eol_recent": 7
             },
             "renameByName": {
               "instance": "Node",
@@ -120,8 +122,8 @@
               "Value #A": "Wear used",
               "Value #B": "Powered on",
               "Value #C": "Written (30 d)",
-              "Value #D": "End of life (average wear rate)",
-              "Value #E": "End of life (30-day write rate)"
+              "eol_avg": "End of life (average wear rate)",
+              "eol_recent": "End of life (30-day write rate)"
             }
           }
         },
@@ -233,62 +235,6 @@
               {
                 "id": "decimals",
                 "value": 1
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "End of life (average wear rate)"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "time:YYYY-MM-DD"
-              },
-              {
-                "id": "mappings",
-                "value": [
-                  {
-                    "type": "special",
-                    "options": {
-                      "match": "null",
-                      "result": {
-                        "text": "> 30 years",
-                        "color": "green",
-                        "index": 0
-                      }
-                    }
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "End of life (30-day write rate)"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "time:YYYY-MM-DD"
-              },
-              {
-                "id": "mappings",
-                "value": [
-                  {
-                    "type": "special",
-                    "options": {
-                      "match": "null",
-                      "result": {
-                        "text": "> 30 years",
-                        "color": "green",
-                        "index": 0
-                      }
-                    }
-                  }
-                ]
               }
             ]
           }
