@@ -87,6 +87,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 - `group_vars/all.yml`: shared variables (Proxmox API host, Katello organization, SMTP, retention and placement tuning, pinned image and binary versions, the mesh and corosync topology).
 - `host_vars/`: per-VM variables (health checks, `podman_units`, backup and placement flags) and per-node connection and network details (`pve1`, `pve2`, `pve3`).
 - `scripts/semaphore-ctl`: small client for the Semaphore API, see [Operating Semaphore from a terminal](#operating-semaphore-from-a-terminal).
+- `tasks/`: task files shared by several playbooks: `commit_and_push.yml` (every playbook that commits back to this repository) and `check_unit_for_update.yml` (the read-only scan in `check-image-updates.yml`).
 - `roles/`, by area:
   - **Patching**: `check_updates`, `apply_updates`, `reboot_and_wait`, `health_check`, `host_status`, `proxmox_snapshot`, `cleanup_snapshot`.
   - **Containers**: `podman_update` (pull and restart a Quadlet unit), `podman_align_image` (force an exact image digest), `image_retention` (keep the two most recent images per repository), and one `*_configure` role per service (`bunkerweb`, `adguard`, `phpipam`, `immich`, `prometheus`, `prometheus_pve_exporter`, `grafana`).
@@ -174,6 +175,10 @@ Every container image is pinned to an explicit version in `group_vars/all.yml` (
 
 `check-image-updates.yml` runs daily. For the images in `image_update_watch_list` it writes the highest same-major version found on Docker Hub into `group_vars/all.yml` and pushes it, and a new major is only reported. Immich is stricter: its patch releases are applied the same way, but minor and major releases are reported and left to a reviewed edit of `immich_version`, because its database migrations do not roll back. The scan of the remaining containers pulls their pinned tag.
 
+### Commits made by playbooks
+
+Five playbooks commit back to this repository: `check-image-updates.yml` (version bumps), `update-semaphore-peer.yml` (the Semaphore version recorded for provisioning), `provision-vm.yml` and `decommission-vm.yml` (a VM's `host_vars` file). They all include `tasks/commit_and_push.yml`, which sets the identity (`git_commit_name`, `git_commit_email`), commits, and pushes to `git_repository` through `git_push_url`, which carries `GITHUB_PUSH_TOKEN`. The commit message is passed as an argument, not through a shell string. A failed push is reported with the token redacted from git's output.
+
 ### Network and cluster
 
 The three Proxmox nodes are cabled to each other directly with 10G DAC cables, without a switch: one `/31` per pair, plus a `/32` loopback per node. `pve_mesh_links` in `group_vars/all.yml` maps each node pair to its subnet, and each node's ports (PCI path, peer, address) and loopback are in its `host_vars/pve*.yml`.
@@ -186,7 +191,9 @@ Corosync runs two rings: ring 0 on the management network, ring 1 over the mesh 
 
 ### Placement and rebalancing
 
-Evacuating a node and rebalancing the cluster follow the same rules. Memory is checked against `pve_safety_threshold`. Disk is the sum of every disk in the VM's own configuration, since the cluster API reports only the boot disk, and is checked against the free space of `pve_clone_storage`, which is local to each node: a live migration copies the disks. When no node stays under the memory threshold an evacuation still places the VM, since a planned window needs somewhere to put it, and the placement is reported as a warning in the run log.
+Evacuating a node and rebalancing the cluster follow the same rules. Memory is checked against `pve_safety_threshold`. Disk is the sum of every disk in the VM's own configuration, since the cluster API reports only the boot disk, and is checked against the free space of `pve_clone_storage`, which is local to each node: a live migration copies the disks. When no node stays under the memory threshold an evacuation still places the VM, since a planned window needs somewhere to put it, and the placement is reported as a warning, in the run log and in the `pve-updates.yml` email.
+
+The rebalance builds one plan that is complete: a VM is moved only if that narrows the gap in memory usage between its node and the target, judged after the moves already in the plan, so applying a plan leaves nothing for a second one and two VMs of the same size are never swapped.
 
 - **`pve_anti_affinity_groups`** lists VMs that must not share a node (the two Semaphore instances). Both the evacuation and the rebalance honour it. Proxmox's own HA affinity rules would require HA-managed VMs on shared or replicated storage, which this cluster does not use.
 - **`pve_rebalance_pinned: true`** in a VM's `host_vars` stops the optional rebalance from moving it. It is set on `immich101` and `lpkat101`, whose disks are large enough that every move copies hundreds of gigabytes over the mesh and writes them to a target NVMe. Such a VM is still evacuated when its node is patched, and counts as load on the node where it sits.
