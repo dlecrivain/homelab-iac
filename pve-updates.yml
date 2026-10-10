@@ -209,6 +209,26 @@
             </tr>
             {% endfor %}
           </table>
+          {% set placement_warnings = [] %}
+          {% for h in hostvars['localhost'].pve_updates_host_list %}
+          {% for w in hostvars[h].vm_placement_warnings | default([]) %}
+          {% set _ = placement_warnings.append(h ~ ': ' ~ w) %}
+          {% endfor %}
+          {% for w in hostvars[h].rebalance_warnings | default([]) %}
+          {% if ('rebalance: ' ~ w) not in placement_warnings %}
+          {% set _ = placement_warnings.append('rebalance: ' ~ w) %}
+          {% endif %}
+          {% endfor %}
+          {% endfor %}
+          {% if placement_warnings %}
+          <h3>Placement warnings</h3>
+          <p>These VMs were moved anyway, but a placement rule could not be met:</p>
+          <ul>
+            {% for w in placement_warnings %}
+            <li>{{ w }}</li>
+            {% endfor %}
+          </ul>
+          {% endif %}
 
     # Skipped in an orchestrated run - the combined email covers it instead.
     - name: Build and send the HTML report email

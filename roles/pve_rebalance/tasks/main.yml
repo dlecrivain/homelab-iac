@@ -46,6 +46,11 @@
     msg: "{{ rebalance_result.stderr_lines }}"
   when: rebalance_result.stderr_lines | length > 0
 
+# Kept as a fact so a calling playbook can put it in its report.
+- name: Keep the plan's warnings for the report
+  ansible.builtin.set_fact:
+    rebalance_warnings: "{{ rebalance_result.stderr_lines | map('regex_replace', '^WARNING: ', '') | list }}"
+
 - name: Clean up the rebalance script
   ansible.builtin.file:
     path: /tmp/compute_rebalance.py
