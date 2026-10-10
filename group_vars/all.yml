@@ -130,7 +130,7 @@ pve_exporter_version: "3.10.1"
 # Immich (configure-immich.yml). Pinned rather than :release so a container restart cannot change
 # version on its own: Immich's upgrades run database migrations, which belong in a run that snapshots
 # the VM first. Server and machine-learning share this version, they always move together.
-immich_version: "v3.2.4"
+immich_version: "v3.3.1"
 # Pinned by digest - neither follows Immich's release cycle, and the Postgres image carries the
 # vector extensions the database depends on.
 immich_postgres_image: "ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23"
