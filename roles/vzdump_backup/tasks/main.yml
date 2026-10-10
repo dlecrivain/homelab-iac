@@ -68,6 +68,40 @@
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
 
+- name: Measure the archive that was just created
+  ansible.builtin.stat:
+    path: "{{ vzdump_path_result.stdout | trim }}"
+  register: vzdump_archive_stat
+  delegate_to: "{{ vm_backup_node }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+
+- name: Read the free space left on pCloud
+  ansible.builtin.command: "rclone about {{ vm_backup_pcloud_base_path.split(':')[0] }}: --json"
+  register: pcloud_about
+  changed_when: false
+  delegate_to: "{{ vm_backup_node }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+
+# Uploading before removing the previous copy means a failed upload never leaves the VM without an
+# off-site backup. That needs room for both copies at once, so when the archive does not fit with a
+# margin to spare, the previous copy goes first to make room, as the quota leaves no other choice.
+- name: Decide whether the new archive can be uploaded before the old one is removed
+  ansible.builtin.set_fact:
+    vzdump_upload_first: >-
+      {{ (pcloud_about.stdout | from_json).free | int
+         > (vzdump_archive_stat.stat.size | int) + (vm_backup_pcloud_free_margin_gib | int) * 1073741824 }}
+
+- name: Say in which order the pCloud upload will happen
+  ansible.builtin.debug:
+    msg: >-
+      {{ vzdump_vm_name }}: archive {{ (vzdump_archive_stat.stat.size / 1073741824) | round(1) }} GiB,
+      {{ ((pcloud_about.stdout | from_json).free / 1073741824) | round(1) }} GiB free on pCloud -
+      {{ 'uploading before the old copy is removed' if vzdump_upload_first else 'removing the old copy first to make room' }}
+
 - name: Copy the pCloud retention script
   ansible.builtin.copy:
     src: prune_pcloud_backups.py
@@ -78,7 +112,7 @@
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
 
-# Frees space for the new one before it's uploaded.
+# Frees space for the new archive, only when it could not be uploaded alongside the old one.
 - name: "Prune old pCloud backups, keeping {{ vm_backup_pcloud_retention - 1 }}"
   ansible.builtin.command: >
     python3 /tmp/prune_pcloud_backups.py
@@ -90,7 +124,9 @@
   remote_user: "{{ proxmox_ssh_user }}"
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
-  when: not (vzdump_purge_all_others_after_upload | default(false))
+  when:
+    - not (vzdump_purge_all_others_after_upload | default(false))
+    - not vzdump_upload_first
 
 - name: Upload the backup archive to pCloud
   ansible.builtin.command: >
@@ -101,7 +137,20 @@
   vars:
     ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
 
-# Only reached if the upload above succeeded.
+# Only reached if the upload above succeeded. A no-op when the old copies were already removed.
+- name: "Prune pCloud backups beyond the {{ vm_backup_pcloud_retention }} to keep"
+  ansible.builtin.command: >
+    python3 /tmp/prune_pcloud_backups.py
+    {{ vm_backup_pcloud_base_path }}/{{ vzdump_vm_name }}
+    {{ vm_backup_pcloud_retention }}
+  register: pcloud_post_prune_result
+  changed_when: "'removed:0' not in pcloud_post_prune_result.stdout"
+  delegate_to: "{{ vm_backup_node }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+  when: not (vzdump_purge_all_others_after_upload | default(false))
+
 - name: Purge every other pCloud backup for this VM
   ansible.builtin.command: >
     python3 /tmp/prune_pcloud_backups.py

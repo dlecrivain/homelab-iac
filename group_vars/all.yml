@@ -29,6 +29,9 @@ vm_backup_node: pve1
 vm_backup_storage: Stockage_SSD
 vm_backup_local_retention: 2
 vm_backup_pcloud_retention: 1
+# Free space that must remain on pCloud, beyond the archive itself, for it to be uploaded before the
+# previous copy is removed.
+vm_backup_pcloud_free_margin_gib: 5
 vm_backup_pcloud_base_path: "pcloud:Backups/VM"
 
 # Direct 10G mesh links, keyed by the node pair sorted alphabetically and joined with "-". Each
