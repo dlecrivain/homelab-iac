@@ -2,6 +2,10 @@ ansible_host: 192.168.1.111 # explicit static IP - predates provision-vm.yml's c
 
 vm_backup_local_retention: 1 # immich's backups are much larger (photo/video library) - kept at the old default rather than bumped with the rest of the fleet
 
+# A version bump pulls ~1.7G before the server even starts, then runs database migrations on its
+# first run, so the default 5 retries over 50s would report a healthy upgrade as a failure.
+health_check_retries: 30
+health_check_delay: 10
 health_check_url: "http://192.168.1.111:2283"
 health_check_podman_user: immich
 health_check_containers:
