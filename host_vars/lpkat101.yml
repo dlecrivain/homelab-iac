@@ -4,3 +4,7 @@ health_check_url: "https://192.168.1.112/"
 health_check_validate_certs: false
 health_check_retries: 30
 health_check_delay: 10
+
+# Left where it is by the optional cluster rebalance: 20G of memory and 250G of disks make any move
+# costly for little balance gained. It is still migrated when its node is patched.
+pve_rebalance_pinned: true
