@@ -1,4 +1,24 @@
 ---
+# Patches one Semaphore instance and keeps the two aligned. peer_host is required, with no default:
+#
+#   -e peer_host=semaphore101   run from semaphore102
+#   -e peer_host=semaphore102   run from semaphore101 (full-updates.yml does this, with image_reference_host)
+#
+# It is always run from the other instance, because a Semaphore host cannot patch and reboot itself
+# in the middle of its own task.
+- name: Refuse to run without an explicit peer
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Require peer_host to name one of the two Semaphore instances
+      ansible.builtin.assert:
+        that:
+          - peer_host is defined
+          - peer_host in ['semaphore101', 'semaphore102']
+        fail_msg: >-
+          Pass -e peer_host=semaphore101 or -e peer_host=semaphore102 - the instance to patch, which
+          must not be the one running this playbook.
+
 - name: Mark this as an orchestrated run
   hosts: localhost
   gather_facts: false
@@ -13,7 +33,7 @@
         is_orchestrated_run: true
 
 - name: OS-patch this Semaphore peer (no Katello promotion - this VM isn't Katello-managed content)
-  hosts: "{{ peer_host | default('semaphore101') }}"
+  hosts: "{{ peer_host | default('none') }}"
   gather_facts: true
   tasks:
     - name: Capture the run start time
@@ -111,11 +131,11 @@
   # gather-then-align plays needed here anymore. reference_image_digests ends up set on localhost
   # exactly as before, so semaphore_peer_alignment_skipped below still works unchanged.
   vars:
-    target_hosts: "{{ peer_host | default('semaphore101') }}"
+    target_hosts: "{{ peer_host | default('none') }}"
 
 # Skipped in the image_reference_host direction, which uses exact-digest alignment above instead.
 - name: Bump this peer's Semaphore image if a newer patch/minor is available
-  hosts: "{{ peer_host | default('semaphore101') }}"
+  hosts: "{{ peer_host | default('none') }}"
   gather_facts: false
   tasks:
     - name: Auto-bump (or apply an explicit semaphore_image_tag) Semaphore's image

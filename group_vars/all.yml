@@ -47,11 +47,6 @@ pve_corosync_config_version: 5
 pve_corosync_ring0_priority: 10
 pve_corosync_ring1_priority: 20
 
-# update-semaphore-peer.yml: defaults to patching semaphore101 only (OS + containers), never
-# touching semaphore102, when run with no extra vars at all. The semaphore102-facing direction
-# (image alignment) still requires explicit -e peer_host=semaphore102 -e image_reference_host=semaphore101.
-peer_host: semaphore101
-
 # phpIPAM. "User token" security mode, which exchanges a login for a session token: the SSL modes
 # require HTTPS, and phpipam101 serves plain HTTP.
 phpipam_api_app_id: "ansible"
