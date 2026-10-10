@@ -472,7 +472,16 @@
           <p>Review manually - a major version jump can include breaking changes.</p>
           {% endif %}
           {% if immich_update_available | default(false) %}
-          <h3>Immich (informational only - bump immich_version to apply)</h3>
+          {% if (immich_patch_bump_target | default('')) | length > 0 %}
+          <h3>Immich - patch release, pin bumped automatically</h3>
+          <p>immich_version is now {{ immich_patch_bump_target }} and pushed - the next container-updates run deploys it.</p>
+          {% elif immich_version == immich_latest_version %}
+          <h3>Immich - already pinned, awaiting deployment</h3>
+          <p>immich_version is {{ immich_version }} - the next container-updates run deploys it.</p>
+          {% else %}
+          <h3>Immich - minor or major release, needs a decision</h3>
+          <p>Not applied automatically. Read the release notes, then bump immich_version - the next container-updates run deploys it.</p>
+          {% endif %}
           <table>
             <tr><th>Running</th><th>Latest</th><th>Published</th></tr>
             <tr class="status-warning">
