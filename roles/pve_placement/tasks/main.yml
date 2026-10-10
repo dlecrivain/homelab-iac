@@ -12,7 +12,8 @@
     {{ pve_other_nodes | join(',') }}
     {{ pve_safety_threshold }}
     {{ pve_clone_storage }}
-    {{ pve_placement_exclude_names | default([]) | join(',') }}
+    {{ pve_placement_exclude_names | default([]) | join(',') | quote }}
+    {{ pve_anti_affinity_groups | default([]) | to_json | quote }}
   register: placement_result
   changed_when: false
 
@@ -20,10 +21,18 @@
   ansible.builtin.set_fact:
     vm_placements: "{{ (placement_result.stdout | from_json).migrate }}"
     vm_shutdowns: "{{ (placement_result.stdout | from_json).shutdown }}"
+    vm_placement_warnings: "{{ (placement_result.stdout | from_json).warnings | default([]) }}"
 
 - name: Show computed placement
   ansible.builtin.debug:
     msg: "Migrate: {{ vm_placements }} | Shutdown for maintenance: {{ vm_shutdowns }}"
+
+# A placement that had to bend a rule - a memory threshold or an anti-affinity group - still goes
+# ahead, since a planned window needs somewhere to put the VM; this keeps it visible in the log.
+- name: Warn about placements that did not meet every rule
+  ansible.builtin.debug:
+    msg: "WARNING - {{ item }}"
+  loop: "{{ vm_placement_warnings }}"
 
 - name: Clean up the placement script
   ansible.builtin.file:
