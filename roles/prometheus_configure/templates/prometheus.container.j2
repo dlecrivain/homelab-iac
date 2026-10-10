@@ -10,7 +10,8 @@ Network=monitoring-network.network
 Volume=/etc/prometheus:/etc/prometheus:Z,ro
 Volume=prometheus_data.volume:/prometheus:Z
 PublishPort=9090:9090
-Exec=--config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=30d
+# 100y keeps every sample: Prometheus has no unlimited value, and 0 means its 15d default.
+Exec=--config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=100y
 
 [Service]
 Restart=always
