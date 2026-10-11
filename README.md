@@ -303,7 +303,7 @@ Two dedicated VMs run it: `prometheus101` (Prometheus, Alertmanager and `prometh
 - **Images**: `homeassistant_version` and `matter_server_version` are pinned in `group_vars/all.yml`. `check-image-updates.yml` watches Home Assistant on Docker Hub and the Matter Server on ghcr.io (`ghcr_repo` in `image_update_watch_list`), bumps within a major line (for Home Assistant the year, so a new year is only reported), and `container-updates.yml` applies the bump after a VM snapshot like for every other container.
 - **OS and backups**: `vm-updates.yml` patches it and `vm-backups.yml` backs the whole VM up to pCloud. Home Assistant Container has no backup feature of its own, so the VM backup is the backup.
 - **Network**: host networking is needed for device discovery and the HomeKit bridge. Firewalld trusts the local network as a whole, because discovery replies and device events come from addresses the stateful firewall has never seen it contact, and nothing outside it. The Matter Server listens on `127.0.0.1` only.
-- **CIS**: Thread and Matter devices are reached through routes that border routers announce in router advertisements, so `roles/homeassistant_configure` sets `accept_ra` to 2 and the two matching rules are waived for this host in `host_vars/homeassistant101.yml`.
+- **CIS**: Thread and Matter devices are reached through routes that border routers announce in router advertisements, so `roles/homeassistant_configure` sets `accept_ra` to 2, on the interface that carries the default route as well because an interface keeps the values it was created with, and the two matching rules are waived for this host in `host_vars/homeassistant101.yml`.
 
 ### Compliance scanning
 
