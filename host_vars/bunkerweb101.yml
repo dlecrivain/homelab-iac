@@ -125,6 +125,17 @@ bunkerweb_services:
       REVERSE_PROXY_READ_TIMEOUT: 3600s
       MAX_CLIENT_SIZE: 0
 
+  - name: homeassistant
+    domain: homeassistant.lecrivaindaniel.fr
+    extra:
+      REVERSE_PROXY_URL: "/"
+      REVERSE_PROXY_HOST: "http://192.168.1.122:8123"
+      # The frontend and the mobile app keep a WebSocket open to Home Assistant
+      REVERSE_PROXY_WS: "yes"
+      REVERSE_PROXY_SEND_TIMEOUT: 3600s
+      REVERSE_PROXY_READ_TIMEOUT: 3600s
+      MAX_CLIENT_SIZE: 0
+
   - name: adguard
     domain: adguard.lecrivaindaniel.fr
     extra:
