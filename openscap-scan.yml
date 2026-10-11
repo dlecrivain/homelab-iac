@@ -1,0 +1,132 @@
+---
+- name: Scan the fleet against the CIS benchmark with OpenSCAP
+  # lpkat101 runs Rocky Linux 9, not 10, and is left out like it is from every other fleet-wide run.
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101') }}"
+  gather_facts: false
+  serial: 1
+  tasks:
+    - name: Capture the run start time
+      include_role:
+        name: capture_start_time
+
+    - name: Capture the full list of targeted hosts (once)
+      include_role:
+        name: capture_host_list
+      vars:
+        capture_host_list_fact_name: openscap_host_list
+
+    - name: Scan this VM
+      block:
+        - name: Run the scan and summarise it
+          include_role:
+            name: openscap_scan
+
+        - name: Classify this host
+          ansible.builtin.set_fact:
+            openscap_status: >-
+              {{
+                'WARNING'
+                if (openscap_result.score < openscap_score_target
+                    or (openscap_result.previous_score is not none
+                        and openscap_result.score < openscap_result.previous_score - openscap_regression_points))
+                else 'OK'
+              }}
+      rescue:
+        - name: Record the failure for the report
+          ansible.builtin.set_fact:
+            openscap_status: PROBLEM
+            openscap_failure_reason: "{{ ansible_failed_result.msg | default('Unknown error') }}"
+
+- name: Send the OpenSCAP report
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Determine if any host could not be scanned
+      ansible.builtin.set_fact:
+        openscap_any_problem: >-
+          {{
+            hostvars['localhost'].openscap_host_list
+            | map('extract', hostvars)
+            | map(attribute='openscap_status', default='PROBLEM')
+            | select('equalto', 'PROBLEM')
+            | list | length > 0
+          }}
+
+    - name: Build and send the HTML report email
+      include_role:
+        name: send_report
+      vars:
+        report_subject: "[openscap-scan] {{ 'PROBLEM detected' if openscap_any_problem else 'Monthly CIS benchmark report' }}"
+        report_body: |
+          <h2>OpenSCAP report - CIS benchmark, profile {{ openscap_profile }}</h2>
+          <table>
+            <tr>
+              <th>Host</th>
+              <th>Status</th>
+              <th>Score</th>
+              <th>Change</th>
+              <th>Passed</th>
+              <th>Failed</th>
+              <th>High severity failed</th>
+            </tr>
+            {% for h in hostvars['localhost'].openscap_host_list %}
+            {% set status = hostvars[h].openscap_status | default('PROBLEM') %}
+            {% if status == 'OK' %}
+            {% set row_class = 'status-ok' %}
+            {% elif status == 'WARNING' %}
+            {% set row_class = 'status-warning' %}
+            {% else %}
+            {% set row_class = 'status-problem' %}
+            {% endif %}
+            {% if hostvars[h].openscap_result is defined %}
+            {% set r = hostvars[h].openscap_result %}
+            <tr class="{{ row_class }}">
+              <td>{{ h }}</td>
+              <td>{{ status }}</td>
+              <td>{{ '%.1f' | format(r.score) }} %</td>
+              <td>{{ 'first scan' if r.previous_score is none else ('%+.1f' | format(r.score - r.previous_score)) }}</td>
+              <td>{{ r.counts.pass | default(0) }}</td>
+              <td>{{ r.counts.fail | default(0) }}</td>
+              <td>{{ r.failed | selectattr('severity', 'equalto', 'high') | list | length }}</td>
+            </tr>
+            {% else %}
+            <tr class="status-problem">
+              <td>{{ h }}</td>
+              <td>PROBLEM</td>
+              <td colspan="5">{{ hostvars[h].openscap_failure_reason | default('No result: the host was unreachable or the scan did not start') }}</td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+          </table>
+          {% set ns = namespace(rules={}, scanned=0) %}
+          {% for h in hostvars['localhost'].openscap_host_list if hostvars[h].openscap_result is defined %}
+          {% set ns.scanned = ns.scanned + 1 %}
+          {% for rule in hostvars[h].openscap_result.failed %}
+          {% if rule.id not in ns.rules %}
+          {% set rank = {'high': 0, 'medium': 1, 'low': 2}.get(rule.severity, 3) %}
+          {% set _ = ns.rules.update({rule.id: {'title': rule.title, 'severity': rule.severity, 'count': 0, 'sort': rank * 10000}}) %}
+          {% endif %}
+          {% set _ = ns.rules[rule.id].update({'count': ns.rules[rule.id].count + 1, 'sort': ns.rules[rule.id].sort - 1}) %}
+          {% endfor %}
+          {% endfor %}
+          <h3>Most common failed rules</h3>
+          <table>
+            <tr>
+              <th>Rule</th>
+              <th>Severity</th>
+              <th>Hosts</th>
+            </tr>
+            {% for rule in (ns.rules.values() | sort(attribute='sort') | list)[:openscap_report_common_failures] %}
+            <tr class="{{ 'status-problem' if rule.severity == 'high' else ('status-warning' if rule.severity == 'medium' else 'status-neutral') }}">
+              <td>{{ rule.title }}</td>
+              <td>{{ rule.severity }}</td>
+              <td>{{ rule.count }} of {{ ns.scanned }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+          <p>Rules are listed by severity, then by the number of hosts that fail them. The detailed HTML report of each scan is kept on the host in <code>{{ openscap_report_dir }}</code> for {{ openscap_report_retention_days }} days. A score below {{ openscap_score_target }} %, or a drop of more than {{ openscap_regression_points }} points since the previous scan, is marked as a warning.</p>
+
+    - name: Fail this run if any host could not be scanned
+      ansible.builtin.fail:
+        msg: "openscap-scan could not scan at least one host - see the report email for details."
+      when: openscap_any_problem

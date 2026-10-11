@@ -69,6 +69,12 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 | `configure-grafana.yml` | Deploys Grafana on `grafana101` with its datasource and dashboards. |
 | `configure-monitoring.yml` | Installs `node_exporter` and `smartctl_exporter` and registers every VM and node with Prometheus. Safe to re-run, and the way a new exporter version reaches the hosts. See [Monitoring](#monitoring). |
 
+### Compliance
+
+| Playbook | Purpose |
+|---|---|
+| `openscap-scan.yml` | Scans every fleet VM except `lpkat101` against the CIS Level 2 Server profile with OpenSCAP and mails one HTML report: score, change since the previous scan, passed and failed rules per host, and the failed rules the most hosts share. Meant for a monthly schedule. See [Compliance scanning](#compliance-scanning). |
+
 ### Katello and utilities
 
 | Playbook | Purpose |
@@ -96,6 +102,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
   - **Katello**: `katello_promote`, `katello_cv_retention`, `katello_register_host`, `katello_deregister_host`, `katello_repo_cleanup`.
   - **Provisioning**: `provision_vm_reconnect`, `remove_cloud_init`, `semaphore_provision`, `phpipam_login`, `phpipam_next_ip`, `phpipam_remove_address`.
   - **Monitoring**: `node_exporter_install`, `smartctl_exporter_install`, `prometheus_target`.
+  - **Compliance**: `openscap_scan`.
   - **Reporting**: `send_report` (shared HTML mail skeleton), `capture_start_time`, `capture_host_list`.
 
 ## How it works
@@ -285,6 +292,12 @@ Two dedicated VMs run it: `prometheus101` (Prometheus, Alertmanager and `prometh
 - The Proxmox dashboard's storage legend shows `{{node}} - {{storage}}`, so `nvme_data` is distinguishable across the three nodes.
 
 **Known limitations.** The smartctl dashboard aggregates across nodes when "All" is selected in the instance picker, because showing each node separately would mean vendoring the dashboard and rewriting about 24 panel queries, and losing automatic upstream updates. The Proxmox dashboard has no per-node instance picker, since one exporter covers the cluster and its `instance` label is always `pve-exporter:9221`; per-node dimensions come from the `name`, `node` and `id` labels. Proxmox's own `pve-firewall`, distinct from the `firewalld` through which `node_exporter_install` opens `9100/tcp`, is not configured here: if it is enabled on the nodes, ports `9100` and `9633` need opening there too.
+
+### Compliance scanning
+
+`openscap-scan.yml` runs the `openscap_scan` role on each VM in turn. The role installs `openscap-scanner` and `scap-security-guide` from the Katello content view, scans the host against `openscap_profile` (`cis`, the CIS Red Hat Enterprise Linux 10 Benchmark for Level 2 - Server) in the Rocky Linux 10 datastream `openscap_datastream`, and keeps the XCCDF results and the full HTML report in `openscap_report_dir` for `openscap_report_retention_days`. `roles/openscap_scan/files/summarize_xccdf.py` reduces the results to a score, the counts per verdict and the failed rules with their titles, which come from the datastream because the results file only carries rule identifiers.
+
+The report email uses the same skeleton as every other report. A host is flagged as a warning when its score is below `openscap_score_target` or has dropped by more than `openscap_regression_points` since the previous scan, which `last-summary.json` in the report directory remembers. A warning does not fail the run: only a host that could not be scanned does, since an unhardened fleet starts well below any target. `openscap_tailoring_file` points the scan at an XCCDF tailoring file when rules have to be waived because the fleet cannot follow them, so the monthly score keeps measuring the same profile. `lpkat101` runs Rocky Linux 9, whose datastream is a different file, so it is left out of the default targets.
 
 ### Operating Semaphore from a terminal
 

@@ -1,0 +1,101 @@
+---
+# Scans this host against openscap_profile and leaves openscap_result for the report. The full HTML
+# report and the XCCDF results stay on the host in openscap_report_dir.
+- name: Install OpenSCAP and the SCAP Security Guide content
+  ansible.builtin.dnf:
+    name:
+      - openscap-scanner
+      - scap-security-guide
+    state: present
+  become: true
+
+- name: Create the report directory
+  ansible.builtin.file:
+    path: "{{ openscap_report_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+  become: true
+
+- name: Read the summary of the previous scan
+  ansible.builtin.slurp:
+    src: "{{ openscap_report_dir }}/last-summary.json"
+  register: openscap_previous_summary
+  failed_when: false
+  become: true
+
+- name: Name this scan's files
+  ansible.builtin.set_fact:
+    openscap_scan_stem: "{{ openscap_report_dir }}/{{ now(fmt='%Y-%m-%d') }}"
+
+# oscap exits 2 when any rule failed, which is the normal outcome, and 1 when the scan could not run.
+# The wrapper turns 2 into 0 so that only a scan that could not run fails the task, and so that
+# Ansible's async polling does not report every scan as failed. oscap loads the whole datastream,
+# several hundred MB on VMs that have about 2 GB, so it runs at idle priority and is the first
+# process the kernel kills if memory runs out.
+- name: Scan the host
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['sh', '-c', '"$@"; rc=$?; [ $rc -eq 2 ] && exit 0; exit $rc', 'oscap-scan',
+         'nice', '-n', '19', 'ionice', '-c', '3', 'choom', '-n', '1000', '--',
+         'oscap', 'xccdf', 'eval',
+         '--profile', 'xccdf_org.ssgproject.content_profile_' ~ openscap_profile,
+         '--results', openscap_scan_stem ~ '-results.xml',
+         '--report', openscap_scan_stem ~ '-report.html']
+        + (['--tailoring-file', openscap_tailoring_file] if openscap_tailoring_file | length > 0 else [])
+        + [openscap_datastream]
+      }}
+  changed_when: false
+  async: 3600
+  poll: 30
+  become: true
+
+- name: Summarise the results
+  ansible.builtin.script:
+    cmd: "summarize_xccdf.py {{ openscap_scan_stem }}-results.xml {{ openscap_datastream }}"
+    executable: python3
+  register: openscap_summary_raw
+  changed_when: false
+  become: true
+
+- name: Record the result for the report
+  ansible.builtin.set_fact:
+    openscap_result: >-
+      {{
+        (openscap_summary_raw.stdout | from_json)
+        | combine({
+            'previous_score': (openscap_previous_summary.content | b64decode | from_json).score
+                              if openscap_previous_summary.content is defined else none,
+            'report': openscap_scan_stem ~ '-report.html'
+          })
+      }}
+
+- name: Keep this summary for the next scan's comparison
+  ansible.builtin.copy:
+    content: "{{ {'score': openscap_result.score} | to_json }}"
+    dest: "{{ openscap_report_dir }}/last-summary.json"
+    owner: root
+    group: root
+    mode: '0640'
+  become: true
+
+- name: Find the reports past their retention
+  ansible.builtin.find:
+    paths: "{{ openscap_report_dir }}"
+    patterns:
+      - '*-results.xml'
+      - '*-report.html'
+    age: "{{ openscap_report_retention_days }}d"
+  register: openscap_expired
+  become: true
+
+- name: Remove the reports past their retention
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ openscap_expired.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  become: true

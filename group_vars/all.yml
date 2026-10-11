@@ -117,6 +117,20 @@ grafana_host: grafana101
 node_exporter_version: "1.12.1"
 smartctl_exporter_version: "0.15.0"
 
+# OpenSCAP compliance scan (openscap-scan.yml). "cis" is the SCAP Security Guide's CIS Level 2 -
+# Server profile, from the Rocky Linux 10 datastream that scap-security-guide installs.
+openscap_profile: cis
+openscap_datastream: /usr/share/xml/scap/ssg/content/ssg-rl10-ds.xml
+# Optional tailoring file to waive rules this fleet cannot follow; empty scans the profile as is.
+openscap_tailoring_file: ""
+openscap_report_dir: /var/log/openscap
+openscap_report_retention_days: 400
+# A score below the target, or a drop of more than openscap_regression_points since the previous scan,
+# is flagged in the report. Neither fails the run: only a scan that cannot run does.
+openscap_score_target: 90
+openscap_regression_points: 2
+openscap_report_common_failures: 15
+
 # Manufacturer endurance rating (TBW) of each NVMe model, by the name smartctl reports. The disk wear
 # rules use it to estimate wear from bytes written, because the drive's own percentage_used moves in
 # whole percent and can lag behind the rating.
