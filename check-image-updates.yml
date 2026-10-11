@@ -7,18 +7,57 @@
 #
 # node_exporter and smartctl_exporter are checked against GitHub Releases in a separate play below,
 # since they are binaries rather than containers and have no live container to compare against.
-- name: Check Docker Hub for updates to unmanaged-bump images
+- name: Check the registries for updates to unmanaged-bump images
   hosts: localhost
   gather_facts: false
   tasks:
-    - name: Query Docker Hub tags for each watched image
+    - name: Query Docker Hub tags for each watched image hosted there
       ansible.builtin.uri:
         url: "https://hub.docker.com/v2/repositories/{{ item.docker_repo }}/tags?page_size=100"
         return_content: true
-      register: image_update_tags_response
-      loop: "{{ image_update_watch_list }}"
+      register: image_update_tags_hub
+      loop: "{{ image_update_watch_list | selectattr('docker_repo', 'defined') | list }}"
       loop_control:
         label: "{{ item.name }}"
+
+    # ghcr.io hands out an anonymous token for public images, then lists every tag in one call.
+    - name: Get an anonymous pull token for each watched image hosted on ghcr.io
+      ansible.builtin.uri:
+        url: "https://ghcr.io/token?scope=repository:{{ item.ghcr_repo }}:pull"
+        return_content: true
+      register: image_update_ghcr_tokens
+      loop: "{{ image_update_watch_list | selectattr('ghcr_repo', 'defined') | list }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Query ghcr.io tags for each watched image hosted there
+      ansible.builtin.uri:
+        url: "https://ghcr.io/v2/{{ item.item.ghcr_repo }}/tags/list?n=1000"
+        headers:
+          Authorization: "Bearer {{ item.json.token }}"
+        return_content: true
+      register: image_update_tags_ghcr
+      loop: "{{ image_update_ghcr_tokens.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    # One shape for both registries: the entry from the watch list, and its tags as Docker Hub lists them
+    # (ghcr.io has no push date, so those tags carry an empty one).
+    - name: Put the tags of every registry in one shape
+      ansible.builtin.set_fact:
+        image_update_tag_lists: >-
+          {%- set lists = [] -%}
+          {%- for r in image_update_tags_hub.results -%}
+          {%- set _ = lists.append({'item': r.item, 'json': r.json}) -%}
+          {%- endfor -%}
+          {%- for r in image_update_tags_ghcr.results -%}
+          {%- set tags = [] -%}
+          {%- for t in r.json.tags -%}
+          {%- set _ = tags.append({'name': t, 'tag_last_pushed': ''}) -%}
+          {%- endfor -%}
+          {%- set _ = lists.append({'item': r.item.item, 'json': {'results': tags}}) -%}
+          {%- endfor -%}
+          {{ lists }}
 
     - name: Compute each image's same-major-line target and overall latest version
       vars:
@@ -48,7 +87,7 @@
               'major_available': (overall_latest_major | int) > (current_major | int),
             }]
           }}
-      loop: "{{ image_update_tags_response.results }}"
+      loop: "{{ image_update_tag_lists }}"
       loop_control:
         label: "{{ item.item.name }}"
 
