@@ -54,7 +54,6 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 |---|---|
 | `provision-vm.yml` | Clones the golden template, resolves a static IP through phpIPAM, reconfigures the clone, registers it with Katello, updates it, installs Podman and git, commits its `host_vars` file and rebalances. See [Provisioning a new fleet VM](#provisioning-a-new-fleet-vm). |
 | `decommission-vm.yml` | The reverse: final safety backup, Katello and phpIPAM cleanup, destruction of the VM, removal of its `host_vars` file. See [Decommissioning a fleet VM](#decommissioning-a-fleet-vm). |
-| `remove-cloud-init.yml` | Removes cloud-init from the VMs that predate `provision-vm.yml`, converting their network to a persistent static profile. See [Removing cloud-init from a legacy VM](#removing-cloud-init-from-a-legacy-vm). |
 | `provision-semaphore-peer.yml` | Deploys Semaphore through Podman Quadlet onto a fresh peer VM, identically to the existing instance. |
 
 ### Service configuration
@@ -103,7 +102,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
   - **Proxmox**: `pve_placement` (where an evacuated VM goes), `pve_evacuate_host`, `pve_migrate_vm`, `pve_rebalance`, `pve_mesh`, `pve_corosync`, `pve_clone_vm`, `pve_destroy_vm`, `resolve_proxmox_api_host`.
   - **Backups**: `vzdump_backup`, `pcloud_backup_job`.
   - **Katello**: `katello_promote`, `katello_cv_retention`, `katello_register_host`, `katello_deregister_host`, `katello_repo_cleanup`.
-  - **Provisioning**: `provision_vm_reconnect`, `remove_cloud_init`, `semaphore_provision`, `phpipam_login`, `phpipam_next_ip`, `phpipam_remove_address`.
+  - **Provisioning**: `provision_vm_reconnect`, `semaphore_provision`, `phpipam_login`, `phpipam_next_ip`, `phpipam_remove_address`.
   - **Monitoring**: `node_exporter_install`, `smartctl_exporter_install`, `prometheus_target`.
   - **Compliance**: `openscap_scan`.
   - **Reporting**: `send_report` (shared HTML mail skeleton), `capture_start_time`, `capture_host_list`.
@@ -257,14 +256,6 @@ Not handled by the playbook, and needing a manual checklist once the containers 
 4. Remove its IP from phpIPAM (`phpipam_remove_address`), a no-op if already absent.
 5. Destroy the VM (`pve_destroy_vm`: graceful `qm shutdown`, confirm stopped, then `qm destroy --purge`).
 6. Remove `host_vars/<new_vm_name>.yml` and commit and push the deletion.
-
-### Removing cloud-init from a legacy VM
-
-`remove-cloud-init.yml` (`-e target_hosts=<hostname>`, default `adguard101,phpipam101,lpkat101,immich101,semaphore102,smb101`, `serial: 1`) is a one-time cleanup for VMs that predate the cloud-init-free golden template and still regenerate their SSH host key on every reboot. `semaphore102` and `smb101` are in the default list because the playbook is only ever run from `semaphore101`, the same non-self-reference reasoning as `update-semaphore-peer.yml`.
-
-Per host, in order: take a Proxmox snapshot (`ansible_cloudinit_removal`, distinct from the patching labels so it cannot collide with a concurrent run) and resolve the IP like `decommission-vm.yml`; capture the SSH host key fingerprint; convert the active NetworkManager connection to a persistent static profile (fire-and-forget, then `meta: reset_connection` and `wait_for_connection`, the same disruptive-change pattern as `provision_vm_reconnect`); remove the `cloud-init` and `cloud-utils-growpart` packages; remove the VM's cloud-init drive from its Proxmox config, delegated to the VM's actual node because raw `qm` commands, unlike `pvesh`, are not cluster-aware; run a real `qm shutdown` and `qm start` cycle, since a soft reboot does not cycle QEMU and never applies the pending drive removal; assert that the SSH host key fingerprint is identical to before and that the NetworkManager connection is still `manual`; run the host's `health_check`; and remove the snapshot only once all of that passes.
-
-Each host is wrapped in a `block`/`rescue` that records the reason and calls `meta: end_play`, stopping before the next host but still reaching the report, the same posture as `pve-updates.yml`. A snapshot left behind after a failure is the rollback path. Run against one host at a time first, and not on `adguard101` (LAN DNS) or `lpkat101` (every Katello registration depends on it) as the first test.
 
 ### Configuring BunkerWeb
 
