@@ -47,9 +47,15 @@
     state: enabled
   become: true
 
+- name: Look up the interface that carries the default route
+  ansible.builtin.setup:
+    gather_subset: network
+    filter: ansible_default_ipv4
+
 # Thread and Matter devices are reached through routes that border routers announce in router
 # advertisements, which the CIS profile would have the host ignore. The file name sorts after the
-# net_ipv6_* files the profile writes, so these values win.
+# net_ipv6_* files the profile writes, so these values win. An interface keeps the values it was
+# created with, so the interface is named as well: writing "all" or "default" never reaches it.
 - name: Accept the routes that Thread border routers announce
   ansible.builtin.copy:
     dest: /etc/sysctl.d/zz-homeassistant.conf
@@ -59,8 +65,10 @@
     content: |
       net.ipv6.conf.all.accept_ra = 2
       net.ipv6.conf.default.accept_ra = 2
+      net.ipv6.conf.{{ ansible_facts['default_ipv4']['interface'] }}.accept_ra = 2
       net.ipv6.conf.all.accept_ra_rt_info_max_plen = 64
       net.ipv6.conf.default.accept_ra_rt_info_max_plen = 64
+      net.ipv6.conf.{{ ansible_facts['default_ipv4']['interface'] }}.accept_ra_rt_info_max_plen = 64
   become: true
   register: homeassistant_sysctl_result
 
