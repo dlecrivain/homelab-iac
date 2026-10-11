@@ -3,7 +3,7 @@
 #
 #   semaphore-ctl templates
 #   semaphore-ctl recent [N]
-#   semaphore-ctl run <template-id> [--args '<json array>'] [--why '<text>']
+#   semaphore-ctl run <template-id> [--var name=value]... [--args '<json array>'] [--why '<text>']
 #   semaphore-ctl status <task-id>
 #   semaphore-ctl wait <task-id> [timeout-seconds]
 #   semaphore-ctl log <task-id> [--errors | --tail N]
@@ -63,9 +63,10 @@ for t in sorted(json.load(sys.stdin), key=lambda t: t["id"], reverse=True)[: int
 
 cmd_run() {
   local id=${1:?template id required}; shift
-  local args="" why="started by semaphore-ctl"
+  local args="" why="started by semaphore-ctl" vars=()
   while [ $# -gt 0 ]; do
     case "$1" in
+      --var)  [[ ${2:?} =~ ^[A-Za-z_][A-Za-z0-9_]*=. ]] || die "--var expects name=value"; vars+=("$2"); shift 2 ;;
       --args) args=${2:?}; shift 2 ;;
       --why)  why=${2:?};  shift 2 ;;
       *) die "unknown option $1" ;;
@@ -74,14 +75,17 @@ cmd_run() {
   [[ $id =~ ^[0-9]+$ ]] || die "template id must be a number"
   allowed_ids | grep -qx "$id" || die "template $id is not in $ALLOW_FILE - refusing to start it"
   local body
+  # A template's survey variables travel as the task's extra variables: a JSON object inside a string.
   body=$(ID="$id" ARGS="$args" WHY="$why" python3 -c '
-import json, os
+import json, os, sys
 b = {"template_id": int(os.environ["ID"]), "message": os.environ["WHY"]}
 if os.environ["ARGS"]:
     json.loads(os.environ["ARGS"])
     b["arguments"] = os.environ["ARGS"]
+if len(sys.argv) > 1:
+    b["environment"] = json.dumps(dict(v.split("=", 1) for v in sys.argv[1:]))
 print(json.dumps(b))
-')
+' "${vars[@]}")
   api POST "/api/project/$SEMAPHORE_PROJECT/tasks" "$body" | python3 -c '
 import json, sys
 t = json.load(sys.stdin)

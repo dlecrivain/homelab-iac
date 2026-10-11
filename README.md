@@ -318,7 +318,7 @@ The kickstart installs the packages the profile wants and removes those it forbi
 
 ### Operating Semaphore from a terminal
 
-`scripts/semaphore-ctl` is a small client for the Semaphore API: it lists templates and recent tasks, starts a task, waits for it, and reads its log, or just the lines around its errors (`log <task> --errors`). It is meant for an operator or an assistant working from a terminal on an account that has the Task Runner role, which can start and read tasks but not edit templates.
+`scripts/semaphore-ctl` is a small client for the Semaphore API: it lists templates and recent tasks, starts a task (`run <template> --var name=value` fills in a survey variable such as `new_vm_name`), waits for it, and reads its log, or just the lines around its errors (`log <task> --errors`). It is meant for an operator or an assistant working from a terminal on an account that has the Task Runner role, which can start and read tasks but not edit templates.
 
 The API token is read from a file that must not be readable by anyone else (`~/.config/semaphore/semaphore101.token`) and is passed to `curl` through a configuration descriptor, so it never appears on a command line. Starting a task is limited to the template ids listed in `~/.config/semaphore/allowed-templates`, one per line; with no such file nothing can be started, while reading stays available.
 
