@@ -1,0 +1,22 @@
+[Unit]
+Description=Home Assistant
+Wants=network-online.target
+After=network-online.target matter-server.service
+
+[Container]
+ContainerName=homeassistant
+Image=docker.io/homeassistant/home-assistant:{{ homeassistant_version }}
+# Host networking: device discovery (mDNS, SSDP, DHCP) and the HomeKit bridge need the LAN itself.
+Network=host
+Volume=homeassistant_config.volume:/config:Z
+# Raw sockets, which Podman drops by default: DHCP discovery of new devices and the ping integration.
+AddCapability=NET_RAW
+Environment=TZ={{ homeassistant_timezone }}
+
+[Service]
+Restart=always
+# The first start pulls an image of about 1 GB before Home Assistant itself starts.
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target

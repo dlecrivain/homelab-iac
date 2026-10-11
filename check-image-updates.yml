@@ -109,7 +109,7 @@
       when: image_update_bump_result.changed | default(false)
 
 - name: Check whether each watched image's live container has caught up to its target version yet
-  hosts: "{{ prometheus_host | default('prometheus101') }},{{ grafana_host | default('grafana102') }},{{ phpipam_host | default('phpipam101') }},bunkerweb101,adguard101"
+  hosts: "{{ prometheus_host | default('prometheus101') }},{{ grafana_host | default('grafana102') }},{{ phpipam_host | default('phpipam101') }},{{ homeassistant_host | default('homeassistant101') }},bunkerweb101,adguard101"
   gather_facts: false
   tasks:
     - name: Capture the full list of targeted hosts (for the aggregation play below)

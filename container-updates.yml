@@ -145,6 +145,14 @@
             - not (snapshot_already_exists | default(false))
             - inventory_hostname == (grafana_host | default('grafana102'))
 
+        - name: "Step 2.5 (the Home Assistant host only) - Re-render the Home Assistant and Matter Server Quadlets first, same reason as above"
+          include_role:
+            name: homeassistant_configure
+          when:
+            - podman_units is defined
+            - not (snapshot_already_exists | default(false))
+            - inventory_hostname == (homeassistant_host | default('homeassistant101'))
+
         - name: "Step 2.5 (phpipam101 only) - Re-render the phpIPAM Quadlets first, same reason as above"
           include_role:
             name: phpipam_configure
@@ -278,6 +286,7 @@
           {{
             (['prometheus', 'alertmanager'] if (hostvars[prometheus_host | default('prometheus101')].prometheus_config_changed | default(false)) else [])
             + (['grafana'] if (hostvars[grafana_host | default('grafana102')].grafana_config_changed | default(false)) else [])
+            + (['homeassistant', 'matter-server'] if (hostvars[homeassistant_host | default('homeassistant101')].homeassistant_config_changed | default(false)) else [])
             + (['phpipam-web', 'phpipam-cron'] if (hostvars[phpipam_host | default('phpipam101')].phpipam_config_changed | default(false)) else [])
             + (['bunkerweb-aio'] if (hostvars['bunkerweb101'].bunkerweb_config_changed | default(false)) else [])
             + (['adguardhome'] if (hostvars['adguard101'].adguard_config_changed | default(false)) else [])

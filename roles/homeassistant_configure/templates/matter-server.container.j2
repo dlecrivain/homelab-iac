@@ -1,0 +1,21 @@
+[Unit]
+Description=Matter Server for Home Assistant
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+ContainerName=matter-server
+Image=ghcr.io/matter-js/matterjs-server:{{ matter_server_version }}
+Network=host
+Volume=matter_server_data.volume:/data:Z
+Environment=TZ={{ homeassistant_timezone }}
+# Home Assistant runs on the same host and reaches the server at ws://localhost:5580/ws.
+Environment=LISTEN_ADDRESS=127.0.0.1
+Environment=LOG_LEVEL=info
+
+[Service]
+Restart=always
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

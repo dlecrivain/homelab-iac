@@ -65,6 +65,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 | `configure-adguard.yml` | Deploys the AdGuard Home Quadlet on `adguard101`. |
 | `configure-phpipam.yml` | Deploys the phpIPAM stack (MariaDB, web, cron) on `phpipam101`. |
 | `configure-immich.yml` | Deploys Immich's four Quadlet units on `immich101` from `immich_version`. |
+| `configure-homeassistant.yml` | Deploys Home Assistant and the Matter Server as Quadlet units on `homeassistant_host` (`homeassistant101`) from `homeassistant_version` and `matter_server_version`. See [Home Assistant](#home-assistant). |
 | `configure-prometheus.yml` | Deploys Prometheus, Alertmanager and the PVE exporter on `prometheus101`. |
 | `configure-grafana.yml` | Deploys Grafana on `grafana_host` with its datasource and dashboards. |
 | `configure-monitoring.yml` | Installs `node_exporter` and `smartctl_exporter` and registers every VM and node with Prometheus. Safe to re-run, and the way a new exporter version reaches the hosts. See [Monitoring](#monitoring). |
@@ -98,7 +99,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 - `tasks/`: task files shared by several playbooks: `commit_and_push.yml` (every playbook that commits back to this repository) and `check_unit_for_update.yml` (the read-only scan in `check-image-updates.yml`).
 - `roles/`, by area:
   - **Patching**: `check_updates`, `apply_updates`, `reboot_and_wait`, `health_check`, `host_status`, `proxmox_snapshot`, `cleanup_snapshot`.
-  - **Containers**: `podman_update` (pull and restart a Quadlet unit), `podman_align_image` (force an exact image digest), `image_retention` (keep the two most recent images per repository), and one `*_configure` role per service (`bunkerweb`, `adguard`, `phpipam`, `immich`, `prometheus`, `prometheus_pve_exporter`, `grafana`).
+  - **Containers**: `podman_update` (pull and restart a Quadlet unit), `podman_align_image` (force an exact image digest), `image_retention` (keep the two most recent images per repository), and one `*_configure` role per service (`bunkerweb`, `adguard`, `phpipam`, `immich`, `homeassistant`, `prometheus`, `prometheus_pve_exporter`, `grafana`).
   - **Proxmox**: `pve_placement` (where an evacuated VM goes), `pve_evacuate_host`, `pve_migrate_vm`, `pve_rebalance`, `pve_mesh`, `pve_corosync`, `pve_clone_vm`, `pve_destroy_vm`, `resolve_proxmox_api_host`.
   - **Backups**: `vzdump_backup`, `pcloud_backup_job`.
   - **Katello**: `katello_promote`, `katello_cv_retention`, `katello_register_host`, `katello_deregister_host`, `katello_repo_cleanup`.
@@ -294,6 +295,15 @@ Two dedicated VMs run it: `prometheus101` (Prometheus, Alertmanager and `prometh
 - The Proxmox dashboard's storage legend shows `{{node}} - {{storage}}`, so `nvme_data` is distinguishable across the three nodes.
 
 **Known limitations.** The smartctl dashboard aggregates across nodes when "All" is selected in the instance picker, because showing each node separately would mean vendoring the dashboard and rewriting about 24 panel queries, and losing automatic upstream updates. The Proxmox dashboard has no per-node instance picker, since one exporter covers the cluster and its `instance` label is always `pve-exporter:9221`; per-node dimensions come from the `name`, `node` and `id` labels. Proxmox's own `pve-firewall`, distinct from the `firewalld` through which `node_exporter_install` opens `9100/tcp`, is not configured here: if it is enabled on the nodes, ports `9100` and `9633` need opening there too.
+
+### Home Assistant
+
+`homeassistant101` runs Home Assistant Container and the Matter Server (the matter.js server that the Home Assistant Matter Server add-on is built on) as two rootful Quadlet units with host networking, deployed by `homeassistant_configure`. Home Assistant OS, which it replaces, cannot be managed by this repository: its host has no `dnf`, Podman, Katello agent or SSH, so a VM named in `proxmox_all_qemu` would have had to be excluded from most playbooks. The VM is built from the hardened template like the others and the usual policies apply to it:
+
+- **Images**: `homeassistant_version` and `matter_server_version` are pinned in `group_vars/all.yml`. `check-image-updates.yml` watches Home Assistant on Docker Hub and the Matter Server on ghcr.io (`ghcr_repo` in `image_update_watch_list`), bumps within a major line (for Home Assistant the year, so a new year is only reported), and `container-updates.yml` applies the bump after a VM snapshot like for every other container.
+- **OS and backups**: `vm-updates.yml` patches it and `vm-backups.yml` backs the whole VM up to pCloud. Home Assistant Container has no backup feature of its own, so the VM backup is the backup.
+- **Network**: host networking is needed for device discovery and the HomeKit bridge. Firewalld trusts the local network as a whole, because discovery replies and device events come from addresses the stateful firewall has never seen it contact, and nothing outside it. The Matter Server listens on `127.0.0.1` only.
+- **CIS**: Thread and Matter devices are reached through routes that border routers announce in router advertisements, so `roles/homeassistant_configure` sets `accept_ra` to 2 and the two matching rules are waived for this host in `host_vars/homeassistant101.yml`.
 
 ### Compliance scanning
 

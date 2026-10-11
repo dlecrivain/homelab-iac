@@ -1,0 +1,99 @@
+---
+- name: Ensure /etc/containers/systemd exists
+  ansible.builtin.file:
+    path: /etc/containers/systemd
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Deploy the data volume Quadlets
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/containers/systemd/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  loop:
+    - homeassistant_config.volume
+    - matter_server_data.volume
+  register: homeassistant_volume_result
+
+# Templated, not static files, so check-image-updates.yml's version bump has something to change.
+- name: Deploy the Home Assistant and Matter Server Quadlet units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/containers/systemd/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  loop:
+    - matter-server.container
+    - homeassistant.container
+  register: homeassistant_quadlet_result
+
+# The devices Home Assistant talks to answer from addresses a stateful firewall has not seen it contact:
+# the replies to multicast discovery (mDNS, SSDP), the events Shelly devices send, the HomeKit clients.
+# The LAN is therefore trusted as a whole, and nothing else is.
+- name: Trust the local network
+  ansible.posix.firewalld:
+    source: "{{ phpipam_subnet_cidr }}"
+    zone: trusted
+    permanent: true
+    immediate: true
+    state: enabled
+  become: true
+
+# Thread and Matter devices are reached through routes that border routers announce in router
+# advertisements, which the CIS profile would have the host ignore. The file name sorts after the
+# net_ipv6_* files the profile writes, so these values win.
+- name: Accept the routes that Thread border routers announce
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/zz-homeassistant.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      net.ipv6.conf.all.accept_ra = 2
+      net.ipv6.conf.default.accept_ra = 2
+      net.ipv6.conf.all.accept_ra_rt_info_max_plen = 64
+      net.ipv6.conf.default.accept_ra_rt_info_max_plen = 64
+  become: true
+  register: homeassistant_sysctl_result
+
+- name: Apply the sysctl settings
+  ansible.builtin.command: sysctl --system
+  become: true
+  changed_when: false
+  when: homeassistant_sysctl_result is changed
+
+# Named like the other *_configure roles: container-updates.yml's report reads this to know that a
+# Step 2.5 re-render already updated the containers.
+- name: Determine whether anything actually changed
+  ansible.builtin.set_fact:
+    homeassistant_config_changed: >-
+      {{
+        homeassistant_volume_result is changed
+        or homeassistant_quadlet_result is changed
+      }}
+
+- name: Reload systemd to pick up the units
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
+  when: homeassistant_config_changed
+
+# Matter first: Home Assistant's Matter integration connects to it when it starts.
+- name: Restart the Matter Server and Home Assistant
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: restarted
+    enabled: true
+  become: true
+  loop:
+    - matter-server.service
+    - homeassistant.service
+  when: homeassistant_config_changed
