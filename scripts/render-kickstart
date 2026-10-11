@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""Renders the golden template's kickstart and its CIS tailoring file into kickstart/build/.
+
+    scripts/render-kickstart
+
+Secrets and keys come from kickstart/local.yml, which git ignores (see local.example.yml). The
+network settings are the ones provision-vm.yml expects of a fresh clone, read from group_vars/all.yml.
+
+It writes kickstart/build/rocky10-cis.ks, the tailoring file, and ks.iso: a CD-ROM image labelled
+OEMDRV that holds the kickstart as ks.cfg. Anaconda reads a ks.cfg from a volume with that label by
+itself, so the installer needs neither a boot argument nor a network to find it. Attach ks.iso as a
+second CD-ROM next to the Rocky Linux ISO. Building it needs bsdtar.
+"""
+import ipaddress
+import pathlib
+import shutil
+import subprocess
+import sys
+import tempfile
+from xml.sax.saxutils import escape
+
+import jinja2
+import yaml
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+KICKSTART = ROOT / "kickstart"
+BUILD = KICKSTART / "build"
+
+DEFAULTS = {
+    "baseos_url": "https://dl.rockylinux.org/pub/rocky/10/BaseOS/x86_64/os/",
+    "appstream_url": "https://dl.rockylinux.org/pub/rocky/10/AppStream/x86_64/os/",
+    "audit_retention_days": 180,
+}
+DATASTREAM = "/usr/share/xml/scap/ssg/content/ssg-rl10-ds.xml"
+RULE_PREFIX = "xccdf_org.ssgproject.content_rule_"
+PROFILE_PREFIX = "xccdf_org.ssgproject.content_profile_"
+
+
+def load(path):
+    return yaml.safe_load(path.read_text()) or {}
+
+
+def tailoring_xml(waivers):
+    selects = "\n".join(
+        f'    <xccdf-1.2:select idref="{RULE_PREFIX}{rule}" selected="false"/>'
+        f"  <!-- {escape(reason)} -->"
+        for rule, reason in waivers["waived_rules"].items()
+    )
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<xccdf-1.2:Tailoring xmlns:xccdf-1.2="http://checklists.nist.gov/xccdf/1.2" id="xccdf_org.ssgproject.content_tailoring_{waivers['profile_id']}">
+  <xccdf-1.2:benchmark href="{DATASTREAM}"/>
+  <xccdf-1.2:version time="2026-01-01T00:00:00">1</xccdf-1.2:version>
+  <xccdf-1.2:Profile id="{PROFILE_PREFIX}{waivers['profile_id']}" extends="{PROFILE_PREFIX}cis">
+    <xccdf-1.2:title>{escape(waivers['title'])}</xccdf-1.2:title>
+    <xccdf-1.2:description>{escape(waivers['title'])}. The rules left out are listed, with the reason, in kickstart/cis-waivers.yml.</xccdf-1.2:description>
+{selects}
+  </xccdf-1.2:Profile>
+</xccdf-1.2:Tailoring>"""
+
+
+def render():
+    local_path = KICKSTART / "local.yml"
+    if not local_path.exists():
+        sys.exit("kickstart/local.yml is missing: copy kickstart/local.example.yml to it and fill it in")
+    local = load(local_path)
+    missing = [k for k in ("root_password_hash", "grub_password_hash") if not local.get(k)]
+    if missing or not local.get("deploy_ssh_keys"):
+        sys.exit("kickstart/local.yml must set " + ", ".join(missing + ([] if local.get("deploy_ssh_keys") else ["deploy_ssh_keys"])))
+
+    group_vars = load(ROOT / "group_vars" / "all.yml")
+    waivers = load(KICKSTART / "cis-waivers.yml")
+    variables = {
+        **DEFAULTS,
+        **local,
+        "template_ip": group_vars["provision_template_ip"],
+        "network_prefix": group_vars["fleet_network_prefix"],
+        "network_netmask": str(ipaddress.ip_network(f"0.0.0.0/{group_vars['fleet_network_prefix']}").netmask),
+        "network_gateway": group_vars["fleet_network_gateway"],
+        "network_dns": group_vars["fleet_network_dns_servers"],
+        "profile_id": waivers["profile_id"],
+        "tailoring_xml": tailoring_xml(waivers),
+    }
+    env = jinja2.Environment(undefined=jinja2.StrictUndefined, keep_trailing_newline=True, trim_blocks=True)
+    kickstart = env.from_string((KICKSTART / "rocky10-cis.ks.j2").read_text()).render(**variables)
+
+    BUILD.mkdir(exist_ok=True)
+    (BUILD / "rocky10-cis.ks").write_text(kickstart)
+    (BUILD / "cis-tailoring.xml").write_text(variables["tailoring_xml"] + "\n")
+    print(f"rendered {BUILD / 'rocky10-cis.ks'} and {BUILD / 'cis-tailoring.xml'}")
+    build_iso(kickstart)
+
+
+def build_iso(kickstart):
+    if not shutil.which("bsdtar"):
+        print("bsdtar not found: ks.iso not built (any tool that writes an ISO 9660 image labelled OEMDRV holding ks.cfg will do)")
+        return
+    with tempfile.TemporaryDirectory() as staging:
+        (pathlib.Path(staging) / "ks.cfg").write_text(kickstart)
+        subprocess.run(["bsdtar", "-cf", str(BUILD / "ks.iso"), "--format=iso9660", "--options", "iso9660:volume-id=OEMDRV",
+                        "-C", staging, "ks.cfg"], check=True)
+    print(f"built {BUILD / 'ks.iso'} (volume label OEMDRV)")
+
+
+if __name__ == "__main__":
+    render()

@@ -1,0 +1,258 @@
+# Rocky Linux 10 golden template for the fleet: CIS Level 2 - Server layout and hardening.
+#
+# Rendered by scripts/render-kickstart (secrets and keys come from kickstart/local.yml) and given to
+# the installer on a CD-ROM labelled OEMDRV. See "Building the golden template" in the README.
+#
+# What happens, in order:
+#   1. This file installs the system: the partitions, packages, services and boot arguments the
+#      CIS profile asks for at install time, the deploy user and its keys, and a static network
+#      profile that is not bound to an interface or a MAC address.
+#   2. On its first boot the template generates the remediation script for the tailored profile
+#      from the SCAP Security Guide content, runs it, scans itself and reboots once.
+#   3. kickstart/cis-waivers.yml lists the rules that are left out of that profile, and why.
+
+text
+reboot
+
+lang en_IE.UTF-8
+keyboard --vckeymap=fr-oss --xlayouts='fr (oss)'
+timezone Europe/Paris --utc
+
+url --url={{ baseos_url }}
+repo --name=AppStream --baseurl={{ appstream_url }}
+
+network --bootproto=static --device=link --ip={{ template_ip }} --netmask={{ network_netmask }} --gateway={{ network_gateway }} --nameserver={{ network_dns }} --onboot=yes --noipv6 --hostname=rocky10-template
+
+rootpw --iscrypted {{ root_password_hash }}
+user --name=deploy --groups=wheel --shell=/bin/bash --gecos="Ansible deploy user" --lock
+
+selinux --enforcing
+firewall --enabled --service=ssh
+firstboot --disable
+
+services --enabled=auditd,chronyd,crond,firewalld,NetworkManager,qemu-guest-agent,sshd,systemd-journald
+services --disabled=autofs,avahi-daemon,bluetooth,cockpit.socket,cups,dnsmasq,nfs-server,rpcbind
+
+%addon com_redhat_kdump --disable
+%end
+
+# Plain LVM, no thin pool, on a 64 GB disk. The volume group keeps about 15 % of the disk free, so
+# growing a volume later is one lvextend -r, and a bigger disk only needs pvresize first.
+ignoredisk --only-use=sda
+zerombr
+clearpart --all --initlabel --drives=sda
+bootloader --location=mbr --boot-drive=sda --append="audit=1 audit_backlog_limit=8192" --iscrypted --password={{ grub_password_hash }}
+
+part /boot/efi --fstype=efi --size=600 --fsoptions="umask=0077,shortname=winnt"
+part /boot --fstype=xfs --size=1024
+part pv.01 --fstype=lvmpv --size=1 --grow
+volgroup vg_system --pesize=4096 pv.01
+
+logvol swap --vgname=vg_system --name=lv_swap --fstype=swap --size=4096
+logvol /               --vgname=vg_system --name=lv_root          --fstype=xfs --size=8192
+logvol /home           --vgname=vg_system --name=lv_home          --fstype=xfs --size=2048  --fsoptions="nodev,nosuid"
+logvol /tmp            --vgname=vg_system --name=lv_tmp           --fstype=xfs --size=2048  --fsoptions="nodev,nosuid,noexec"
+logvol /var            --vgname=vg_system --name=lv_var           --fstype=xfs --size=20480 --fsoptions="nodev,nosuid"
+logvol /var/tmp        --vgname=vg_system --name=lv_var_tmp       --fstype=xfs --size=2048  --fsoptions="nodev,nosuid,noexec"
+logvol /var/log        --vgname=vg_system --name=lv_var_log       --fstype=xfs --size=4096  --fsoptions="nodev,nosuid,noexec"
+logvol /var/log/audit  --vgname=vg_system --name=lv_var_log_audit --fstype=xfs --size=10240  --fsoptions="nodev,nosuid,noexec"
+
+%packages
+@^minimal-environment
+# Fleet baseline: ansible needs python3, Katello registration needs subscription-manager.
+python3
+qemu-guest-agent
+chrony
+sudo
+openssh-server
+NetworkManager
+firewalld
+subscription-manager
+# The first-boot remediation and the monthly scan run oscap with this content.
+openscap-scanner
+scap-security-guide
+# Installed by the CIS profile.
+aide
+audit
+audit-libs
+cronie
+libselinux
+libpwquality
+postfix
+sequoia-sq
+systemd-journal-remote
+# Removed by the CIS profile.
+-bind
+-cyrus-imapd
+-dovecot
+-ftp
+-gdm
+-httpd
+-kea
+-mcstrans
+-net-snmp
+-nginx
+-openldap-clients
+-rsync-daemon
+-samba
+-setroubleshoot
+-squid
+-telnet
+-telnet-server
+-tftp
+-tftp-server
+-vsftpd
+-xorg-x11-server-Xwayland
+# Not used on a VM, or replaced: journald is the only logger, cloud-init is gone from the fleet.
+-rsyslog
+-cloud-init
+-cockpit
+-sssd
+-tuned
+-irqbalance
+-kexec-tools
+%end
+
+%post --log=/var/log/ks-post.log
+set -eu
+
+# --- deploy user: sudo without a password, ssh for this user only --------------------------------
+cat > /etc/sudoers.d/90-deploy <<'EOS'
+deploy ALL=(ALL) NOPASSWD:ALL
+EOS
+chmod 0440 /etc/sudoers.d/90-deploy
+visudo -cf /etc/sudoers.d/90-deploy
+chmod 0750 /home/deploy
+
+# A kickstart accepts a single sshkey line per user, so all the keys are written here.
+install -d -m 0700 -o deploy -g deploy /home/deploy/.ssh
+cat > /home/deploy/.ssh/authorized_keys <<'EOS'
+{% for key in deploy_ssh_keys %}
+{{ key }}
+{% endfor %}
+EOS
+chown deploy:deploy /home/deploy/.ssh/authorized_keys
+chmod 0600 /home/deploy/.ssh/authorized_keys
+
+cat > /etc/ssh/sshd_config.d/00-fleet.conf <<'EOS'
+AllowUsers deploy
+EOS
+chmod 0600 /etc/ssh/sshd_config.d/00-fleet.conf
+
+# --- network: one static profile matched by device type, not by interface name or MAC address ------
+# Every clone gets a new MAC address and may get another interface name. provision-vm.yml changes
+# the address of the active profile, and the highest priority makes this the first one it finds.
+rm -f /etc/NetworkManager/system-connections/*.nmconnection
+cat > /etc/NetworkManager/system-connections/eth0-static.nmconnection <<'EOS'
+[connection]
+id=eth0-static
+type=ethernet
+autoconnect-priority=120
+
+[ethernet]
+
+[ipv4]
+method=manual
+address1={{ template_ip }}/{{ network_prefix }},{{ network_gateway }}
+dns={{ network_dns }};
+may-fail=false
+
+[ipv6]
+method=ignore
+EOS
+chmod 0600 /etc/NetworkManager/system-connections/eth0-static.nmconnection
+
+# --- password aging: an account with a password and no last-change date fails the CIS profile -------
+chage -d "$(date -u -d yesterday +%F)" root
+# deploy has no password until the template is sealed, but it will get one: its minimum age is set now so
+# the CIS rule for existing passwords holds then. Its maximum age stays unlimited (see cis-waivers.yml).
+chage -m 1 deploy
+
+# --- /dev/shm: the CIS profile wants it configured with nodev, nosuid and noexec ------------------
+grep -q '^tmpfs[[:space:]]\+/dev/shm' /etc/fstab || \
+  echo 'tmpfs /dev/shm tmpfs defaults,nodev,nosuid,noexec 0 0' >> /etc/fstab
+
+# --- AIDE: container storage changes constantly and would make every daily check noisy and slow ---
+echo '!/var/lib/containers' >> /etc/aide.conf
+
+# --- audit: keep_logs never deletes a rotated log, so retention is applied here ---------------------
+cat > /etc/cron.daily/audit-log-retention <<'EOS'
+#!/bin/sh
+find /var/log/audit -name 'audit.log.*' -mtime +{{ audit_retention_days }} -delete
+EOS
+chmod 0700 /etc/cron.daily/audit-log-retention
+
+# --- CIS remediation, applied once on the first boot --------------------------------------------------
+mkdir -p /etc/cis /var/lib/cis
+cat > /etc/cis/tailoring.xml <<'EOS'
+{{ tailoring_xml }}
+EOS
+
+cat > /usr/local/sbin/cis-remediate <<'EOS'
+#!/bin/bash
+# Applies the tailored CIS profile once, then scans, then reboots. Safe to run again by hand: it
+# only starts from the unit when /var/lib/cis/done does not exist.
+set -u
+DATASTREAM=/usr/share/xml/scap/ssg/content/ssg-rl10-ds.xml
+TAILORING=/etc/cis/tailoring.xml
+PROFILE=xccdf_org.ssgproject.content_profile_{{ profile_id }}
+WORK=/var/lib/cis
+exec >> /var/log/cis-remediate.log 2>&1
+
+echo "== $(date -Is) generating the remediation script"
+oscap xccdf generate fix --tailoring-file "$TAILORING" --profile "$PROFILE" \
+  --fix-type bash --output "$WORK/remediation.sh" "$DATASTREAM" || exit 1
+
+echo "== $(date -Is) applying it"
+bash "$WORK/remediation.sh"
+
+echo "== $(date -Is) scanning"
+oscap xccdf eval --tailoring-file "$TAILORING" --profile "$PROFILE" \
+  --results "$WORK/results.xml" --report "$WORK/report.html" "$DATASTREAM"
+
+rm -f /root/anaconda-ks.cfg /root/original-ks.cfg
+touch "$WORK/done"
+echo "== $(date -Is) done, rebooting"
+systemctl reboot
+EOS
+chmod 0750 /usr/local/sbin/cis-remediate
+
+cat > /etc/systemd/system/cis-remediate.service <<'EOS'
+[Unit]
+Description=Apply the CIS Level 2 profile once, on the first boot
+ConditionPathExists=!/var/lib/cis/done
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cis-remediate
+TimeoutStartSec=3600
+
+[Install]
+WantedBy=multi-user.target
+EOS
+systemctl enable cis-remediate.service
+
+# --- sealing: run it on the verified template, then convert the powered-off VM -----------------------
+cat > /usr/local/sbin/seal-template <<'EOS'
+#!/bin/bash
+# Leaves the template clean: every clone must get its own machine ID, and nothing from the build
+# (shell history, package caches, journal) should be inherited.
+set -eu
+dnf clean all
+rm -f /root/anaconda-ks.cfg /root/original-ks.cfg /root/.bash_history /home/deploy/.bash_history
+rm -rf /var/cache/dnf/* /var/tmp/* /tmp/*
+journalctl --rotate
+journalctl --vacuum-time=1s
+: > /etc/machine-id
+sync
+systemctl poweroff
+EOS
+chmod 0750 /usr/local/sbin/seal-template
+
+# The installer labels files with the policy of its own release, which is older than the packages it
+# installs from the mirror (a 10.1 ISO with the 10.2 repositories): sshd-session then keeps a generic
+# label, and no ssh session can start under SELinux. The first boot relabels everything with the
+# installed policy.
+touch /.autorelabel
+%end

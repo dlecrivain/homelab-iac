@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 .ansible/
+kickstart/local.yml
+kickstart/build/

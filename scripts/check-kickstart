@@ -1,0 +1,353 @@
+#!/usr/bin/env python3
+"""Checks that the rendered golden-template kickstart takes the whole CIS profile into account.
+
+    scripts/render-kickstart
+    scripts/check-kickstart --datastream ssg-rl10-ds.xml [--oscap /path/to/oscap] [--repoquery-host user@host]
+
+Every rule of the profile that scripts/render-kickstart tailors must be handled by exactly one
+mechanism, and this script fails when one is handled by none:
+
+  - waived              listed with its reason in kickstart/cis-waivers.yml
+  - kickstart           the install-time fragment the SCAP Security Guide gives for the rule
+                        (packages, services, partitions, boot arguments) is in the kickstart
+  - mount options       each separate partition carries the options its mount_option_* rules ask for
+  - no automatic fix    the rule is explicitly accounted for below, as a kickstart assertion or as
+                        something a first scan verifies
+  - first-boot script   the remediation script that oscap generates for the tailored profile
+                        contains the rule (needs --oscap)
+
+It also checks the kickstart syntax (ksvalidator, from pykickstart), the invariants the fleet's own
+playbooks depend on, the shell and unit files the kickstart writes, and, with --repoquery-host, that
+every package it names exists in the repositories that host sees.
+
+The datastream is ssg-rl10-ds.xml from the scap-security-guide package; oscap comes from
+openscap-scanner. Both can be unpacked from the Rocky RPMs without installing them.
+"""
+import argparse
+import configparser
+import json
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import xml.etree.ElementTree as ET
+
+import yaml
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+BUILD = ROOT / "kickstart" / "build"
+RULE = "xccdf_org.ssgproject.content_rule_"
+PROFILE = "xccdf_org.ssgproject.content_profile_cis"
+DISK_MIB = 64 * 1024  # the template disk the kickstart is sized for
+MOUNTS = {"tmp": "/tmp", "var_tmp": "/var/tmp", "var_log": "/var/log", "var_log_audit": "/var/log/audit",
+          "home": "/home", "var": "/var", "dev_shm": "/dev/shm"}
+
+results = []
+
+
+def check(ok, title, detail=""):
+    results.append(("PASS" if ok else "FAIL", title, detail))
+
+
+def warn(title, detail=""):
+    results.append(("WARN", title, detail))
+
+
+def skip(title, detail=""):
+    results.append(("SKIP", title, detail))
+
+
+def local(tag):
+    return tag.rsplit("}", 1)[-1]
+
+
+# --- the kickstart ------------------------------------------------------------------------------------
+def sections(text):
+    head, packages, post = [], [], []
+    current = head
+    for line in text.splitlines():
+        if line.startswith("%packages"):
+            current = packages
+        elif line.startswith("%post"):
+            current = post
+        elif line.strip() == "%end":
+            current = head
+        else:
+            current.append(line)
+    return head, packages, post
+
+
+def parse_kickstart(text):
+    head, packages, post = sections(text)
+    ks = {"head": head, "post": "\n".join(post), "post_lines": post}
+    ks["logvols"] = {}
+    for line in head:
+        m = re.match(r"logvol\s+(\S+)\s+(.*)", line)
+        if m:
+            opts = dict(re.findall(r"--(\w[\w-]*)=(\"[^\"]*\"|\S+)", m.group(2)))
+            ks["logvols"][m.group(1)] = {k: v.strip('"') for k, v in opts.items()}
+    pk = [p.strip() for p in packages if p.strip() and not p.startswith("#")]
+    ks["install"] = {p for p in pk if not p.startswith("-") and not p.startswith("@")}
+    ks["remove"] = {p[1:] for p in pk if p.startswith("-")}
+    ks["groups"] = {p for p in pk if p.startswith("@")}
+    ks["enabled"] = set(",".join(re.findall(r"services --enabled=(\S+)", "\n".join(head))).split(","))
+    ks["disabled"] = set(",".join(re.findall(r"services --disabled=(\S+)", "\n".join(head))).split(","))
+    ks["bootloader"] = next((l for l in head if l.startswith("bootloader")), "")
+    ks["rootpw"] = next((l for l in head if l.startswith("rootpw")), "")
+    return ks
+
+
+def heredoc(post, path):
+    m = re.search(r"cat > " + re.escape(path) + r" <<'(\w+)'\n(.*?)\n\1\n", post, re.S)
+    return m.group(2) if m else None
+
+
+# --- the profile ----------------------------------------------------------------------------------------
+def read_profile(datastream):
+    selected, rules = set(), {}
+    for _, el in ET.iterparse(datastream, events=("end",)):
+        name = local(el.tag)
+        if name == "Profile" and el.get("id") == PROFILE:
+            selected = {c.get("idref")[len(RULE):] for c in el
+                        if local(c.tag) == "select" and c.get("selected") == "true" and c.get("idref", "").startswith(RULE)}
+        elif name == "Rule":
+            fixes = {}
+            for f in el:
+                if local(f.tag) == "fix":
+                    fixes[f.get("system").rsplit(":", 1)[-1]] = "".join(f.itertext()).strip()
+            rules[el.get("id")[len(RULE):]] = fixes
+            el.clear()
+    return selected, rules
+
+
+# What accounts for the rules that have no automatic fix. A callable asserts it in the kickstart;
+# the string "scan" means it is true on a fresh install and the first scan is what verifies it.
+def no_fix_handlers(ks, waivers):
+    post = ks["post"]
+    sshd = heredoc(post, "/etc/ssh/sshd_config.d/00-fleet.conf") or ""
+    return {
+        "partition_for_dev_shm": lambda: re.search(r"tmpfs\s+/dev/shm\s+tmpfs\s+\S*noexec", post) is not None,
+        "grub2_password": lambda: "--iscrypted" in ks["bootloader"] and "--password=" in ks["bootloader"],
+        "ensure_root_password_configured": lambda: "--iscrypted" in ks["rootpw"],
+        "sshd_limit_user_access": lambda: re.search(r"^AllowUsers\s+deploy\s*$", sshd, re.M) is not None,
+        "ensure_journald_and_rsyslog_not_active_together": lambda: "rsyslog" in ks["remove"],
+        "has_nonlocal_mta": lambda: "postfix" in ks["install"],
+        "account_unique_id": "scan", "account_unique_name": "scan", "accounts_password_all_shadowed": "scan",
+        "accounts_password_last_change_is_in_past": lambda: re.search(r"^chage -d .* root$", post, re.M) is not None, "accounts_password_pam_unix_enabled": "scan",
+        "accounts_root_gid_zero": "scan", "gid_passwd_group_same": "scan", "group_unique_id": "scan",
+        "group_unique_name": "scan", "groups_no_zero_gid_except_root": "scan", "no_forward_files": "scan",
+        "no_invalid_shell_accounts_unlocked": "scan", "no_netrc_files": "scan", "no_rhost_files": "scan",
+        "root_path_no_dot": "scan",
+        "no_files_or_dirs_ungroupowned": lambda: "no_files_or_dirs_ungroupowned" in waivers["waived_rules"],
+        "no_files_or_dirs_unowned_by_user": lambda: "no_files_or_dirs_unowned_by_user" in waivers["waived_rules"],
+    }
+
+
+def check_profile(ks, waivers, selected, rules, oscap, tailoring, datastream):
+    waived = set(waivers["waived_rules"])
+    check(waived <= selected, "every waived rule is a rule of the profile", ", ".join(sorted(waived - selected)))
+    check(all(r.strip() for r in waivers["waived_rules"].values()), "every waived rule has a reason")
+    active = selected - waived
+    handled = {"waived": waived}
+
+    # install-time fragments
+    kickstart_rules, problems = set(), []
+    for rule in sorted(active):
+        fragment = rules.get(rule, {}).get("kickstart")
+        if not fragment:
+            continue
+        kickstart_rules.add(rule)
+        kind, _, arg = fragment.partition(" ")
+        if kind == "package":
+            action, _, name = arg.partition(" ")
+            if action == "install" and name not in ks["install"]:
+                problems.append(f"{rule}: {name} is not installed")
+            if action == "remove" and name not in ks["remove"]:
+                problems.append(f"{rule}: {name} is not removed")
+        elif kind == "service":
+            action, _, name = arg.partition(" ")
+            listed = ks["enabled"] if action == "enable" else ks["disabled"]
+            if not ({name, name + ".socket", name + ".service"} & listed):
+                problems.append(f"{rule}: {name} is not {action}d")
+        elif kind == "logvol":
+            mount, _, size = arg.partition(" ")
+            if mount not in ks["logvols"]:
+                problems.append(f"{rule}: no logical volume for {mount}")
+            elif int(ks["logvols"][mount]["size"]) < int(size):
+                warn(f"{mount} is smaller than the SCAP Security Guide suggests", f"{ks['logvols'][mount]['size']} MiB, suggested {size} MiB ({rule})")
+        elif kind == "bootloader":
+            if arg.split("=")[0] not in ks["bootloader"]:
+                problems.append(f"{rule}: boot argument {arg} is missing")
+        else:
+            problems.append(f"{rule}: unknown kickstart fragment '{fragment}'")
+    check(not problems, f"{len(kickstart_rules)} rules with an install-time fragment are in the kickstart", "; ".join(problems))
+    handled["kickstart"] = kickstart_rules
+
+    # mount options
+    mount_problems, mount_rules = [], set()
+    for rule in sorted(active):
+        m = re.fullmatch(r"mount_option_(\w+?)_(nodev|nosuid|noexec)", rule)
+        if not m or m.group(1) not in MOUNTS:
+            continue
+        mount_rules.add(rule)
+        mount, option = MOUNTS[m.group(1)], m.group(2)
+        if mount == "/dev/shm":
+            ok = re.search(r"tmpfs\s+/dev/shm\s+tmpfs\s+\S*\b" + option + r"\b", ks["post"]) is not None
+        else:
+            ok = option in ks["logvols"].get(mount, {}).get("fsoptions", "").split(",")
+        if not ok:
+            mount_problems.append(f"{mount} lacks {option}")
+    check(not mount_problems, f"{len(mount_rules)} mount option rules are met by the partitions", "; ".join(mount_problems))
+    handled["mount options"] = mount_rules
+
+    # no automatic fix
+    nofix = {r for r in active if not any(k in rules.get(r, {}) for k in ("sh", "ansible", "kickstart"))}
+    handlers = no_fix_handlers(ks, waivers)
+    unknown = sorted(nofix - set(handlers))
+    check(not unknown, f"every rule without an automatic fix ({len(nofix)}) is accounted for", "new, unhandled: " + ", ".join(unknown))
+    failed = [r for r in sorted(nofix & set(handlers)) if callable(handlers[r]) and not handlers[r]()]
+    check(not failed, "the kickstart satisfies the rules it has to satisfy itself", ", ".join(failed))
+    handled["no automatic fix"] = nofix
+
+    # first-boot remediation
+    rest = active - kickstart_rules - mount_rules - nofix
+    if oscap:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = pathlib.Path(tmp) / "fix.sh"
+            run = subprocess.run([oscap, "xccdf", "generate", "fix", "--tailoring-file", str(tailoring), "--profile",
+                                  f"xccdf_org.ssgproject.content_profile_{waivers['profile_id']}", "--fix-type", "bash",
+                                  "--output", str(out), datastream], capture_output=True, text=True)
+            check(run.returncode == 0, "oscap generates the remediation script for the tailored profile", run.stderr[-300:])
+            if run.returncode == 0:
+                script = out.read_text()
+                generated = set(re.findall(r"BEGIN fix \(\d+ / \d+\) for '" + RULE + r"([\w-]+)'", script))
+                missing = sorted(r for r in rest if rules.get(r, {}).get("sh") and r not in generated)
+                check(not missing, f"the generated script covers the {len(rest)} rules left for the first boot", ", ".join(missing))
+                check(not (generated & waived), "the generated script contains none of the waived rules", ", ".join(sorted(generated & waived)))
+                check(subprocess.run(["bash", "-n", str(out)]).returncode == 0, "the generated script is valid shell")
+    else:
+        skip(f"first-boot coverage of the remaining {len(rest)} rules", "needs --oscap")
+    handled["first boot"] = rest
+
+    covered = [r for group in handled.values() for r in group]
+    check(len(covered) == len(set(covered)) and set(covered) == selected, "every rule of the profile is handled by exactly one mechanism",
+          "; ".join(f"{k}={len(v)}" for k, v in handled.items()))
+    return {k: len(v) for k, v in handled.items()}
+
+
+# --- what the fleet's own playbooks depend on -----------------------------------------------------------
+def check_fleet(ks, waivers):
+    post = ks["post"]
+    waived = waivers["waived_rules"]
+    sudoers = heredoc(post, "/etc/sudoers.d/90-deploy") or ""
+    check("deploy ALL=(ALL) NOPASSWD:ALL" in sudoers and "sudo_remove_nopasswd" in waived,
+          "deploy keeps passwordless sudo, and the CIS rule that would remove it is waived")
+    check("kernel_module_overlayfs_disabled" in waived, "the overlay module stays available to Podman")
+    check("sysctl_net_ipv4_ip_forward" in waived, "IPv4 forwarding is left to netavark")
+    keys = (heredoc(post, "/home/deploy/.ssh/authorized_keys") or "").split()
+    check(any(k.startswith(("ssh-ed25519", "ssh-rsa", "ecdsa-")) for k in keys), "deploy has at least one ssh key")
+    nm = heredoc(post, "/etc/NetworkManager/system-connections/eth0-static.nmconnection") or ""
+    cp = configparser.ConfigParser(strict=False)
+    cp.read_string(nm)
+    check("interface-name" not in cp["connection"] and "mac-address" not in cp["ethernet"] and cp["ipv4"].get("method") == "manual",
+          "the template's network profile is static and bound to no interface or MAC address")
+    check(cp["connection"].get("autoconnect-priority") == "120", "that profile is the first active one provision-vm.yml finds")
+    check({"qemu-guest-agent", "python3", "subscription-manager", "chrony", "sudo"} <= ks["install"], "the packages the fleet playbooks rely on are installed")
+    check({"qemu-guest-agent", "sshd", "chronyd", "firewalld", "auditd", "crond"} <= ks["enabled"], "the services the fleet relies on are enabled")
+    check("cloud-init" in ks["remove"], "cloud-init stays out of the template")
+    check(re.search(r"^chage -m 1 deploy$", post, re.M) is not None and "accounts_password_set_max_life_existing" in waived,
+          "deploy can get a password that never expires without breaking the profile")
+    check({"openscap-scanner", "scap-security-guide"} <= ks["install"], "oscap and the SCAP Security Guide are installed for the first-boot remediation")
+    check(re.search(r"^touch /\.autorelabel$", post, re.M) is not None, "the first boot relabels the whole file system with the installed policy")
+    network = next((l for l in ks["head"] if l.startswith("network")), "")
+    check("--bootproto=static" in network and "dhcp" not in network and re.search(r"--ip=192\.168\.1\.200\b", network) is not None,
+          "the installer and the template use the static address 192.168.1.200, not DHCP")
+    used = sum(int(v["size"]) for v in ks["logvols"].values()) + 1024 + 600
+    check(DISK_MIB - used >= DISK_MIB * 0.10, f"the logical volumes leave at least 10 % of the {DISK_MIB // 1024} GB disk free",
+          f"{(DISK_MIB - used) / DISK_MIB:.0%} free")
+    check(not any(re.search(r"--thin", l) for l in ks["head"] if not l.startswith("#")), "no thin pool or thin volume")
+    check(set(MOUNTS.values()) - {"/dev/shm"} <= set(ks["logvols"]), "every CIS mount point is a separate logical volume")
+    check("--iscrypted" in ks["bootloader"] and "audit=1" in ks["bootloader"], "the boot loader has a password and auditing from the start")
+
+
+def check_files(ks):
+    post = ks["post"]
+    check(subprocess.run(["bash", "-n"], input=post, text=True, capture_output=True).returncode == 0, "the %post script is valid shell")
+    for path in ("/usr/local/sbin/cis-remediate", "/usr/local/sbin/seal-template"):
+        body = heredoc(post, path)
+        ok = body is not None and subprocess.run(["bash", "-n"], input=body, text=True, capture_output=True).returncode == 0
+        check(ok, f"{path} is valid shell")
+    unit = heredoc(post, "/etc/systemd/system/cis-remediate.service") or ""
+    cp = configparser.ConfigParser(strict=False, interpolation=None)
+    cp.optionxform = str
+    cp.read_string(unit)
+    check(cp.has_option("Service", "ExecStart") and cp.has_option("Install", "WantedBy") and cp.get("Unit", "ConditionPathExists") == "!/var/lib/cis/done",
+          "the first-boot unit runs once and is enabled")
+    check("systemctl enable cis-remediate.service" in post, "the first-boot unit is enabled in the kickstart")
+    if shutil.which("visudo"):
+        with tempfile.NamedTemporaryFile("w", suffix=".sudoers") as f:
+            f.write(heredoc(post, "/etc/sudoers.d/90-deploy") + "\n")
+            f.flush()
+            check(subprocess.run(["visudo", "-cf", f.name], capture_output=True).returncode == 0, "the sudoers file is valid")
+    else:
+        skip("sudoers syntax", "visudo not installed")
+    tailoring = heredoc(post, "/etc/cis/tailoring.xml")
+    check(tailoring is not None and tailoring.strip() == (BUILD / "cis-tailoring.xml").read_text().strip(), "the tailoring file inside the kickstart is the rendered one")
+    try:
+        ET.fromstring(tailoring)
+        check(True, "the tailoring file is well-formed XML")
+    except ET.ParseError as e:
+        check(False, "the tailoring file is well-formed XML", str(e))
+
+
+def check_packages(ks, host):
+    names = sorted(ks["install"] | ks["remove"])
+    run = subprocess.run(["ssh", "-o", "BatchMode=yes", host, "sudo -n dnf -q repoquery --available --queryformat '%{name}\\n' " + " ".join(names)],
+                         capture_output=True, text=True)
+    available = set(run.stdout.split())
+    missing = sorted(n for n in ks["install"] if n not in available)
+    check(run.returncode == 0 and not missing, f"the {len(ks['install'])} packages to install exist in the repositories of {host}", ", ".join(missing) or run.stderr[-200:])
+    envs = subprocess.run(["ssh", "-o", "BatchMode=yes", host, "sudo -n dnf -q group list --hidden"], capture_output=True, text=True)
+    check("minimal" in envs.stdout.lower(), "the minimal environment group exists")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--datastream", required=True, help="ssg-rl10-ds.xml")
+    parser.add_argument("--oscap", help="oscap binary, to generate and inspect the remediation script")
+    parser.add_argument("--repoquery-host", help="user@host whose dnf repositories the package names are checked against")
+    args = parser.parse_args()
+
+    ks_path = BUILD / "rocky10-cis.ks"
+    if not ks_path.exists():
+        sys.exit("run scripts/render-kickstart first")
+    ks = parse_kickstart(ks_path.read_text())
+    waivers = yaml.safe_load((ROOT / "kickstart" / "cis-waivers.yml").read_text())
+
+    validator = shutil.which("ksvalidator")
+    if validator:
+        run = subprocess.run([validator, "-v", "RHEL10", str(ks_path)], capture_output=True, text=True)
+        check(run.returncode == 0 and "error" not in (run.stdout + run.stderr).lower(), "ksvalidator accepts the kickstart as RHEL 10", (run.stdout + run.stderr).strip()[-300:])
+    else:
+        skip("kickstart syntax", "ksvalidator not installed (pip install pykickstart)")
+
+    selected, rules = read_profile(args.datastream)
+    check(len(selected) > 0, f"the profile {PROFILE.rsplit('_', 1)[-1]} has {len(selected)} rules in {pathlib.Path(args.datastream).name}")
+    counts = check_profile(ks, waivers, selected, rules, args.oscap, BUILD / "cis-tailoring.xml", args.datastream)
+    check_fleet(ks, waivers)
+    check_files(ks)
+    if args.repoquery_host:
+        check_packages(ks, args.repoquery_host)
+    else:
+        skip("package names", "needs --repoquery-host")
+
+    width = max(len(t) for _, t, _ in results)
+    for status, title, detail in results:
+        print(f"{status:4}  {title}" + (f"  [{detail}]" if detail and status != "PASS" else ""))
+    failures = sum(1 for s, _, _ in results if s == "FAIL")
+    print(f"\n{len(results) - failures - sum(1 for s,_,_ in results if s in ('WARN','SKIP'))} passed, {failures} failed, "
+          f"{sum(1 for s,_,_ in results if s == 'WARN')} warnings, {sum(1 for s,_,_ in results if s == 'SKIP')} skipped")
+    print("rules by mechanism:", json.dumps(counts))
+    sys.exit(1 if failures else 0)

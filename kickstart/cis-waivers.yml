@@ -1,0 +1,19 @@
+---
+# Rules of the CIS Level 2 - Server profile of the SCAP Security Guide (Rocky Linux 10) that this
+# fleet cannot follow. They are left out of the tailoring file, which the template is remediated
+# with and which the monthly scan measures, so the score keeps the same meaning from one month to
+# the next. A rule belongs here only with the reason it cannot be followed.
+profile_id: cis_fleet
+title: CIS Level 2 Server, tailored for the homelab fleet
+waived_rules:
+  kernel_module_overlayfs_disabled: Podman keeps container images and layers on overlayfs.
+  sysctl_net_ipv4_ip_forward: netavark turns IPv4 forwarding on to publish container ports.
+  sysctl_net_ipv4_conf_all_forwarding: The same setting as net.ipv4.ip_forward.
+  sysctl_net_ipv4_conf_default_forwarding: netavark also sets the default forwarding of the interfaces it creates.
+  sudo_remove_nopasswd: Ansible connects as the deploy user and becomes root without a password.
+  service_systemd-journal-upload_enabled: There is no central log server to upload the journal to.
+  no_files_or_dirs_ungroupowned: Container storage holds files owned by subordinate IDs that have no account.
+  no_files_or_dirs_unowned_by_user: Container storage holds files owned by subordinate IDs that have no account.
+  ensure_redhat_gpgkey_installed: The rule looks for Red Hat's package signing key, and Rocky Linux packages are signed with the Rocky key.
+  rsyslog_filecreatemode: rsyslog is not installed, journald is the only logger.
+  accounts_password_set_max_life_existing: The deploy account has a password that never expires, because an expired password would stop its ssh key logins.

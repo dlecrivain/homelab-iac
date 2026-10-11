@@ -1,0 +1,14 @@
+---
+# Copy to kickstart/local.yml, which git ignores, and fill it in. scripts/render-kickstart reads it.
+
+# Root's password, for the console and single-user mode only: sshd refuses root.
+#   openssl passwd -6
+root_password_hash: ""
+
+# Boot loader (GRUB) password, to edit boot entries.
+#   grub2-mkpasswd-pbkdf2      (the line starting grub.pbkdf2.sha512...)
+grub_password_hash: ""
+
+# Public keys written to the deploy user's authorized_keys: the Semaphore automation key,
+# Katello/Foreman's key and your own.
+deploy_ssh_keys: []
