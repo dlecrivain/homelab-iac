@@ -12,6 +12,13 @@ Environment=TZ={{ homeassistant_timezone }}
 # Home Assistant runs on the same host and reaches the server at ws://localhost:5580/ws.
 Environment=LISTEN_ADDRESS=127.0.0.1
 Environment=LOG_LEVEL=info
+# The fabric of Home Assistant's Matter Server (vendor 0x134B, fabric 2). The server names its
+# storage directory after them (server-2-134b), so devices commissioned under this fabric are
+# only found when both values match.
+Environment=VENDOR_ID=4939
+Environment=FABRIC_ID=2
+# Same behaviour as the add-on's "auto" mode: the host keeps its clock synchronised with chrony.
+Environment=ENABLE_TIME_SYNC=true
 
 [Service]
 Restart=always
