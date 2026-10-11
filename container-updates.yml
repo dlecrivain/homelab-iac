@@ -137,13 +137,13 @@
             - not (snapshot_already_exists | default(false))
             - inventory_hostname == (prometheus_host | default('prometheus101'))
 
-        - name: "Step 2.5 (grafana101 only) - Re-render the Grafana Quadlet first, same reason as above"
+        - name: "Step 2.5 (the Grafana host only) - Re-render the Grafana Quadlet first, same reason as above"
           include_role:
             name: grafana_configure
           when:
             - podman_units is defined
             - not (snapshot_already_exists | default(false))
-            - inventory_hostname == (grafana_host | default('grafana101'))
+            - inventory_hostname == (grafana_host | default('grafana102'))
 
         - name: "Step 2.5 (phpipam101 only) - Re-render the phpIPAM Quadlets first, same reason as above"
           include_role:
@@ -277,7 +277,7 @@
         step25_changed_containers: >-
           {{
             (['prometheus', 'alertmanager'] if (hostvars[prometheus_host | default('prometheus101')].prometheus_config_changed | default(false)) else [])
-            + (['grafana'] if (hostvars[grafana_host | default('grafana101')].grafana_config_changed | default(false)) else [])
+            + (['grafana'] if (hostvars[grafana_host | default('grafana102')].grafana_config_changed | default(false)) else [])
             + (['phpipam-web', 'phpipam-cron'] if (hostvars[phpipam_host | default('phpipam101')].phpipam_config_changed | default(false)) else [])
             + (['bunkerweb-aio'] if (hostvars['bunkerweb101'].bunkerweb_config_changed | default(false)) else [])
             + (['adguardhome'] if (hostvars['adguard101'].adguard_config_changed | default(false)) else [])

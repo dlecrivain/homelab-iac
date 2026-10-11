@@ -66,7 +66,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 | `configure-phpipam.yml` | Deploys the phpIPAM stack (MariaDB, web, cron) on `phpipam101`. |
 | `configure-immich.yml` | Deploys Immich's four Quadlet units on `immich101` from `immich_version`. |
 | `configure-prometheus.yml` | Deploys Prometheus, Alertmanager and the PVE exporter on `prometheus101`. |
-| `configure-grafana.yml` | Deploys Grafana on `grafana101` with its datasource and dashboards. |
+| `configure-grafana.yml` | Deploys Grafana on `grafana_host` with its datasource and dashboards. |
 | `configure-monitoring.yml` | Installs `node_exporter` and `smartctl_exporter` and registers every VM and node with Prometheus. Safe to re-run, and the way a new exporter version reaches the hosts. See [Monitoring](#monitoring). |
 
 ### Compliance
@@ -273,7 +273,7 @@ Secrets (OVH DNS-01 credentials, admin password, see [Secrets](#secrets)) are te
 
 ### Monitoring
 
-Two dedicated VMs run it: `prometheus101` (Prometheus, Alertmanager and `prometheus-pve-exporter`) and `grafana101` (Grafana), provisioned by `provision-vm.yml` like every other fleet VM. Every fleet VM and all three nodes run `node_exporter` (CPU, memory, mountpoints, uptime; a native binary with a systemd unit, not a container, and not installed through `dnf` or `apt`, since non-Katello repositories are disabled). The nodes also run `smartctl_exporter` for SMART and disk health. `prometheus-pve-exporter` runs once on `prometheus101` and covers the whole cluster in one scrape, since Proxmox's API is cluster-aware whichever node it connects through.
+Two dedicated VMs run it: `prometheus101` (Prometheus, Alertmanager and `prometheus-pve-exporter`) and `grafana102` (Grafana), provisioned by `provision-vm.yml` like every other fleet VM. Every fleet VM and all three nodes run `node_exporter` (CPU, memory, mountpoints, uptime; a native binary with a systemd unit, not a container, and not installed through `dnf` or `apt`, since non-Katello repositories are disabled). The nodes also run `smartctl_exporter` for SMART and disk health. `prometheus-pve-exporter` runs once on `prometheus101` and covers the whole cluster in one scrape, since Proxmox's API is cluster-aware whichever node it connects through.
 
 **Which services matter reuses `podman_units`.** `node_exporter_install` builds a `--collector.systemd.unit-include` regex from each host's own `podman_units`, using the same `{{ service_name | default(name) }}.service` expression `podman_update` uses, so `node_exporter` reports only the containers this repository tracks for that host.
 
@@ -283,7 +283,7 @@ Two dedicated VMs run it: `prometheus101` (Prometheus, Alertmanager and `prometh
 
 **Retention and disk wear.** Prometheus keeps a year of samples (`--storage.tsdb.retention.time=1y`), so the history of SMART wear is not trimmed after a month. The TSDB grows by about 70 MB a day on the current fleet, roughly 25 GB for the year, on the 20 GB `/var` volume of `prometheus101`, which holds about eight months of it before the volume has to grow; the `DiskAlmostFull` alert fires at 90 %. `roles/prometheus_configure/templates/disk_wear.rules.yml.j2` turns the SMART data into one wear figure and an estimated end-of-life date per disk, and the *Disk wear* dashboard shows them in one table, each end-of-life estimate as "date (Ny Nd)" so the column filters and sorts as text in chronological order. The NVMe endurance ratings it needs are `disk_rated_endurance_tbw` in `group_vars/all.yml`: a new NVMe model needs its rating added there, or the dashboard falls back to the drive's own `percentage_used`.
 
-**Bootstrap order.** Add `PROXMOX_TOKEN_SECRET` and `GRAFANA_ADMIN_PASSWORD` to Semaphore's Variable Group, then run `provision-vm.yml -e new_vm_name=prometheus101`, `configure-prometheus.yml`, `provision-vm.yml -e new_vm_name=grafana101` (it registers itself with Prometheus, which now exists in the inventory), `configure-grafana.yml`, and `configure-monitoring.yml` once to register the rest of the fleet.
+**Bootstrap order.** Add `PROXMOX_TOKEN_SECRET` and `GRAFANA_ADMIN_PASSWORD` to Semaphore's Variable Group, then run `provision-vm.yml -e new_vm_name=prometheus101`, `configure-prometheus.yml`, `provision-vm.yml -e new_vm_name=grafana102` (it registers itself with Prometheus, which now exists in the inventory), `configure-grafana.yml`, and `configure-monitoring.yml` once to register the rest of the fleet.
 
 **Implementation notes.**
 

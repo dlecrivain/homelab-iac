@@ -1,6 +1,6 @@
 ---
 - name: Configure Grafana
-  hosts: grafana101
+  hosts: "{{ grafana_host | default('grafana102') }}"
   gather_facts: false
   tasks:
     - name: Install node_exporter (self-monitoring)
@@ -15,7 +15,7 @@
       include_role:
         name: prometheus_target
       vars:
-        prometheus_target_name: grafana101
+        prometheus_target_name: "{{ inventory_hostname }}"
         prometheus_target_ip: "{{ ansible_host }}"
         prometheus_target_job: node_exporter
         prometheus_target_role_label: vm
