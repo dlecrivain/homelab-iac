@@ -93,6 +93,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 - `group_vars/all.yml`: shared variables (Proxmox API host, Katello organization, SMTP, retention and placement tuning, pinned image and binary versions, the mesh and corosync topology).
 - `host_vars/`: per-VM variables (health checks, `podman_units`, backup and placement flags) and per-node connection and network details (`pve1`, `pve2`, `pve3`).
 - `scripts/semaphore-ctl`: small client for the Semaphore API, see [Operating Semaphore from a terminal](#operating-semaphore-from-a-terminal).
+- `scripts/katello-host-delete`: deletes the Katello record of a host whose VM no longer exists, for the leftover of a provisioning run that failed after the registration. It refuses while a Proxmox VM of that name exists.
 - `kickstart/` and `scripts/render-kickstart`, `scripts/check-kickstart`: the golden template's installer and its checks, see [Building the golden template](#building-the-golden-template).
 - `tasks/`: task files shared by several playbooks: `commit_and_push.yml` (every playbook that commits back to this repository) and `check_unit_for_update.yml` (the read-only scan in `check-image-updates.yml`).
 - `roles/`, by area:

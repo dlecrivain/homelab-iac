@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Deletes the Katello record of a host whose VM no longer exists, such as the leftover of a
+# provisioning run that failed after the registration and whose VM was then destroyed.
+#
+#   katello-host-delete [--dry-run] <hostname>
+#
+# It refuses while a Proxmox VM with that name exists, so it cannot remove the record of a machine
+# that is still in service (decommission-vm.yml is the way to retire one), and it deletes only the
+# single record whose name is exactly <hostname>. It uses the hammer account of root on lpkat101, a
+# service account that may list and delete hosts and nothing else.
+set -euo pipefail
+
+KATELLO_SSH=${KATELLO_SSH:-deploy@192.168.1.112}
+PROXMOX_SSH=${PROXMOX_SSH:-root@192.168.1.101}
+SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10)
+
+die() { echo "katello-host-delete: $*" >&2; exit 1; }
+
+dry_run=0
+if [ "${1:-}" = "--dry-run" ]; then dry_run=1; shift; fi
+name=${1:?usage: katello-host-delete [--dry-run] <hostname>}
+[[ $name =~ ^[a-z][a-z0-9-]*$ ]] || die "'$name' is not a plain host name"
+
+vm_exists=$(ssh "${SSH_OPTS[@]}" "$PROXMOX_SSH" 'pvesh get /cluster/resources --type vm --output-format json' </dev/null \
+  | python3 -c 'import json, sys; print(any(v.get("name") == sys.argv[1] for v in json.load(sys.stdin)))' "$name")
+[ "$vm_exists" = "False" ] || die "a Proxmox VM named $name still exists: destroy it, or use decommission-vm.yml"
+
+# hammer's "=" search matches the name exactly. With --no-headers the only field printed is the ID.
+ids=$(ssh "${SSH_OPTS[@]}" "$KATELLO_SSH" "sudo -n hammer --output csv --no-headers host list --search 'name = $name' --fields Id" </dev/null)
+[ -n "$ids" ] || die "no Katello host named $name"
+[ "$(wc -l <<<"$ids")" -eq 1 ] || die "several Katello hosts match $name: $(tr '\n' ' ' <<<"$ids")"
+[[ $ids =~ ^[0-9]+$ ]] || die "unexpected hammer output: $ids"
+
+echo "Katello host $name has ID $ids and no Proxmox VM"
+if [ $dry_run -eq 1 ]; then echo "dry run: nothing deleted"; exit 0; fi
+
+ssh "${SSH_OPTS[@]}" "$KATELLO_SSH" "sudo -n hammer host delete --id $ids" </dev/null
+remaining=$(ssh "${SSH_OPTS[@]}" "$KATELLO_SSH" "sudo -n hammer --output csv --no-headers host list --search 'name = $name' --fields Id" </dev/null)
+[ -z "$remaining" ] || die "$name is still listed after the deletion"
+echo "Katello host $name deleted"
