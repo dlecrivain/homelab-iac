@@ -7,6 +7,9 @@
 #   semaphore-ctl status <task-id>
 #   semaphore-ctl wait <task-id> [timeout-seconds]
 #   semaphore-ctl log <task-id> [--errors | --tail N]
+#   semaphore-ctl schedules
+#   semaphore-ctl copy-template <source-id> <name> <playbook> [--dry-run]
+#   semaphore-ctl add-schedule <template-id> '<cron>' <name> [--dry-run]
 #
 # The API token is read from a file that nobody else may read, and is handed to curl through a
 # config descriptor so it never appears on a command line. Starting a task is limited to the
@@ -19,6 +22,7 @@ SEMAPHORE_PROJECT=${SEMAPHORE_PROJECT:-1}
 CONFIG_DIR=${SEMAPHORE_CONFIG_DIR:-$HOME/.config/semaphore}
 TOKEN_FILE=${SEMAPHORE_TOKEN_FILE:-$CONFIG_DIR/semaphore101.token}
 ALLOW_FILE=${SEMAPHORE_ALLOW_FILE:-$CONFIG_DIR/allowed-templates}
+REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
 die() { echo "semaphore-ctl: $*" >&2; exit 1; }
 
@@ -146,6 +150,68 @@ print("\n".join(lines))
 '
 }
 
+# Creating a template or a schedule needs the Manager role on the project; the Task Runner role that
+# starts tasks gets an HTTP 403 here. Nothing is ever edited or deleted.
+cmd_schedules() {
+  api GET "/api/project/$SEMAPHORE_PROJECT/schedules" | python3 -c '
+import json, sys
+for s in sorted(json.load(sys.stdin), key=lambda s: s["id"]):
+    print("%3d  %-12s %-34s template %-3s %s" % (s["id"], s["cron_format"], s.get("name", "")[:34], s["template_id"], "" if s.get("active") else "(inactive)"))
+'
+}
+
+# A new template is a copy of an existing one (same inventory, repository and variable group) with
+# another name and playbook. The playbook must be a file of this repository, which the template can
+# only run once it has been pushed.
+cmd_copy_template() {
+  local src=${1:?source template id required} name=${2:?new name required} playbook=${3:?playbook required} dry=0
+  [ "${4:-}" = "--dry-run" ] && dry=1
+  [[ $src =~ ^[0-9]+$ ]] || die "source template id must be a number"
+  [[ $playbook =~ ^[A-Za-z0-9_.-]+\.yml$ ]] || die "the playbook must be the name of a file at the root of this repository"
+  [ -f "$REPO_ROOT/$playbook" ] || die "$playbook is not a playbook of this repository"
+  local body
+  body=$(NAME="$name" PLAYBOOK="$playbook" TEMPLATES="$(api GET "/api/project/$SEMAPHORE_PROJECT/templates")" \
+    SOURCE="$(api GET "/api/project/$SEMAPHORE_PROJECT/templates/$src")" python3 -c '
+import json, os, sys
+templates = json.loads(os.environ["TEMPLATES"])
+if any(t["name"].lower() == os.environ["NAME"].lower() for t in templates):
+    sys.exit("a template named %r already exists" % os.environ["NAME"])
+source = json.loads(os.environ["SOURCE"])
+keep = ("project_id", "inventory_id", "repository_id", "environment_id", "environment_ids", "view_id", "arguments",
+        "description", "app", "type", "git_branch", "start_version", "survey_vars", "jwt_params", "task_params",
+        "autorun", "allow_override_args_in_task", "allow_override_branch_in_task", "allow_parallel_tasks",
+        "suppress_success_alerts", "runner_tag", "build_template_id", "vaults")
+body = {k: source[k] for k in keep if k in source}
+body.update(name=os.environ["NAME"], playbook=os.environ["PLAYBOOK"])
+print(json.dumps(body))
+') || exit 1
+  if [ $dry -eq 1 ]; then echo "$body" | python3 -m json.tool; return 0; fi
+  api POST "/api/project/$SEMAPHORE_PROJECT/templates" "$body" | python3 -c '
+import json, sys
+t = json.load(sys.stdin)
+print("template %s created: %s (%s)" % (t["id"], t["name"], t["playbook"]))
+'
+}
+
+cmd_add_schedule() {
+  local id=${1:?template id required} cron=${2:?cron expression required} name=${3:?name required} dry=0
+  [ "${4:-}" = "--dry-run" ] && dry=1
+  [[ $id =~ ^[0-9]+$ ]] || die "template id must be a number"
+  [[ $cron =~ ^([0-9*/,-]+\ ){4}[0-9*/,-]+$ ]] || die "'$cron' is not a five-field cron expression"
+  local body
+  body=$(ID="$id" CRON="$cron" NAME="$name" PROJECT="$SEMAPHORE_PROJECT" python3 -c '
+import json, os
+print(json.dumps({"template_id": int(os.environ["ID"]), "project_id": int(os.environ["PROJECT"]), "cron_format": os.environ["CRON"],
+                  "name": os.environ["NAME"], "active": True, "type": "", "delete_after_run": False}))
+')
+  if [ $dry -eq 1 ]; then echo "$body" | python3 -m json.tool; return 0; fi
+  api POST "/api/project/$SEMAPHORE_PROJECT/schedules" "$body" | python3 -c '
+import json, sys
+s = json.load(sys.stdin)
+print("schedule %s created: %s, template %s" % (s["id"], s["cron_format"], s["template_id"]))
+'
+}
+
 case "${1:-}" in
   templates) shift; cmd_templates "$@" ;;
   recent)    shift; cmd_recent "$@" ;;
@@ -153,5 +219,8 @@ case "${1:-}" in
   status)    shift; cmd_status "$@" ;;
   wait)      shift; cmd_wait "$@" ;;
   log)       shift; cmd_log "$@" ;;
-  *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  schedules) shift; cmd_schedules "$@" ;;
+  copy-template) shift; cmd_copy_template "$@" ;;
+  add-schedule)  shift; cmd_add_schedule "$@" ;;
+  *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
