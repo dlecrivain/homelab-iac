@@ -22,7 +22,3 @@ podman_units:
 openscap_waived_rules:
   sysctl_net_ipv6_conf_all_accept_ra: Thread and Matter devices are reached through routes announced in router advertisements.
   sysctl_net_ipv6_conf_default_accept_ra: Thread and Matter devices are reached through routes announced in router advertisements.
-
-# BunkerWeb publishes Home Assistant as homeassistant.lecrivaindaniel.fr, see host_vars/bunkerweb101.yml.
-homeassistant_trusted_proxies:
-  - 192.168.1.114

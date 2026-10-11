@@ -1,7 +1,2 @@
 ---
 homeassistant_timezone: Europe/Paris
-
-# Addresses of the reverse proxies in front of Home Assistant. It rejects a request that a proxy
-# forwarded (HTTP 400) unless the proxy is listed here, and then reads the client address from
-# X-Forwarded-For. Left empty, configuration.yaml is not touched.
-homeassistant_trusted_proxies: []

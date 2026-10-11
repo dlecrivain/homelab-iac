@@ -78,19 +78,6 @@
   changed_when: false
   when: homeassistant_sysctl_result is changed
 
-# Home Assistant reads "http" only at startup, hence the restart at the end of the role.
-- name: Trust the reverse proxies in front of Home Assistant
-  ansible.builtin.blockinfile:
-    path: /var/lib/containers/storage/volumes/homeassistant_config/_data/configuration.yaml
-    marker: "# {mark} ANSIBLE MANAGED BLOCK (reverse proxy)"
-    block: |
-      http:
-        use_x_forwarded_for: true
-        trusted_proxies: {{ homeassistant_trusted_proxies | to_json }}
-  become: true
-  when: homeassistant_trusted_proxies | length > 0
-  register: homeassistant_http_result
-
 # Named like the other *_configure roles: container-updates.yml's report reads this to know that a
 # Step 2.5 re-render already updated the containers.
 - name: Determine whether anything actually changed
@@ -118,13 +105,3 @@
     - matter-server.service
     - homeassistant.service
   when: homeassistant_config_changed
-
-# The restart above already loads the new settings when it runs.
-- name: Restart Home Assistant to apply the HTTP settings
-  ansible.builtin.systemd:
-    name: homeassistant.service
-    state: restarted
-  become: true
-  when:
-    - homeassistant_http_result is changed
-    - not homeassistant_config_changed
