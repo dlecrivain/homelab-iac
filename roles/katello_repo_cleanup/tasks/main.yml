@@ -1,9 +1,11 @@
 ---
+# redhat.repo is readable by root only on a host whose umask is 027, like the CIS-hardened template.
 - name: Get the Katello-managed repo IDs (defined in redhat.repo by the registration script)
   ansible.builtin.command: grep -oP '^\[\K[^\]]+' /etc/yum.repos.d/redhat.repo
   register: katello_repo_cleanup_ids
   changed_when: false
   failed_when: false
+  become: true
   when: ansible_facts['pkg_mgr'] in ['dnf', 'yum']
 
 # redhat.repo missing or empty means registration didn't work as expected - don't blindly disable
@@ -19,6 +21,7 @@
   ansible.builtin.command: dnf repolist all
   register: katello_repo_cleanup_list
   changed_when: false
+  become: true
   when: ansible_facts['pkg_mgr'] in ['dnf', 'yum']
 
 # Varies by template/version (epel isn't always present), so a fixed list would be wrong.
