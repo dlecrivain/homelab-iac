@@ -118,7 +118,7 @@ bunkerweb_services:
     domain: grafana.lecrivaindaniel.fr
     extra:
       REVERSE_PROXY_URL: "/"
-      REVERSE_PROXY_HOST: "http://192.168.1.120:3000"
+      REVERSE_PROXY_HOST: "http://192.168.1.121:3000"
       # Grafana Live (dashboard auto-refresh/streaming) needs WebSockets
       REVERSE_PROXY_WS: "yes"
       REVERSE_PROXY_SEND_TIMEOUT: 3600s
