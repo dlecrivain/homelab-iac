@@ -304,6 +304,7 @@ Two dedicated VMs run it: `prometheus101` (Prometheus, Alertmanager and `prometh
 - **OS and backups**: `vm-updates.yml` patches it and `vm-backups.yml` backs the whole VM up to pCloud. Home Assistant Container has no backup feature of its own, so the VM backup is the backup.
 - **Network**: host networking is needed for device discovery and the HomeKit bridge. Firewalld trusts the local network as a whole, because discovery replies and device events come from addresses the stateful firewall has never seen it contact, and nothing outside it. The Matter Server listens on `127.0.0.1` only.
 - **CIS**: Thread and Matter devices are reached through routes that border routers announce in router advertisements, so `roles/homeassistant_configure` sets `accept_ra` to 2, on the interface that carries the default route as well because an interface keeps the values it was created with, and the two matching rules are waived for this host in `host_vars/homeassistant101.yml`.
+- **Reverse proxy**: BunkerWeb publishes it as `homeassistant.lecrivaindaniel.fr` (`bunkerweb_services` in `host_vars/bunkerweb101.yml`). Home Assistant answers HTTP 400 to a proxied request unless the proxy is declared, so the role writes `homeassistant_trusted_proxies` (BunkerWeb's address) to `configuration.yaml` as a managed block and restarts Home Assistant when it changes. Run `configure-homeassistant.yml` before `configure-bunkerweb.yml` the first time.
 
 ### Compliance scanning
 
