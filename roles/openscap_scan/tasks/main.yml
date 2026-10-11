@@ -9,14 +9,33 @@
     state: present
   become: true
 
-- name: Create the report directory
+- name: Create the report and tailoring directories
   ansible.builtin.file:
-    path: "{{ openscap_report_dir }}"
+    path: "{{ item.path }}"
     state: directory
     owner: root
     group: root
-    mode: '0750'
+    mode: "{{ item.mode }}"
   become: true
+  loop:
+    - { path: "{{ openscap_report_dir }}", mode: '0750' }
+    - { path: "{{ openscap_tailoring_file | dirname }}", mode: '0755' }
+  when: openscap_tailoring_file | length > 0 or item.path == openscap_report_dir
+
+# The same waivers the template was remediated with (kickstart/cis-waivers.yml), plus the ones this
+# host adds with openscap_waived_rules, so every host is measured against what it can follow.
+- name: Write the tailoring file for this host
+  ansible.builtin.template:
+    src: tailoring.xml.j2
+    dest: "{{ openscap_tailoring_file }}"
+    owner: root
+    group: root
+    mode: '0644'
+  vars:
+    openscap_waivers: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/kickstart/cis-waivers.yml') | from_yaml }}"
+    openscap_all_waived_rules: "{{ openscap_waivers.waived_rules | combine(openscap_waived_rules | default({})) }}"
+  become: true
+  when: openscap_tailoring_file | length > 0
 
 - name: Read the summary of the previous scan
   ansible.builtin.slurp:

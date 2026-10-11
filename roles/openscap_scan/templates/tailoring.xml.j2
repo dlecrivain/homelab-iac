@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xccdf-1.2:Tailoring xmlns:xccdf-1.2="http://checklists.nist.gov/xccdf/1.2" id="xccdf_org.ssgproject.content_tailoring_{{ openscap_waivers.profile_id }}">
+  <xccdf-1.2:benchmark href="{{ openscap_datastream }}"/>
+  <xccdf-1.2:version time="2026-01-01T00:00:00">1</xccdf-1.2:version>
+  <xccdf-1.2:Profile id="xccdf_org.ssgproject.content_profile_{{ openscap_waivers.profile_id }}" extends="xccdf_org.ssgproject.content_profile_cis">
+    <xccdf-1.2:title>{{ openscap_waivers.title | e }}</xccdf-1.2:title>
+    <xccdf-1.2:description>{{ openscap_waivers.title | e }}. The rules left out are listed, with the reason, in kickstart/cis-waivers.yml and in the host's openscap_waived_rules.</xccdf-1.2:description>
+{% for rule, reason in openscap_all_waived_rules.items() %}
+    <xccdf-1.2:select idref="xccdf_org.ssgproject.content_rule_{{ rule }}" selected="false"/>  <!-- {{ reason }} -->
+{% endfor %}
+  </xccdf-1.2:Profile>
+</xccdf-1.2:Tailoring>

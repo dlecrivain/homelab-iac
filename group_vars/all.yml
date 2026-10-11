@@ -119,12 +119,14 @@ grafana_host: grafana102
 node_exporter_version: "1.12.1"
 smartctl_exporter_version: "0.15.0"
 
-# OpenSCAP compliance scan (openscap-scan.yml). "cis" is the SCAP Security Guide's CIS Level 2 -
-# Server profile, from the Rocky Linux 10 datastream that scap-security-guide installs.
-openscap_profile: cis
+# OpenSCAP compliance scan (openscap-scan.yml). "cis_fleet" is the SCAP Security Guide's CIS Level 2 -
+# Server profile ("cis") from the Rocky Linux 10 datastream that scap-security-guide installs, tailored
+# by the waivers of kickstart/cis-waivers.yml.
+openscap_profile: cis_fleet
 openscap_datastream: /usr/share/xml/scap/ssg/content/ssg-rl10-ds.xml
-# Optional tailoring file to waive rules this fleet cannot follow; empty scans the profile as is.
-openscap_tailoring_file: ""
+# The tailoring file the role writes on each host from kickstart/cis-waivers.yml and the host's own
+# openscap_waived_rules; empty scans the plain profile.
+openscap_tailoring_file: /etc/cis/scan-tailoring.xml
 openscap_report_dir: /var/log/openscap
 openscap_report_retention_days: 400
 # A score below the target, or a drop of more than openscap_regression_points since the previous scan,
