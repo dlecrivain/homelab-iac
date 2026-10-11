@@ -12,7 +12,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 4. **Snapshots.** A safety snapshot is removed as soon as the post-update health check passes. One left behind by a failed check is swept up by a separately scheduled run.
 5. **Proxmox hosts.** Each node is evacuated by live migration, patched and rebooted in turn, then the cluster is rebalanced.
 6. **Cluster network.** The direct 10G links between the three nodes and the corosync configuration are declared in this repository.
-7. **Backups.** Every VM gets a weekly `vzdump` uploaded to pCloud, and the photo library and Home Assistant data are copied there with `rclone`.
+7. **Backups.** Every VM gets a weekly `vzdump` uploaded to pCloud, and the photo library is copied there with `rclone`.
 8. **Semaphore itself.** The two instances patch each other, so neither has to update itself.
 9. **Version tracking.** A daily check reports new image and binary versions and bumps the pinned ones.
 
@@ -46,7 +46,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 | Playbook | Purpose |
 |---|---|
 | `vm-backups.yml` | `vzdump` (zstd) of every VM, three at a time: each VM is migrated to `vm_backup_node` if it is not already there, backed up to `Stockage_SSD`, uploaded to pCloud, then migrated straight back. A final rebalance only runs if a migrate-back failed and left something stranded. |
-| `pcloud-backups.yml` | `rclone` backups to pCloud. With `pcloud_backup_source` passed as an extra var it runs that one job, otherwise it runs the three built-in jobs (Home Assistant, Immich Daniel, Immich Marine) in parallel. See [Backups](#backups-1). |
+| `pcloud-backups.yml` | `rclone` backups to pCloud. With `pcloud_backup_source` passed as an extra var it runs that one job, otherwise it runs the two built-in jobs (Immich Daniel, Immich Marine) in parallel on `immich101`, straight from the library on its own disk. See [Backups](#backups-1). |
 
 ### Provisioning
 
@@ -216,7 +216,7 @@ The rebalance builds one plan that is complete: a VM is moved only if that narro
 **pCloud copies.** `pcloud-backups.yml` has two modes, selected by whether `pcloud_backup_source` is passed as an extra var:
 
 - **Single job**: `pcloud_backup_source`, `pcloud_backup_dest`, `pcloud_backup_mode` (`sync` or `copy`, default `sync`) and `pcloud_backup_extra_args` are passed as extra vars, and one `rclone` command runs through the `pcloud_backup_job` role. Each backup is its own Semaphore template on the same playbook, with its own schedule and extra vars.
-- **All jobs**: with no extra vars, the three jobs in `pcloud_backup_jobs` run in parallel, each launched with `async` and `poll: 0` and then awaited with `async_status`, so one failure does not stop the others. This mode launches `rclone` directly, because `async` applies to a single module task and not to `include_role`.
+- **All jobs**: with no extra vars, the jobs in `pcloud_backup_jobs` run in parallel, each launched with `async` and `poll: 0` and then awaited with `async_status`, so one failure does not stop the others. This mode launches `rclone` directly, because `async` applies to a single module task and not to `include_role`.
 
 ### Provisioning a new Semaphore peer
 
@@ -341,7 +341,7 @@ The API token is read from a file that must not be readable by anyone else (`~/.
   - Python packages: `pip install -r requirements.txt`
 - A Proxmox API token with enough privileges to list VMs, create and delete snapshots, and migrate VMs.
 - SSH access to all target hosts and to the Proxmox nodes, using a key stored in Semaphore's Key Store (never committed to this repository).
-- `rclone` configured with a `pcloud:` remote on `smb101` (for `pcloud-backups.yml`) and on `pve1` (for `vm-backups.yml`).
+- `rclone` with a `pcloud:` remote on `pve1` (for `vm-backups.yml`) and on `immich101` (for `pcloud-backups.yml`, which installs the package). The remote holds a pCloud token, so its `rclone.conf` is copied by hand to `/root/.config/rclone/` (mode 0600) on `immich101` and never stored here.
 
 ## Secrets
 

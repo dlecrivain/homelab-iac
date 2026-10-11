@@ -1,23 +1,36 @@
 ---
 - name: Run pCloud backup(s) via rclone
-  hosts: "{{ pcloud_backup_host | default('smb101') }}"
+  hosts: "{{ pcloud_backup_host | default('immich101') }}"
   gather_facts: false
+  # The library belongs to the immich user and the pCloud remote lives in root's rclone configuration.
+  become: true
   vars:
     pcloud_backup_jobs:
-      - name: Home Assistant
-        mode: sync
-        source: /var/lib/Backups/Home_Assistant/
-        dest: "pcloud:Backups/Home_Assistant"
-        extra_args: "--log-file /var/log/rclone-pcloud.log --log-level INFO"
       - name: Immich Daniel
         mode: copy
-        source: /mnt/immich_photos/ee67ced3-2998-420c-82b5-2768292c81ab/
+        source: /var/lib/immich/photos/library/ee67ced3-2998-420c-82b5-2768292c81ab/
         dest: "pcloud:Backups/Immich/Daniel"
       - name: Immich Marine
         mode: copy
-        source: /mnt/immich_photos/1c98b908-3122-4969-b34a-e63b6a242994/
+        source: /var/lib/immich/photos/library/1c98b908-3122-4969-b34a-e63b6a242994/
         dest: "pcloud:Backups/Immich/Marine"
   tasks:
+    - name: Install rclone
+      ansible.builtin.dnf:
+        name: rclone
+        state: present
+
+    # The remote holds a pCloud token, so it is copied by hand once and never stored in this repository.
+    - name: Check that the pCloud remote is configured
+      ansible.builtin.command: rclone listremotes
+      register: pcloud_remotes
+      changed_when: false
+
+    - name: Fail clearly if the pCloud remote is missing
+      ansible.builtin.fail:
+        msg: "No pcloud: remote in root's rclone configuration on {{ inventory_hostname }} - copy rclone.conf to /root/.config/rclone/ (mode 0600), see the README"
+      when: "'pcloud:' not in pcloud_remotes.stdout_lines"
+
     # Single-job mode: pcloud_backup_source (and dest/mode/extra_args) passed as extra vars.
     - name: Run a single pCloud backup
       include_role:
