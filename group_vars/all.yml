@@ -100,6 +100,7 @@ fleet_network_dns_servers: "192.168.1.254"
 # Katello registration (provision-vm.yml). Numeric IDs, unlike katello_organization, which is the
 # name string hammer's content-view commands expect.
 katello_activation_key: "ak-rocky-10-prod"
+katello_server_fqdn: "lpkat101.mondomaine.lab"
 katello_organization_id: 4
 katello_location_id: 2
 katello_operatingsystem_id: 7

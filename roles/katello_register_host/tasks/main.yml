@@ -1,4 +1,13 @@
 ---
+# The lab domain has no DNS server: every fleet VM resolves the Katello server through /etc/hosts, and
+# the registration command, like every later dnf call, uses that name.
+- name: Make the Katello server's name resolvable on this host
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '\s{{ katello_server_fqdn | regex_escape }}(\s|$)'
+    line: "{{ hostvars[lpkat_host].ansible_host }} {{ katello_server_fqdn }}"
+  become: true
+
 - name: Generate a Katello global registration command
   ansible.builtin.command: >
     hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
