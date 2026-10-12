@@ -125,6 +125,12 @@ bunkerweb_services:
       REVERSE_PROXY_READ_TIMEOUT: 3600s
       MAX_CLIENT_SIZE: 0
 
+  - name: prometheus
+    domain: prometheus.lecrivaindaniel.fr
+    extra:
+      REVERSE_PROXY_URL: "/"
+      REVERSE_PROXY_HOST: "http://192.168.1.119:9090"
+
   - name: homeassistant
     domain: homeassistant.lecrivaindaniel.fr
     extra:
