@@ -1,6 +1,6 @@
 ---
 - name: Configure BunkerWeb's global settings and per-service reverse-proxy sites
-  hosts: bunkerweb101
+  hosts: "{{ bunkerweb_host | default('bunkerweb102') }}"
   gather_facts: false
   tasks:
     - name: Deploy BunkerWeb configuration via Podman Quadlet

@@ -158,6 +158,8 @@ prometheus_version: "v3.15.0"
 alertmanager_version: "v0.34.1"
 grafana_version: "13.2.3"
 bunkerweb_version: "1.6.15"
+# The host that runs BunkerWeb (configure-bunkerweb.yml); its reverse-proxied sites are bunkerweb_services in its host_vars.
+bunkerweb_host: bunkerweb102
 adguard_version: "v0.107.79"
 # phpipam_version is declared above, with the phpIPAM container stack.
 pve_exporter_version: "3.10.1"
@@ -221,7 +223,7 @@ image_update_watch_list:
     docker_repo: bunkerity/bunkerweb-all-in-one
     version_var: bunkerweb_version
     container_name: bunkerweb-aio
-    host: bunkerweb101
+    host: "{{ bunkerweb_host }}"
   - name: adguard
     docker_repo: adguard/adguardhome
     version_var: adguard_version

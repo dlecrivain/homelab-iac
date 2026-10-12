@@ -60,7 +60,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 
 | Playbook | Purpose |
 |---|---|
-| `configure-bunkerweb.yml` | Deploys `bunkerweb101`'s global settings and one reverse-proxy file per site, from `bunkerweb_services` in its `host_vars`. See [Configuring BunkerWeb](#configuring-bunkerweb). |
+| `configure-bunkerweb.yml` | Deploys `bunkerweb102`'s global settings and one reverse-proxy file per site, from `bunkerweb_services` in its `host_vars`. See [Configuring BunkerWeb](#configuring-bunkerweb). |
 | `configure-adguard.yml` | Deploys the AdGuard Home Quadlet on `adguard101`. |
 | `configure-phpipam.yml` | Deploys the phpIPAM stack (MariaDB, web, cron) on `phpipam101`. |
 | `configure-immich.yml` | Deploys Immich's four Quadlet units on `immich101` from `immich_version`. |
@@ -259,7 +259,7 @@ Not handled by the playbook, and needing a manual checklist once the containers 
 
 ### Configuring BunkerWeb
 
-`bunkerweb101` (WAF and reverse proxy, `bunkerweb-all-in-one` image) is configured entirely by `configure-bunkerweb.yml` (the `bunkerweb_configure` role) from `bunkerweb_services` in `host_vars/bunkerweb101.yml`: a list of proxied sites (name, domain, and any setting beyond the `USE_REVERSE_PROXY=yes` baseline). Each site's `{{ domain }}_*` variables go into their own file under `/etc/bunkerweb/conf.d/<name>.env`. Global settings (embedded services, `MULTISITE`, Let's Encrypt, DNS resolvers, LAN whitelist) go into `/etc/bunkerweb/global.env`, and `SERVER_NAME` is generated from the same list. Adding or removing a site is an edit of that list and a re-run: a removed entry's `conf.d` file is found with `ansible.builtin.find`, compared with the list and deleted, so a decommissioned VM leaves no stale reverse-proxy entry. Each service needs a matching `EnvironmentFile=` line in the Quadlet, which the template generates from the same list.
+`bunkerweb102` (WAF and reverse proxy, `bunkerweb-all-in-one` image) is configured entirely by `configure-bunkerweb.yml` (the `bunkerweb_configure` role) from `bunkerweb_services` in `host_vars/bunkerweb102.yml`: a list of proxied sites (name, domain, and any setting beyond the `USE_REVERSE_PROXY=yes` baseline). Each site's `{{ domain }}_*` variables go into their own file under `/etc/bunkerweb/conf.d/<name>.env`. Global settings (embedded services, `MULTISITE`, Let's Encrypt, DNS resolvers, LAN whitelist) go into `/etc/bunkerweb/global.env`, and `SERVER_NAME` is generated from the same list. Adding or removing a site is an edit of that list and a re-run: a removed entry's `conf.d` file is found with `ansible.builtin.find`, compared with the list and deleted, so a decommissioned VM leaves no stale reverse-proxy entry. Each service needs a matching `EnvironmentFile=` line in the Quadlet, which the template generates from the same list.
 
 Secrets (OVH DNS-01 credentials, admin password, see [Secrets](#secrets)) are templated into a separate `/etc/bunkerweb/secrets.env` (`mode: '0600'`), never committed.
 
@@ -295,7 +295,7 @@ Two dedicated VMs run it: `prometheus101` (Prometheus, Alertmanager and `prometh
 - **OS and backups**: `vm-updates.yml` patches it and `vm-backups.yml` backs the whole VM up to pCloud. Home Assistant Container has no backup feature of its own, so the VM backup is the backup.
 - **Network**: host networking is needed for device discovery and the HomeKit bridge. Firewalld trusts the local network as a whole, because discovery replies and device events come from addresses the stateful firewall has never seen it contact, and nothing outside it. The Matter Server listens on `127.0.0.1` only.
 - **CIS**: Thread and Matter devices are reached through routes that border routers announce in router advertisements, so `roles/homeassistant_configure` sets `accept_ra` to 2, on the interface that carries the default route as well because an interface keeps the values it was created with, and the two matching rules are waived for this host in `host_vars/homeassistant101.yml`.
-- **Reverse proxy**: BunkerWeb publishes it as `homeassistant.lecrivaindaniel.fr` (`bunkerweb_services` in `host_vars/bunkerweb101.yml`). Home Assistant answers HTTP 400 to every proxied request until `use_x_forwarded_for` and `trusted_proxies` (BunkerWeb's address) are set. Since 2026.10 it keeps its HTTP settings in `.storage/http` and ignores `http:` in `configuration.yaml`, so these two settings belong to the instance's own state rather than to this repository and travel with the VM backup.
+- **Reverse proxy**: BunkerWeb publishes it as `homeassistant.lecrivaindaniel.fr` (`bunkerweb_services` in `host_vars/bunkerweb102.yml`). Home Assistant answers HTTP 400 to every proxied request until `use_x_forwarded_for` and `trusted_proxies` (BunkerWeb's address) are set. Since 2026.10 it keeps its HTTP settings in `.storage/http` and ignores `http:` in `configuration.yaml`, so these two settings belong to the instance's own state rather than to this repository and travel with the VM backup.
 
 ### Compliance scanning
 
