@@ -156,7 +156,7 @@ grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') }}"
 # applies it like any other config change. Semaphore has its own bump playbook instead.
 prometheus_version: "v3.15.0"
 alertmanager_version: "v0.34.1"
-grafana_version: "13.2.3"
+grafana_version: "13.2.4"
 bunkerweb_version: "1.6.15"
 # The host that runs BunkerWeb (configure-bunkerweb.yml); its reverse-proxied sites are bunkerweb_services in its host_vars.
 bunkerweb_host: bunkerweb102
