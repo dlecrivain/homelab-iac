@@ -1,34 +1,79 @@
 ---
-- name: Get the UID Immich's rootless containers run under
-  ansible.builtin.command: "id -u {{ immich_user }}"
-  register: immich_uid
-  changed_when: false
-  check_mode: false
+# Runs rootless as the connecting user itself, like adguard_configure: the host's host_vars set podman_units
+# to scope 'user' with no become_user, so systemctl --user works against this same session's runtime dir.
 
-# systemctl --user needs to reach that user's own session bus, not the connecting user's.
-- name: Set the environment for cross-user rootless systemctl
-  ansible.builtin.set_fact:
-    immich_systemd_env:
-      XDG_RUNTIME_DIR: "/run/user/{{ immich_uid.stdout }}"
-      DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ immich_uid.stdout }}/bus"
+# Without lingering, the user's systemd instance and its containers stop when the last session ends and
+# do not start at boot.
+- name: Let the user's services run without a login session
+  ansible.builtin.command: "loginctl enable-linger {{ ansible_user }}"
+  args:
+    creates: "/var/lib/systemd/linger/{{ ansible_user }}"
+  become: true
+
+# A rootless container's published port goes through the host's INPUT chain, so firewalld has to allow it.
+- name: Open Immich in the firewall
+  ansible.posix.firewalld:
+    port: 2283/tcp
+    permanent: true
+    immediate: true
+    state: enabled
+  become: true
+
+- name: Create Immich's data directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+  become: true
+  loop:
+    - /var/lib/immich
+    - /var/lib/immich/photos
+    - /var/lib/immich/postgres
+
+# Postgres runs as uid 999 inside the container, which is a sub-uid of the connecting user on the host. An empty
+# data directory has to be handed to that uid for the first start; one that already holds a cluster is left as
+# it is, since a migrated one carries the right owners already.
+- name: Check whether the Postgres data directory already holds a cluster
+  ansible.builtin.stat:
+    path: /var/lib/immich/postgres/PG_VERSION
+  register: immich_postgres_cluster
+  become: true
+
+- name: Hand an empty Postgres data directory to the container's postgres user
+  ansible.builtin.command: podman unshare chown 999:999 /var/lib/immich/postgres
+  changed_when: true
+  when: not immich_postgres_cluster.stat.exists
+
+# They hold the database password, which this repository never stores: copy them from the previous host or write them once.
+- name: Check that the secret environment files are present
+  ansible.builtin.stat:
+    path: "/var/lib/immich/{{ item }}"
+  register: immich_env_files
+  loop:
+    - .env
+    - postgres.env
+
+- name: Fail clearly if a secret environment file is missing
+  ansible.builtin.fail:
+    msg: "/var/lib/immich/{{ item.item }} is missing on {{ inventory_hostname }} - it holds the database password and is not kept in this repository, see the README"
+  when: not item.stat.exists
+  loop: "{{ immich_env_files.results }}"
+  loop_control:
+    label: "{{ item.item }}"
 
 - name: Ensure the rootless Quadlet directory exists
   ansible.builtin.file:
-    path: "/home/{{ immich_user }}/.config/containers/systemd"
+    path: "/home/{{ ansible_user }}/.config/containers/systemd"
     state: directory
-    owner: "{{ immich_user }}"
-    group: "{{ immich_user }}"
     mode: '0755'
-  become: true
 
 - name: Deploy the Immich network Quadlet
   ansible.builtin.copy:
     src: immich.network
-    dest: "/home/{{ immich_user }}/.config/containers/systemd/immich.network"
-    owner: "{{ immich_user }}"
-    group: "{{ immich_user }}"
+    dest: "/home/{{ ansible_user }}/.config/containers/systemd/immich.network"
     mode: '0644'
-  become: true
   register: immich_network_result
 
 # The two Immich images share immich_version - same release, they always move together. Postgres and
@@ -37,11 +82,8 @@
 - name: Deploy the Immich Quadlet units
   ansible.builtin.template:
     src: "{{ item }}.j2"
-    dest: "/home/{{ immich_user }}/.config/containers/systemd/{{ item }}"
-    owner: "{{ immich_user }}"
-    group: "{{ immich_user }}"
+    dest: "/home/{{ ansible_user }}/.config/containers/systemd/{{ item }}"
     mode: '0644'
-  become: true
   loop:
     - immich-postgres.container
     - immich-redis.container
@@ -59,25 +101,21 @@
         or immich_quadlet_result is changed
       }}
 
-- name: Apply any unit change
-  become: true
-  become_user: "{{ immich_user }}"
-  environment: "{{ immich_systemd_env }}"
+- name: Reload the user systemd instance to pick up the regenerated units
+  ansible.builtin.systemd:
+    daemon_reload: true
+    scope: user
   when: immich_config_changed
-  block:
-    - name: Reload the user systemd instance to pick up the regenerated units
-      ansible.builtin.systemd:
-        daemon_reload: true
-        scope: user
 
-    # In dependency order: immich-server Requires= both postgres and redis.
-    - name: Restart the Immich units
-      ansible.builtin.systemd:
-        name: "{{ item }}"
-        state: restarted
-        scope: user
-      loop:
-        - immich-postgres.service
-        - immich-redis.service
-        - immich-machine-learning.service
-        - immich-server.service
+# In dependency order: immich-server Requires= both postgres and redis.
+- name: Restart the Immich units
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: restarted
+    scope: user
+  loop:
+    - immich-postgres.service
+    - immich-redis.service
+    - immich-machine-learning.service
+    - immich-server.service
+  when: immich_config_changed
