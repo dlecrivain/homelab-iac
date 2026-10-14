@@ -9,14 +9,14 @@
 
 - import_playbook: container-updates.yml
   vars:
-    # Explicit override, still excluding semaphore102 here specifically: container-updates.yml's
+    # Explicit override, still excluding semaphore104 here specifically: container-updates.yml's
     # own default now includes it (for standalone/ad-hoc visibility), but update-semaphore-peer.yml
-    # (imported below) already runs its own nested container-updates.yml against semaphore102 after
+    # (imported below) already runs its own nested container-updates.yml against semaphore104 after
     # its OS patch/reboot - without this override it would get processed (and aligned) twice per run.
-    target_hosts: "proxmox_all_qemu:!lpkat101:!semaphore101:!semaphore102"
+    target_hosts: "proxmox_all_qemu:!lpkat101:!semaphore103:!semaphore104"
 
 # update-semaphore-peer.yml, imported below, runs its own nested container-updates.yml against
-# semaphore102 and would otherwise overwrite these same fact names.
+# semaphore104 and would otherwise overwrite these same fact names.
 - name: Snapshot the fleet-wide container-updates results
   hosts: localhost
   gather_facts: false
@@ -31,8 +31,8 @@
 - import_playbook: pve-updates.yml
 - import_playbook: update-semaphore-peer.yml
   vars:
-    peer_host: semaphore102
-    image_reference_host: semaphore101
+    peer_host: semaphore104
+    image_reference_host: semaphore103
 
 - name: Send the combined full-updates report
   hosts: localhost
@@ -59,7 +59,7 @@
               {'name': 'container-updates', 'status': hostvars['localhost'].fleet_container_updates_stage_status, 'duration': hostvars['localhost'].fleet_container_updates_duration_display},
               {'name': 'vm-updates', 'status': hostvars['localhost'].vm_updates_stage_status, 'duration': hostvars['localhost'].vm_updates_duration_display},
               {'name': 'pve-updates', 'status': hostvars['localhost'].pve_updates_stage_status, 'duration': hostvars['localhost'].pve_updates_duration_display},
-              {'name': 'semaphore-peer (semaphore102)', 'status': hostvars['localhost'].semaphore_peer_stage_status, 'duration': hostvars['localhost'].semaphore_peer_duration_display}
+              {'name': 'semaphore-peer (semaphore104)', 'status': hostvars['localhost'].semaphore_peer_stage_status, 'duration': hostvars['localhost'].semaphore_peer_duration_display}
             ] %}
             {% if stage.status == 'PROBLEM' %}
             {% set row_class = 'status-problem' %}

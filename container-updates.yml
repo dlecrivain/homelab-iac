@@ -1,7 +1,7 @@
 ---
-- name: Determine whether semaphore102 is actually being targeted this run
-  # Avoids opening an unnecessary connection to semaphore101 below when it isn't (a scoped
-  # -e target_hosts=<other host> run, or update-semaphore-peer.yml's semaphore101-facing
+- name: Determine whether semaphore104 is actually being targeted this run
+  # Avoids opening an unnecessary connection to semaphore103 below when it isn't (a scoped
+  # -e target_hosts=<other host> run, or update-semaphore-peer.yml's semaphore103-facing
   # nested call) - ansible.builtin.inventory_hostnames resolves a host pattern against the
   # loaded inventory without needing a real play against those hosts.
   hosts: localhost
@@ -9,28 +9,28 @@
   tasks:
     - name: Check membership
       ansible.builtin.set_fact:
-        container_updates_targets_semaphore102: >-
+        container_updates_targets_semaphore104: >-
           {{
-            'semaphore102' in query('ansible.builtin.inventory_hostnames', target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101'))
+            'semaphore104' in query('ansible.builtin.inventory_hostnames', target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore103'))
           }}
 
-# Only when semaphore102 is targeted: its images are aligned to these.
-- name: Capture semaphore101's current image versions
-  hosts: semaphore101
+# Only when semaphore104 is targeted: its images are aligned to these.
+- name: Capture semaphore103's current image versions
+  hosts: semaphore103
   gather_facts: false
   tasks:
-    - name: Gather and validate semaphore101's image versions
-      when: hostvars['localhost'].container_updates_targets_semaphore102
+    - name: Gather and validate semaphore103's image versions
+      when: hostvars['localhost'].container_updates_targets_semaphore104
       block:
-        - name: Check services on semaphore101
+        - name: Check services on semaphore103
           include_role:
             name: health_check
 
-        - name: Determine semaphore101's overall status
+        - name: Determine semaphore103's overall status
           include_role:
             name: host_status
 
-        - name: Get each unit's current image ID on semaphore101
+        - name: Get each unit's current image ID on semaphore103
           ansible.builtin.command: "podman inspect {{ item.name }} --format '{{ '{{' }}.Image{{ '}}' }}'"
           become: true
           loop: "{{ podman_units }}"
@@ -50,14 +50,14 @@
           changed_when: false
           when: host_overall_status == 'OK'
 
-        - name: Save semaphore101's image digests, keyed by unit name
+        - name: Save semaphore103's image digests, keyed by unit name
           ansible.builtin.set_fact:
             reference_image_digests: "{{ dict(podman_units | map(attribute='name') | zip(reference_digest_refs.results | map(attribute='stdout'))) }}"
           delegate_to: localhost
           delegate_facts: true
           when: host_overall_status == 'OK'
 
-        - name: Get each unit's current image tag on semaphore101
+        - name: Get each unit's current image tag on semaphore103
           ansible.builtin.command: "podman inspect {{ item.name }} --format '{{ '{{' }}.ImageName{{ '}}' }}'"
           become: true
           loop: "{{ podman_units }}"
@@ -67,7 +67,7 @@
           changed_when: false
           when: host_overall_status == 'OK'
 
-        - name: Save semaphore101's image tags, keyed by unit name
+        - name: Save semaphore103's image tags, keyed by unit name
           ansible.builtin.set_fact:
             reference_image_tags: "{{ dict(podman_units | map(attribute='name') | zip(reference_image_refs.results | map(attribute='stdout'))) }}"
           delegate_to: localhost
@@ -75,10 +75,10 @@
           when: host_overall_status == 'OK'
 
 - name: Update Podman containers on Quadlet-managed hosts
-  # semaphore101 is excluded: it is the reference semaphore102 aligns to, and update-semaphore-peer.yml
-  # already covers it end to end. semaphore102 is included, but Step 3 aligns it to semaphore101 by
+  # semaphore103 is excluded: it is the reference semaphore104 aligns to, and update-semaphore-peer.yml
+  # already covers it end to end. semaphore104 is included, but Step 3 aligns it to semaphore103 by
   # digest instead of pulling a tag, so the two cannot drift apart.
-  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore101') }}"
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore103') }}"
   gather_facts: false
   serial: 1
   tasks:
@@ -191,9 +191,9 @@
           when:
             - podman_units is defined
             - not (snapshot_already_exists | default(false))
-            - inventory_hostname != 'semaphore102'
+            - inventory_hostname != 'semaphore104'
 
-        - name: Step 3 (semaphore102 only) - Align images to semaphore101's exact digest
+        - name: Step 3 (semaphore104 only) - Align images to semaphore103's exact digest
           include_role:
             name: podman_align_image
           vars:
@@ -202,17 +202,17 @@
           when:
             - podman_units is defined
             - not (snapshot_already_exists | default(false))
-            - inventory_hostname == 'semaphore102'
+            - inventory_hostname == 'semaphore104'
             - hostvars['localhost'].reference_image_digests is defined
 
         # Without this it would silently get no row at all in the report.
-        - name: Record why semaphore102 was skipped when semaphore101 wasn't healthy
+        - name: Record why semaphore104 was skipped when semaphore103 wasn't healthy
           ansible.builtin.set_fact:
-            host_update_failure_reason: "Alignment skipped - reference host semaphore101 wasn't healthy"
+            host_update_failure_reason: "Alignment skipped - reference host semaphore103 wasn't healthy"
           when:
             - podman_units is defined
             - not (snapshot_already_exists | default(false))
-            - inventory_hostname == 'semaphore102'
+            - inventory_hostname == 'semaphore104'
             - hostvars['localhost'].reference_image_digests is not defined
 
         - name: Step 4 - Check services after update

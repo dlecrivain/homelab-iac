@@ -1,8 +1,8 @@
 ---
 # Patches one Semaphore instance and keeps the two aligned. peer_host is required, with no default:
 #
-#   -e peer_host=semaphore101   run from semaphore102
-#   -e peer_host=semaphore102   run from semaphore101 (full-updates.yml does this, with image_reference_host)
+#   -e peer_host=semaphore103   run from semaphore104
+#   -e peer_host=semaphore104   run from semaphore103 (full-updates.yml does this, with image_reference_host)
 #
 # It is always run from the other instance, because a Semaphore host cannot patch and reboot itself
 # in the middle of its own task.
@@ -14,9 +14,9 @@
       ansible.builtin.assert:
         that:
           - peer_host is defined
-          - peer_host in ['semaphore101', 'semaphore102']
+          - peer_host in ['semaphore103', 'semaphore104']
         fail_msg: >-
-          Pass -e peer_host=semaphore101 or -e peer_host=semaphore102 - the instance to patch, which
+          Pass -e peer_host=semaphore103 or -e peer_host=semaphore104 - the instance to patch, which
           must not be the one running this playbook.
 
 - name: Mark this as an orchestrated run
@@ -125,9 +125,9 @@
             host_update_failure_reason: "{{ ansible_failed_result.msg | default('Unknown error') }}"
 
 - import_playbook: container-updates.yml
-  # For the semaphore102 direction, this nested call now handles image alignment to semaphore101
-  # internally (container-updates.yml's own Step 3 branches on inventory_hostname == 'semaphore102'
-  # and its own leading plays gather semaphore101's reference digests) - no separate
+  # For the semaphore104 direction, this nested call now handles image alignment to semaphore103
+  # internally (container-updates.yml's own Step 3 branches on inventory_hostname == 'semaphore104'
+  # and its own leading plays gather semaphore103's reference digests) - no separate
   # gather-then-align plays needed here anymore. reference_image_digests ends up set on localhost
   # exactly as before, so semaphore_peer_alignment_skipped below still works unchanged.
   vars:
