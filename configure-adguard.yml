@@ -1,6 +1,6 @@
 ---
 - name: Configure AdGuard Home
-  hosts: "{{ adguard_host | default('adguard101') }}"
+  hosts: "{{ adguard_host | default('adguard102') }}"
   gather_facts: false
   tasks:
     - name: Deploy AdGuard Home via Podman Quadlet
