@@ -1,0 +1,7 @@
+---
+# In dependency order: immich-server Requires= both postgres and redis.
+immich_units:
+  - immich-postgres.service
+  - immich-redis.service
+  - immich-machine-learning.service
+  - immich-server.service

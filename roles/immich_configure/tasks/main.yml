@@ -107,15 +107,19 @@
     scope: user
   when: immich_config_changed
 
-# In dependency order: immich-server Requires= both postgres and redis.
 - name: Restart the Immich units
   ansible.builtin.systemd:
     name: "{{ item }}"
     state: restarted
     scope: user
-  loop:
-    - immich-postgres.service
-    - immich-redis.service
-    - immich-machine-learning.service
-    - immich-server.service
+  loop: "{{ immich_units }}"
   when: immich_config_changed
+
+# The restart above only happens when a unit file changed. A unit that is stopped or failed with nothing else
+# to change has to be started too, or the health check below reports it without anything bringing it back.
+- name: Make sure the Immich units are running
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    scope: user
+  loop: "{{ immich_units }}"
