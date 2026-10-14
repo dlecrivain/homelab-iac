@@ -17,10 +17,10 @@
 # file nothing can be started, while reading stays available.
 set -euo pipefail
 
-SEMAPHORE_URL=${SEMAPHORE_URL:-http://192.168.1.117:3000}
+SEMAPHORE_URL=${SEMAPHORE_URL:-http://192.168.1.119:3000}
 SEMAPHORE_PROJECT=${SEMAPHORE_PROJECT:-1}
 CONFIG_DIR=${SEMAPHORE_CONFIG_DIR:-$HOME/.config/semaphore}
-TOKEN_FILE=${SEMAPHORE_TOKEN_FILE:-$CONFIG_DIR/semaphore101.token}
+TOKEN_FILE=${SEMAPHORE_TOKEN_FILE:-$CONFIG_DIR/semaphore.token}
 ALLOW_FILE=${SEMAPHORE_ALLOW_FILE:-$CONFIG_DIR/allowed-templates}
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
