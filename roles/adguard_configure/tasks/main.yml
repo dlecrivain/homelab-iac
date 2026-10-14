@@ -32,6 +32,19 @@
     - 53/udp
     - 80/tcp
 
+# The container bind-mounts these two directories and does not start without them.
+- name: Create AdGuard Home's configuration and data directories
+  ansible.builtin.file:
+    path: "/var/adguardhome/{{ item }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+  become: true
+  loop:
+    - conf
+    - work
+
 - name: Ensure the rootless Quadlet directory exists for adguardhome
   ansible.builtin.file:
     path: "/home/{{ ansible_user }}/.config/containers/systemd"
