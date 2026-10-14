@@ -62,7 +62,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 |---|---|
 | `configure-bunkerweb.yml` | Deploys `bunkerweb102`'s global settings and one reverse-proxy file per site, from `bunkerweb_services` in its `host_vars`. See [Configuring BunkerWeb](#configuring-bunkerweb). |
 | `configure-adguard.yml` | Deploys the AdGuard Home Quadlet on `adguard_host` (`adguard102`), with the sysctl, lingering and firewall settings a rootless container needs on ports 53 and 80. |
-| `configure-phpipam.yml` | Deploys the phpIPAM stack (MariaDB, web, cron) on `phpipam101`. |
+| `configure-phpipam.yml` | Deploys the phpIPAM stack (MariaDB, web, cron) on `phpipam_host` (`phpipam102`). |
 | `configure-immich.yml` | Deploys Immich's four Quadlet units on `immich101` from `immich_version`. |
 | `configure-homeassistant.yml` | Deploys Home Assistant and the Matter Server as Quadlet units on `homeassistant_host` (`homeassistant101`) from `homeassistant_version` and `matter_server_version`. See [Home Assistant](#home-assistant). |
 | `configure-prometheus.yml` | Deploys Prometheus, Alertmanager and the PVE exporter on `prometheus101`. |

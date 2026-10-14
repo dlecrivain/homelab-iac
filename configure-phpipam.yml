@@ -1,6 +1,6 @@
 ---
 - name: Configure the phpIPAM container stack
-  hosts: "{{ phpipam_host | default('phpipam101') }}"
+  hosts: "{{ phpipam_host | default('phpipam102') }}"
   gather_facts: false
   tasks:
     - name: Deploy phpIPAM via Podman Quadlet

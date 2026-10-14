@@ -74,7 +74,7 @@ phpipam_max_retries: 5
 
 # phpIPAM container stack (configure-phpipam.yml). Both database passwords must be set in
 # Semaphore's Variable Group before the first run, otherwise the role would reset them to empty.
-phpipam_host: phpipam101
+phpipam_host: phpipam102
 phpipam_db_password: "{{ lookup('env', 'PHPIPAM_DB_PASSWORD') }}"
 phpipam_db_root_password: "{{ lookup('env', 'PHPIPAM_DB_ROOT_PASSWORD') }}"
 # Pinned instead of :latest so updates are a reviewable version bump (check-image-updates.yml
