@@ -33,5 +33,11 @@ podman_units:
     service_name: immich-server
     scope: user
 
-# The photo and video library is about 305 GB and grows, on top of the database and the images.
-immich_var_size_gb: 500
+# lvm_grow brings these volumes to at least this size. The photo and video library is about 305 GB and grows, on
+# top of the database. The rootless images (server, machine learning, Postgres, Valkey) are about 7 GB and
+# live in the home directory, which the template makes only 2 GB, so a new version needs room next to the old one.
+lvm_grow_targets:
+  - lv: lv_var
+    size_gb: 500
+  - lv: lv_home
+    size_gb: 24

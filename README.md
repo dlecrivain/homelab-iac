@@ -102,7 +102,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
   - **Proxmox**: `pve_placement` (where an evacuated VM goes), `pve_evacuate_host`, `pve_migrate_vm`, `pve_rebalance`, `pve_mesh`, `pve_corosync`, `pve_clone_vm`, `pve_destroy_vm`, `resolve_proxmox_api_host`.
   - **Backups**: `vzdump_backup`, `pcloud_backup_job`.
   - **Katello**: `katello_promote`, `katello_cv_retention`, `katello_register_host`, `katello_deregister_host`, `katello_repo_cleanup`.
-  - **Provisioning**: `provision_vm_reconnect`, `semaphore_provision`, `phpipam_login`, `phpipam_next_ip`, `phpipam_remove_address`, `lvm_grow` (grows a logical volume of the template's volume group, adding a virtual disk when needed).
+  - **Provisioning**: `provision_vm_reconnect`, `semaphore_provision`, `phpipam_login`, `phpipam_next_ip`, `phpipam_remove_address`, `lvm_grow` (grows one or several logical volumes of the template's volume group, adding a virtual disk when needed).
   - **Monitoring**: `node_exporter_install`, `smartctl_exporter_install`, `prometheus_target`.
   - **Compliance**: `openscap_scan`.
   - **Reporting**: `send_report` (shared HTML mail skeleton), `capture_start_time`, `capture_host_list`.
@@ -289,7 +289,7 @@ Two dedicated VMs run it: `prometheus102` (Prometheus, Alertmanager and `prometh
 
 ### Immich
 
-`immich102` runs Immich's four containers (server, machine learning, Valkey and Postgres) rootless as the connecting user `deploy`, like `adguard102`, from `immich_version`. The `immich_configure` role enables lingering, opens 2283/tcp, creates `/var/lib/immich/photos` and `/var/lib/immich/postgres` and hands an empty Postgres directory to the container's own user. `immich_var_size_gb: 500` in `host_vars/immich102.yml` is applied by `configure-immich.yml` through `lvm_grow`.
+`immich102` runs Immich's four containers (server, machine learning, Valkey and Postgres) rootless as the connecting user `deploy`, like `adguard102`, from `immich_version`. The `immich_configure` role enables lingering, opens 2283/tcp, creates `/var/lib/immich/photos` and `/var/lib/immich/postgres` and hands an empty Postgres directory to the container's own user. `lvm_grow_targets` in `host_vars/immich102.yml` (`/var` at 500 GB for the library, `/home` at 24 GB for the rootless images, which the template's 2 GB cannot hold) is applied by `configure-immich.yml` through `lvm_grow`.
 
 The database password is in two files the repository does not keep, `/var/lib/immich/.env` and `/var/lib/immich/postgres.env`, owned by the connecting user with mode 0600. The role stops with a clear message when one is missing, so a new host has to receive them before its first run. Data that comes from another host is copied with `rsync --numeric-ids` and `--usermap`/`--groupmap` from the previous owners to the new user: files owned by the old user become `deploy`, and the Postgres files go to the user's sub-uid base plus 998, which is uid 999 of the container's postgres user (`/etc/subuid` gives the base).
 
