@@ -1,8 +1,37 @@
 ---
-# Runs rootless as the connecting user itself (host_vars/adguard101.yml: podman_units scope
+# Runs rootless as the connecting user itself (the host's host_vars: podman_units scope
 # 'user', no become_user - so no become/UID/environment dance is needed here at all, unlike
 # phpipam/immich's cross-user rootless setups; systemctl --user already works against this
 # same session's own runtime dir).
+# A rootless container may only bind a port above this threshold, and AdGuard Home listens on 53 and 80.
+- name: Allow the rootless container to bind DNS and the web UI ports
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_unprivileged_port_start
+    value: "53"
+    sysctl_file: /etc/sysctl.d/99-adguard.conf
+    reload: true
+  become: true
+
+# Without lingering, the user's systemd instance and the container stop when the last session ends
+# and do not start at boot.
+- name: Let the user's services run without a login session
+  ansible.builtin.command: "loginctl enable-linger {{ ansible_user }}"
+  args:
+    creates: "/var/lib/systemd/linger/{{ ansible_user }}"
+  become: true
+
+- name: Open DNS and the web UI in the firewall
+  ansible.posix.firewalld:
+    port: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  become: true
+  loop:
+    - 53/tcp
+    - 53/udp
+    - 80/tcp
+
 - name: Ensure the rootless Quadlet directory exists for adguardhome
   ansible.builtin.file:
     path: "/home/{{ ansible_user }}/.config/containers/systemd"
