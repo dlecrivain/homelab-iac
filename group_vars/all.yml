@@ -63,11 +63,11 @@ pve_corosync_ring0_priority: 10
 pve_corosync_ring1_priority: 20
 
 # phpIPAM. "User token" security mode, which exchanges a login for a session token: the SSL modes
-# require HTTPS, and phpipam101 serves plain HTTP.
+# require HTTPS, and phpIPAM serves plain HTTP.
 phpipam_api_app_id: "ansible"
 phpipam_api_username: "{{ lookup('env', 'PHPIPAM_API_USERNAME') }}"
 phpipam_api_password: "{{ lookup('env', 'PHPIPAM_API_PASSWORD') }}"
-phpipam_base_url: "http://192.168.1.116:8080/api/{{ phpipam_api_app_id }}"
+phpipam_base_url: "http://192.168.1.113:8080/api/{{ phpipam_api_app_id }}"
 phpipam_subnet_cidr: "192.168.1.0/24"
 phpipam_search_start_ip: "192.168.1.111"
 phpipam_max_retries: 5
