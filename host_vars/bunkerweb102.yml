@@ -68,7 +68,7 @@ bunkerweb_services:
     domain: semaphore.lecrivaindaniel.fr
     extra:
       REVERSE_PROXY_URL: "/"
-      REVERSE_PROXY_HOST: "http://192.168.1.117:3000"
+      REVERSE_PROXY_HOST: "http://192.168.1.119:3000"
       REVERSE_PROXY_WS: "yes"
       REVERSE_PROXY_SEND_TIMEOUT: 3600s
       REVERSE_PROXY_READ_TIMEOUT: 3600s
@@ -78,7 +78,7 @@ bunkerweb_services:
     domain: semaphore-bck.lecrivaindaniel.fr
     extra:
       REVERSE_PROXY_URL: "/"
-      REVERSE_PROXY_HOST: "http://192.168.1.118:3000"
+      REVERSE_PROXY_HOST: "http://192.168.1.120:3000"
       REVERSE_PROXY_WS: "yes"
       REVERSE_PROXY_SEND_TIMEOUT: 3600s
       REVERSE_PROXY_READ_TIMEOUT: 3600s
