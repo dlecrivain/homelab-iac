@@ -1,6 +1,6 @@
 ---
 - name: Run pCloud backup(s) via rclone
-  hosts: "{{ pcloud_backup_host | default('immich101') }}"
+  hosts: "{{ pcloud_backup_host | default('immich102') }}"
   gather_facts: false
   # The pCloud remote lives in root's rclone configuration, and root can read the library whoever owns it.
   become: true
