@@ -22,6 +22,16 @@
     argv: "{{ ['git', 'commit'] + (['-a'] if commit_all_tracked | default(false) else []) + ['-m', commit_message] }}"
     chdir: "{{ playbook_dir }}"
 
+# Another job may have pushed since this working copy was cloned (a scheduled version bump, another
+# provisioning), and the push would then be rejected.
+- name: Rebase the commit onto the remote branch
+  ansible.builtin.command:
+    argv: [git, pull, --rebase, "{{ git_push_url }}", "{{ git_push_branch }}"]
+    chdir: "{{ playbook_dir }}"
+  register: commit_rebase_result
+  failed_when: false
+  no_log: true
+
 - name: Push the commit
   ansible.builtin.command:
     argv: [git, push, "{{ git_push_url }}", "{{ git_push_branch }}"]
@@ -29,15 +39,19 @@
   register: commit_push_result
   failed_when: false
   no_log: true
+  when: commit_rebase_result.rc == 0
 
 # The push URL carries the token, so git's own error output is redacted before it is shown.
-- name: Fail with a token-redacted error if the push failed
+- name: Fail with a token-redacted error if the rebase or the push failed
+  vars:
+    commit_failed_step: "{{ 'rebase' if commit_rebase_result.rc != 0 else 'push' }}"
+    commit_failed_result: "{{ commit_rebase_result if commit_rebase_result.rc != 0 else commit_push_result }}"
   ansible.builtin.fail:
     msg: >-
-      git push failed (rc={{ commit_push_result.rc }}):
+      git {{ commit_failed_step }} failed (rc={{ commit_failed_result.rc }}):
       {{
-        (commit_push_result.stderr | default('')) | replace(github_push_token, '***REDACTED***')
+        (commit_failed_result.stderr | default('')) | replace(github_push_token, '***REDACTED***')
         if (github_push_token | default('') | length > 0)
-        else (commit_push_result.stderr | default('')) + " (github_push_token is empty - GITHUB_PUSH_TOKEN missing from this template's Variable Group)"
+        else (commit_failed_result.stderr | default('')) + " (github_push_token is empty - GITHUB_PUSH_TOKEN missing from this template's Variable Group)"
       }}
-  when: commit_push_result.rc != 0
+  when: commit_rebase_result.rc != 0 or commit_push_result.rc | default(0) != 0
