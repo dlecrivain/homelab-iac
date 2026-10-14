@@ -161,7 +161,7 @@ bunkerweb_version: "1.6.15"
 # The host that runs BunkerWeb (configure-bunkerweb.yml); its reverse-proxied sites are bunkerweb_services in its host_vars.
 bunkerweb_host: bunkerweb102
 # The host that runs AdGuard Home (configure-adguard.yml), rootless as its connecting user.
-adguard_host: adguard101
+adguard_host: adguard102
 adguard_version: "v0.107.79"
 # phpipam_version is declared above, with the phpIPAM container stack.
 pve_exporter_version: "3.10.1"

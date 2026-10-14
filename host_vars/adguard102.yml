@@ -1,2 +1,11 @@
 ansible_host: 192.168.1.114 # static IP assigned via phpIPAM by provision-vm.yml
 ansible_user: deploy
+
+health_check_url: "http://192.168.1.114"
+health_check_podman_user: deploy
+health_check_containers:
+  - adguardhome
+
+podman_units:
+  - name: adguardhome
+    scope: user
