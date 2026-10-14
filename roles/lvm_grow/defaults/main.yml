@@ -1,0 +1,6 @@
+---
+# The volume group of the hardened golden template, and the Proxmox storage and drive slot used when
+# it has to be given more room.
+lvm_grow_vg: vg_system
+lvm_grow_storage: "{{ pve_clone_storage }}"
+lvm_grow_disk_slot: scsi1
