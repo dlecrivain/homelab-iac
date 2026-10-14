@@ -1,22 +1,38 @@
 ---
-# Grows a logical volume of the template's volume group to lvm_grow_size_gb. When the group has too
-# little free space, a second virtual disk is added to the VM and joined to the group, which needs no
-# partition or GPT resize. Does nothing once the volume is at least that big, so it can run every time.
-- name: Read the size of the volume and the free space of its volume group
+# Grows logical volumes of the template's volume group to a target size. A single volume is given by
+# lvm_grow_lv and lvm_grow_size_gb, several by lvm_grow_targets, a list of {lv, size_gb}. When the group has too
+# little free space for all of them, one more virtual disk is added to the VM and joined to the group, which
+# needs no partition or GPT resize. Does nothing once every volume is at least its target, so it can run
+# every time.
+- name: Work out the targets
+  ansible.builtin.set_fact:
+    lvm_grow_wanted: "{{ lvm_grow_targets | default([{'lv': lvm_grow_lv, 'size_gb': lvm_grow_size_gb}]) }}"
+    # Reset, so that a second use of the role in the same play does not reuse the size of the first.
+    lvm_grow_extra_gb: 0
+
+- name: Read the free space of the volume group and the size of each volume
   ansible.builtin.shell: |
     set -o pipefail
-    lvs --noheadings --nosuffix --units b -o lv_size /dev/{{ lvm_grow_vg }}/{{ lvm_grow_lv }} | tr -d ' '
-    vgs --noheadings --nosuffix --units b -o vg_free {{ lvm_grow_vg }} | tr -d ' '
+    echo "FREE $(vgs --noheadings --nosuffix --units b -o vg_free {{ lvm_grow_vg }} | tr -d ' ')"
+    {% for t in lvm_grow_wanted %}
+    echo "LV {{ t.lv }} $(lvs --noheadings --nosuffix --units b -o lv_size /dev/{{ lvm_grow_vg }}/{{ t.lv }} | tr -d ' ') {{ (t.size_gb | int) * 1073741824 }}"
+    {% endfor %}
   args:
     executable: /bin/bash
-  register: lvm_grow_sizes
+  register: lvm_grow_state
   changed_when: false
   become: true
 
-- name: Work out how much is missing
+- name: Work out how much is missing in total
   ansible.builtin.set_fact:
-    lvm_grow_missing_bytes: "{{ [(lvm_grow_size_gb | int) * 1073741824 - (lvm_grow_sizes.stdout_lines[0] | int), 0] | max }}"
-    lvm_grow_free_bytes: "{{ lvm_grow_sizes.stdout_lines[1] | int }}"
+    lvm_grow_free_bytes: "{{ (lvm_grow_state.stdout_lines | select('match', '^FREE ') | first).split()[1] | int }}"
+    lvm_grow_missing_bytes: >-
+      {%- set ns = namespace(total=0) -%}
+      {%- for l in lvm_grow_state.stdout_lines if l.startswith('LV ') -%}
+        {%- set p = l.split() -%}
+        {%- set ns.total = ns.total + ([(p[3] | int) - (p[2] | int), 0] | max) -%}
+      {%- endfor -%}
+      {{ ns.total }}
 
 # One GiB more than the shortfall absorbs the rounding of logical extents.
 - name: Work out the size of the disk to add, if any
@@ -25,45 +41,71 @@
   when: (lvm_grow_missing_bytes | int) > (lvm_grow_free_bytes | int)
 
 - name: Add a disk to the volume group
-  when: lvm_grow_extra_gb is defined
+  when: (lvm_grow_extra_gb | int) > 0
+  vars:
+    lvm_grow_extra_bytes: "{{ (lvm_grow_extra_gb | int) * 1073741824 }}"
+    # A disk of exactly that size which is not yet a physical volume: the one this role added.
+    lvm_grow_find_disk: |
+      pvs --noheadings -o pv_name | tr -d ' ' > /tmp/.lvm_grow_pvs
+      lsblk -bdn -o NAME,SIZE,TYPE | awk -v s={{ lvm_grow_extra_bytes }} '$3=="disk" && $2==s {print "/dev/"$1}' | grep -vxFf /tmp/.lvm_grow_pvs
+      rc=$?; rm -f /tmp/.lvm_grow_pvs; exit 0
   block:
-    - name: Attach a new virtual disk to the VM, unless the slot is already used
+    - name: Look for a disk of that size that was attached but not joined, by an earlier run
+      ansible.builtin.shell: "{{ lvm_grow_find_disk }}"
+      register: lvm_grow_existing_disk
+      become: true
+      changed_when: false
+
+    - name: Attach a new virtual disk to the VM, in the first free drive slot
       ansible.builtin.shell: |
-        qm config {{ proxmox_vmid }} | grep -q '^{{ lvm_grow_disk_slot }}:' ||
-          qm set {{ proxmox_vmid }} --{{ lvm_grow_disk_slot }} {{ lvm_grow_storage }}:{{ lvm_grow_extra_gb }},discard=on,iothread=1,ssd=1
+        for n in 1 2 3 4 5 6 7 8 9; do
+          qm config {{ proxmox_vmid }} | grep -q "^scsi$n:" || { slot=scsi$n; break; }
+        done
+        qm set {{ proxmox_vmid }} --$slot {{ lvm_grow_storage }}:{{ lvm_grow_extra_gb }},discard=on,iothread=1,ssd=1
       delegate_to: "{{ proxmox_node }}"
       remote_user: "{{ proxmox_ssh_user }}"
       vars:
         ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
       changed_when: true
+      when: lvm_grow_existing_disk.stdout_lines | length == 0
 
     - name: Rescan the SCSI buses so the guest sees the new disk
       ansible.builtin.shell: for h in /sys/class/scsi_host/host*/scan; do echo '- - -' > "$h"; done
       become: true
       changed_when: true
+      when: lvm_grow_existing_disk.stdout_lines | length == 0
 
-    - name: Find the new disk, the only bare disk of that size
-      ansible.builtin.shell: |
-        lsblk -bdn -o NAME,SIZE,TYPE | awk -v s={{ (lvm_grow_extra_gb | int) * 1073741824 }} '$3=="disk" && $2==s {print "/dev/"$1}'
+    - name: Find the new disk
+      ansible.builtin.shell: "{{ lvm_grow_find_disk }}"
       register: lvm_grow_new_disk
       until: lvm_grow_new_disk.stdout_lines | length > 0
       retries: 10
       delay: 3
+      become: true
       changed_when: false
 
     - name: Stop unless exactly one disk matches
       ansible.builtin.assert:
         that: lvm_grow_new_disk.stdout_lines | length == 1
-        fail_msg: "{{ lvm_grow_new_disk.stdout_lines | length }} disks of {{ lvm_grow_extra_gb }} GiB found, refusing to pick one: {{ lvm_grow_new_disk.stdout_lines }}"
+        fail_msg: "{{ lvm_grow_new_disk.stdout_lines | length }} unused disks of {{ lvm_grow_extra_gb }} GiB found, refusing to pick one: {{ lvm_grow_new_disk.stdout_lines }}"
 
-    - name: Join the disk to the volume group, unless it already belongs to it
-      ansible.builtin.shell: |
-        pvs --noheadings -o pv_name | grep -qw {{ lvm_grow_new_disk.stdout_lines[0] }} ||
-          { pvcreate -y {{ lvm_grow_new_disk.stdout_lines[0] }} && vgextend {{ lvm_grow_vg }} {{ lvm_grow_new_disk.stdout_lines[0] }}; }
+    - name: Join the disk to the volume group
+      ansible.builtin.shell: "pvcreate -y {{ lvm_grow_new_disk.stdout_lines[0] }} && vgextend {{ lvm_grow_vg }} {{ lvm_grow_new_disk.stdout_lines[0] }}"
       become: true
       changed_when: true
 
-- name: Grow the volume and its file system
-  ansible.builtin.command: "lvextend -r -L {{ lvm_grow_size_gb }}G /dev/{{ lvm_grow_vg }}/{{ lvm_grow_lv }}"
+- name: Grow each volume that is below its target, and its file system
+  ansible.builtin.shell: |
+    set -o pipefail
+    cur=$(lvs --noheadings --nosuffix --units b -o lv_size /dev/{{ lvm_grow_vg }}/{{ item.lv }} | tr -d ' ')
+    if [ "$cur" -lt {{ (item.size_gb | int) * 1073741824 }} ]; then
+      lvextend -r -L {{ item.size_gb }}G /dev/{{ lvm_grow_vg }}/{{ item.lv }} && echo grown
+    fi
+  args:
+    executable: /bin/bash
+  register: lvm_grow_result
+  changed_when: "'grown' in lvm_grow_result.stdout"
   become: true
-  when: (lvm_grow_missing_bytes | int) > 0
+  loop: "{{ lvm_grow_wanted }}"
+  loop_control:
+    label: "{{ item.lv }}"
