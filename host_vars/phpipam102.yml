@@ -1,2 +1,17 @@
 ansible_host: 192.168.1.113 # static IP assigned via phpIPAM by provision-vm.yml
 ansible_user: deploy
+
+health_check_url: "http://192.168.1.113:8080/index.php?page=login"
+health_check_podman_user: root
+health_check_containers:
+  - phpipam-mariadb
+  - phpipam-web
+  - phpipam-cron
+
+podman_units:
+  - name: phpipam-mariadb
+    scope: root
+  - name: phpipam-web
+    scope: root
+  - name: phpipam-cron
+    scope: root
