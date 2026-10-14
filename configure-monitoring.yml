@@ -8,7 +8,7 @@
         name: node_exporter_install
 
     # ansible_host is a real IP for hosts provisioned by provision-vm.yml, but legacy hosts resolve
-    # it via semaphore101's /etc/hosts only - unusable from prometheus101, so fall back to
+    # it via semaphore101's /etc/hosts only - unusable from the Prometheus host, so fall back to
     # extracting the IP from health_check_url, as decommission-vm.yml already does.
     - name: Resolve this VM's real IP
       ansible.builtin.set_fact:

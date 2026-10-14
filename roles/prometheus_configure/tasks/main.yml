@@ -1,6 +1,6 @@
 ---
 # Frees port 9090: Cockpit's web console listens there too and is enabled by default on the
-# golden template every fleet VM is cloned from. prometheus101 has no other use for it.
+# golden template every fleet VM is cloned from. the Prometheus host has no other use for it.
 - name: Disable Cockpit
   ansible.builtin.systemd:
     name: cockpit.socket

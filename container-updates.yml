@@ -121,21 +121,21 @@
 
         # Re-render first so a version bump already committed to git reaches the container before
         # Step 3's pull: podman_update only pulls the tag already in the deployed Quadlet file.
-        - name: Step 2.5 (prometheus101 only) - Re-render the Prometheus/Alertmanager Quadlets
+        - name: Step 2.5 (Prometheus host only) - Re-render the Prometheus/Alertmanager Quadlets
           include_role:
             name: prometheus_configure
           when:
             - podman_units is defined
             - not (snapshot_already_exists | default(false))
-            - inventory_hostname == (prometheus_host | default('prometheus101'))
+            - inventory_hostname == (prometheus_host | default('prometheus102'))
 
-        - name: "Step 2.5 (prometheus101 only) - Re-render the pve-exporter Quadlet, same reason as above"
+        - name: "Step 2.5 (Prometheus host only) - Re-render the pve-exporter Quadlet, same reason as above"
           include_role:
             name: prometheus_pve_exporter_configure
           when:
             - podman_units is defined
             - not (snapshot_already_exists | default(false))
-            - inventory_hostname == (prometheus_host | default('prometheus101'))
+            - inventory_hostname == (prometheus_host | default('prometheus102'))
 
         - name: "Step 2.5 (the Grafana host only) - Re-render the Grafana Quadlet first, same reason as above"
           include_role:
@@ -284,14 +284,14 @@
       ansible.builtin.set_fact:
         step25_changed_containers: >-
           {{
-            (['prometheus', 'alertmanager'] if (hostvars[prometheus_host | default('prometheus101')].prometheus_config_changed | default(false)) else [])
+            (['prometheus', 'alertmanager'] if (hostvars[prometheus_host | default('prometheus102')].prometheus_config_changed | default(false)) else [])
             + (['grafana'] if (hostvars[grafana_host | default('grafana102')].grafana_config_changed | default(false)) else [])
             + (['homeassistant', 'matter-server'] if (hostvars[homeassistant_host | default('homeassistant101')].homeassistant_config_changed | default(false)) else [])
             + (['phpipam-web', 'phpipam-cron'] if (hostvars[phpipam_host | default('phpipam102')].phpipam_config_changed | default(false)) else [])
             + (['bunkerweb-aio'] if (hostvars[bunkerweb_host | default('bunkerweb102')].bunkerweb_config_changed | default(false)) else [])
             + (['adguardhome'] if (hostvars[adguard_host | default('adguard102')].adguard_config_changed | default(false)) else [])
             + (['immich_server', 'immich_machine_learning'] if (hostvars['immich101'].immich_config_changed | default(false)) else [])
-            + (['pve-exporter'] if (hostvars[prometheus_host | default('prometheus101')].pve_exporter_config_changed | default(false)) else [])
+            + (['pve-exporter'] if (hostvars[prometheus_host | default('prometheus102')].pve_exporter_config_changed | default(false)) else [])
           }}
 
     - name: Capture this stage's report body

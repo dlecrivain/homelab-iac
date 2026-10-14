@@ -82,7 +82,7 @@
         prometheus_target_name: "{{ new_vm_name }}"
         prometheus_target_job: node_exporter
         prometheus_target_state: absent
-      when: "'prometheus101' in hostvars"
+      when: prometheus_host in hostvars
 
 - name: Destroy the VM and remove it from this repo
   hosts: localhost
