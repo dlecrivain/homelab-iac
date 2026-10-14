@@ -169,13 +169,13 @@
             - not (snapshot_already_exists | default(false))
             - inventory_hostname == (bunkerweb_host | default('bunkerweb102'))
 
-        - name: "Step 2.5 (adguard101 only) - Re-render the AdGuard Home Quadlet first, same reason as above"
+        - name: "Step 2.5 (AdGuard host only) - Re-render the AdGuard Home Quadlet first, same reason as above"
           include_role:
             name: adguard_configure
           when:
             - podman_units is defined
             - not (snapshot_already_exists | default(false))
-            - inventory_hostname == 'adguard101'
+            - inventory_hostname == (adguard_host | default('adguard101'))
 
         - name: "Step 2.5 (immich101 only) - Re-render the Immich Quadlets first, same reason as above"
           include_role:
@@ -289,7 +289,7 @@
             + (['homeassistant', 'matter-server'] if (hostvars[homeassistant_host | default('homeassistant101')].homeassistant_config_changed | default(false)) else [])
             + (['phpipam-web', 'phpipam-cron'] if (hostvars[phpipam_host | default('phpipam101')].phpipam_config_changed | default(false)) else [])
             + (['bunkerweb-aio'] if (hostvars[bunkerweb_host | default('bunkerweb102')].bunkerweb_config_changed | default(false)) else [])
-            + (['adguardhome'] if (hostvars['adguard101'].adguard_config_changed | default(false)) else [])
+            + (['adguardhome'] if (hostvars[adguard_host | default('adguard101')].adguard_config_changed | default(false)) else [])
             + (['immich_server', 'immich_machine_learning'] if (hostvars['immich101'].immich_config_changed | default(false)) else [])
             + (['pve-exporter'] if (hostvars[prometheus_host | default('prometheus101')].pve_exporter_config_changed | default(false)) else [])
           }}

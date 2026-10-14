@@ -160,6 +160,8 @@ grafana_version: "13.2.4"
 bunkerweb_version: "1.6.15"
 # The host that runs BunkerWeb (configure-bunkerweb.yml); its reverse-proxied sites are bunkerweb_services in its host_vars.
 bunkerweb_host: bunkerweb102
+# The host that runs AdGuard Home (configure-adguard.yml), rootless as its connecting user.
+adguard_host: adguard101
 adguard_version: "v0.107.79"
 # phpipam_version is declared above, with the phpIPAM container stack.
 pve_exporter_version: "3.10.1"
@@ -228,7 +230,7 @@ image_update_watch_list:
     docker_repo: adguard/adguardhome
     version_var: adguard_version
     container_name: adguardhome
-    host: adguard101
+    host: "{{ adguard_host }}"
   - name: pve-exporter
     docker_repo: prompve/prometheus-pve-exporter
     version_var: pve_exporter_version
