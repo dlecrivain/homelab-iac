@@ -1,0 +1,21 @@
+ansible_host: 192.168.1.116 # static IP assigned via phpIPAM by provision-vm.yml
+ansible_user: deploy
+
+health_check_url: "http://192.168.1.116:9090/-/ready"
+health_check_podman_user: root
+health_check_containers:
+  - prometheus
+  - alertmanager
+  - pve-exporter
+
+podman_units:
+  - name: prometheus
+    scope: root
+  - name: alertmanager
+    scope: root
+  - name: pve-exporter
+    scope: root
+
+# A year of metrics (retention is 1y) is about 37 GB of blocks at today's 85 MB a day, plus the images
+# and the write-ahead log, so /var is grown from the template's 20 GB (roles/lvm_grow).
+prometheus_var_size_gb: 60
