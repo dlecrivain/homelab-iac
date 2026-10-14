@@ -223,7 +223,7 @@
   tasks:
     - name: Get Immich's own reported running version
       ansible.builtin.uri:
-        url: "{{ hostvars['immich101'].health_check_url }}/api/server/version"
+        url: "{{ hostvars[immich_host | default('immich102')].health_check_url }}/api/server/version"
         return_content: true
       register: immich_running_version_response
       failed_when: false

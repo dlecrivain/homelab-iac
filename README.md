@@ -46,7 +46,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 | Playbook | Purpose |
 |---|---|
 | `vm-backups.yml` | `vzdump` (zstd) of every VM, three at a time: each VM is migrated to `vm_backup_node` if it is not already there, backed up to `Stockage_SSD`, uploaded to pCloud, then migrated straight back. A final rebalance only runs if a migrate-back failed and left something stranded. |
-| `pcloud-backups.yml` | `rclone` backups to pCloud. With `pcloud_backup_source` passed as an extra var it runs that one job, otherwise it runs the two built-in jobs (Immich Daniel, Immich Marine) in parallel on `immich101`, straight from the library on its own disk. See [Backups](#backups-1). |
+| `pcloud-backups.yml` | `rclone` backups to pCloud. With `pcloud_backup_source` passed as an extra var it runs that one job, otherwise it runs the two built-in jobs (Immich Daniel, Immich Marine) in parallel on `immich102`, straight from the library on its own disk. See [Backups](#backups-1). |
 
 ### Provisioning
 
@@ -63,7 +63,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 | `configure-bunkerweb.yml` | Deploys `bunkerweb102`'s global settings and one reverse-proxy file per site, from `bunkerweb_services` in its `host_vars`. See [Configuring BunkerWeb](#configuring-bunkerweb). |
 | `configure-adguard.yml` | Deploys the AdGuard Home Quadlet on `adguard_host` (`adguard102`), with the sysctl, lingering and firewall settings a rootless container needs on ports 53 and 80. |
 | `configure-phpipam.yml` | Deploys the phpIPAM stack (MariaDB, web, cron) on `phpipam_host` (`phpipam102`). |
-| `configure-immich.yml` | Deploys Immich's four Quadlet units on `immich101` from `immich_version`. |
+| `configure-immich.yml` | Deploys Immich's four Quadlet units on `immich_host` (`immich102`) from `immich_version`, as the connecting user like `adguard_configure`. |
 | `configure-homeassistant.yml` | Deploys Home Assistant and the Matter Server as Quadlet units on `homeassistant_host` (`homeassistant101`) from `homeassistant_version` and `matter_server_version`. See [Home Assistant](#home-assistant). |
 | `configure-prometheus.yml` | Deploys Prometheus, Alertmanager and the PVE exporter on `prometheus102`. |
 | `configure-grafana.yml` | Deploys Grafana on `grafana_host` with its datasource and dashboards. |
@@ -123,7 +123,7 @@ Each host that needs container updates or health checks declares them in `host_v
 
 ```yaml
 health_check_url: "http://192.168.1.x:PORT"
-health_check_podman_user: deploy   # or root, or a specific user like "immich"
+health_check_podman_user: deploy   # or root, or another user whose containers run rootless
 health_check_validate_certs: false # optional, only for an https URL with a self-signed certificate
 health_check_retries: 30           # optional, for a slow service (default: 5 retries, 10s apart)
 health_check_delay: 10
@@ -205,7 +205,7 @@ Evacuating a node and rebalancing the cluster follow the same rules. Memory is c
 The rebalance builds one plan that is complete: a VM is moved only if that narrows the gap in memory usage between its node and the target, judged after the moves already in the plan, so applying a plan leaves nothing for a second one and two VMs of the same size are never swapped.
 
 - **`pve_anti_affinity_groups`** lists VMs that must not share a node (the two Semaphore instances). Both the evacuation and the rebalance honour it. Proxmox's own HA affinity rules would require HA-managed VMs on shared or replicated storage, which this cluster does not use.
-- **`pve_rebalance_pinned: true`** in a VM's `host_vars` stops the optional rebalance from moving it. It is set on `immich101` and `lpkat101`, whose disks are large enough that every move copies hundreds of gigabytes over the mesh and writes them to a target NVMe. Such a VM is still evacuated when its node is patched, and counts as load on the node where it sits.
+- **`pve_rebalance_pinned: true`** in a VM's `host_vars` stops the optional rebalance from moving it. It is set on `immich102` and `lpkat101`, whose disks are large enough that every move copies hundreds of gigabytes over the mesh and writes them to a target NVMe. Such a VM is still evacuated when its node is patched, and counts as load on the node where it sits.
 - **`pve_shutdown_for_maintenance: true`** shuts a VM down for the maintenance window instead of migrating it, for a VM whose disks cannot move. No VM uses it today.
 
 ### Backups
@@ -287,6 +287,12 @@ Two dedicated VMs run it: `prometheus102` (Prometheus, Alertmanager and `prometh
 
 **Known limitations.** The smartctl dashboard aggregates across nodes when "All" is selected in the instance picker, because showing each node separately would mean vendoring the dashboard and rewriting about 24 panel queries, and losing automatic upstream updates. The Proxmox dashboard has no per-node instance picker, since one exporter covers the cluster and its `instance` label is always `pve-exporter:9221`; per-node dimensions come from the `name`, `node` and `id` labels. Proxmox's own `pve-firewall`, distinct from the `firewalld` through which `node_exporter_install` opens `9100/tcp`, is not configured here: if it is enabled on the nodes, ports `9100` and `9633` need opening there too.
 
+### Immich
+
+`immich102` runs Immich's four containers (server, machine learning, Valkey and Postgres) rootless as the connecting user `deploy`, like `adguard102`, from `immich_version`. The `immich_configure` role enables lingering, opens 2283/tcp, creates `/var/lib/immich/photos` and `/var/lib/immich/postgres` and hands an empty Postgres directory to the container's own user. `immich_var_size_gb: 500` in `host_vars/immich102.yml` is applied by `configure-immich.yml` through `lvm_grow`.
+
+The database password is in two files the repository does not keep, `/var/lib/immich/.env` and `/var/lib/immich/postgres.env`, owned by the connecting user with mode 0600. The role stops with a clear message when one is missing, so a new host has to receive them before its first run. Data that comes from another host is copied with `rsync --numeric-ids` and `--usermap`/`--groupmap` from the previous owners to the new user: files owned by the old user become `deploy`, and the Postgres files go to the user's sub-uid base plus 998, which is uid 999 of the container's postgres user (`/etc/subuid` gives the base).
+
 ### Home Assistant
 
 `homeassistant101` runs Home Assistant Container and the Matter Server (the matter.js server that the Home Assistant Matter Server add-on is built on) as two rootful Quadlet units with host networking, deployed by `homeassistant_configure`. Home Assistant OS, which it replaces, cannot be managed by this repository: its host has no `dnf`, Podman, Katello agent or SSH, so a VM named in `proxmox_all_qemu` would have had to be excluded from most playbooks. The VM is built from the hardened template like the others and the usual policies apply to it:
@@ -332,7 +338,7 @@ The API token is read from a file that must not be readable by anyone else (`~/.
   - Python packages: `pip install -r requirements.txt`
 - A Proxmox API token with enough privileges to list VMs, create and delete snapshots, and migrate VMs.
 - SSH access to all target hosts and to the Proxmox nodes, using a key stored in Semaphore's Key Store (never committed to this repository).
-- `rclone` with a `pcloud:` remote on `pve1` (for `vm-backups.yml`) and on `immich101` (for `pcloud-backups.yml`, which installs the package). The remote holds a pCloud token, so its `rclone.conf` is copied by hand to `/root/.config/rclone/` (mode 0600) on `immich101` and never stored here.
+- `rclone` with a `pcloud:` remote on `pve1` (for `vm-backups.yml`) and on `immich102` (for `pcloud-backups.yml`, which installs the package). The remote holds a pCloud token, so its `rclone.conf` is copied by hand to `/root/.config/rclone/` (mode 0600) on `immich102` and never stored here.
 
 ## Secrets
 

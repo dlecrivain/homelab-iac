@@ -2,7 +2,7 @@
 - name: Run pCloud backup(s) via rclone
   hosts: "{{ pcloud_backup_host | default('immich101') }}"
   gather_facts: false
-  # The library belongs to the immich user and the pCloud remote lives in root's rclone configuration.
+  # The pCloud remote lives in root's rclone configuration, and root can read the library whoever owns it.
   become: true
   vars:
     pcloud_backup_jobs:

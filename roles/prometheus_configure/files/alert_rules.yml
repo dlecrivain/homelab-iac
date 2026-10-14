@@ -112,7 +112,7 @@ groups:
           description: "{{ $labels.device }} on {{ $labels.instance }} reports MTU {{ $value }} instead of 9000 - a mismatch with its peer silently drops jumbo frames."
 
       - alert: DiskTemperatureHigh
-        # 70C, not 65C: a nightly full-library read on immich101 sustains 66-69C for about 15
+        # 70C, not 65C: a nightly full-library read on the Immich host sustains 66-69C for about 15
         # minutes, which is normal for this drive and made a 65C threshold fire every day.
         expr: smartctl_device_temperature{temperature_type="current"} > 70
         for: 10m

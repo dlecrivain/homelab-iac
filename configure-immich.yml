@@ -1,8 +1,16 @@
 ---
 - name: Configure Immich's Podman Quadlet units
-  hosts: immich101
+  hosts: "{{ immich_host | default('immich102') }}"
   gather_facts: false
   tasks:
+    - name: Make room for the library on /var
+      include_role:
+        name: lvm_grow
+      vars:
+        lvm_grow_lv: lv_var
+        lvm_grow_size_gb: "{{ immich_var_size_gb }}"
+      when: immich_var_size_gb is defined
+
     - name: Deploy the Immich Quadlet units
       include_role:
         name: immich_configure
