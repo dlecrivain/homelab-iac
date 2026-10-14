@@ -1,14 +1,15 @@
 ---
-# Run from semaphore101, targeting the new VM.
+# Run from the other Semaphore instance, targeting the new VM, with -e peer_host=<name>: it has no default, so a
+# template without arguments cannot touch an existing instance.
 - name: Provision a fresh Semaphore peer instance identically to the existing one
-  hosts: "{{ peer_host | default('semaphore102') }}"
+  hosts: "{{ peer_host | default('none') }}"
   gather_facts: true
   tasks:
     - name: Deploy Semaphore via Podman Quadlet
       include_role:
         name: semaphore_provision
 
-    # This playbook never ran the check before, which is how semaphore102 ended up with the raw
+    # This playbook never ran the check before, which is how semaphore104 ended up with the raw
     # Rocky appstream/baseos/extras repos alongside the Katello-managed ones.
     - name: Disable any enabled repo that isn't managed by Katello
       include_role:
