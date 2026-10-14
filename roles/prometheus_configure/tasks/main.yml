@@ -1,12 +1,16 @@
 ---
-# Frees port 9090: Cockpit's web console listens there too and is enabled by default on the
-# golden template every fleet VM is cloned from. the Prometheus host has no other use for it.
+# Frees port 9090: Cockpit's web console listens there too and is enabled by default on the plain
+# Rocky 10 template. The hardened template does not ship it, so a missing unit is not an error.
 - name: Disable Cockpit
   ansible.builtin.systemd:
     name: cockpit.socket
     state: stopped
     enabled: false
   become: true
+  register: prometheus_cockpit_result
+  failed_when:
+    - prometheus_cockpit_result is failed
+    - "'Could not find the requested service' not in (prometheus_cockpit_result.msg | default(''))"
 
 - name: Ensure /etc/prometheus and its file_sd subdirectories exist
   ansible.builtin.file:
