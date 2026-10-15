@@ -119,9 +119,12 @@
             - host_overall_status == 'OK'
 
       rescue:
+        # container-updates.yml, imported next, works out host_overall_status again from the health of the
+        # containers alone, so the failure is also kept in a fact of its own for the stage status below.
         - name: Mark this host as having a problem, and record why
           ansible.builtin.set_fact:
             host_overall_status: PROBLEM
+            semaphore_peer_patch_failed: true
             host_update_failure_reason: "{{ ansible_failed_result.msg | default('Unknown error') }}"
 
 - import_playbook: container-updates.yml
@@ -283,7 +286,8 @@
         semaphore_peer_stage_status: >-
           {{
             'SKIPPED' if not semaphore_peer_was_allowed_to_run
-            else ('PROBLEM' if (hostvars[peer_host].host_overall_status | default('OK')) == 'PROBLEM'
+            else ('PROBLEM' if ((hostvars[peer_host].host_overall_status | default('OK')) == 'PROBLEM'
+                                or (hostvars[peer_host].semaphore_peer_patch_failed | default(false) | bool))
             else ('SKIPPED' if semaphore_peer_alignment_skipped
             else 'OK'))
           }}
