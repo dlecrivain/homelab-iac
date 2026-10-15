@@ -5,11 +5,14 @@
   become: true
   when: ansible_facts['pkg_mgr'] == 'apt'
 
+# As root: redhat.repo is readable by root only on a host with a umask of 027, like the CIS-hardened template,
+# and dnf run by another user then finds no enabled repository and fails.
 - name: Check available updates (dnf/yum)
   ansible.builtin.command: dnf check-update
   register: dnf_check
   failed_when: dnf_check.rc not in [0, 100]
   changed_when: false
+  become: true
   when: ansible_facts['pkg_mgr'] in ['dnf', 'yum']
 
 - name: Check available updates (apt)
