@@ -1,0 +1,23 @@
+[Unit]
+Description=Claude Code Remote Control ({{ claude_assistant_session_name }})
+Documentation=https://code.claude.com/docs/en/remote-control
+After=network-online.target
+Wants=network-online.target
+# The first login is interactive, so there is nothing to start before it.
+ConditionPathExists={{ claude_assistant_home }}/.claude/.credentials.json
+
+[Service]
+User={{ claude_assistant_user }}
+Group={{ claude_assistant_user }}
+WorkingDirectory={{ claude_assistant_repo_dir }}
+Environment=HOME={{ claude_assistant_home }}
+ExecStart=/usr/bin/claude remote-control --name {{ claude_assistant_session_name }} --permission-mode auto
+# Server mode gives up and exits after a long network outage.
+Restart=always
+RestartSec=30
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target

@@ -28,8 +28,8 @@ The service starts with `--permission-mode auto`: a classifier reviews each acti
 
 - **Unprivileged user.** The service runs as a dedicated user with no sudo and no ssh key to any other host. The fleet's `deploy` account has passwordless sudo everywhere, so an ssh key would be root everywhere.
 - **Root-owned managed settings** hold the `deny` rules, so the service user cannot edit them. Deny rules apply in every permission mode. They forbid at least: `sudo`, `ssh`, `scp`, force pushes, branch deletion, reading credential and token files, direct calls to the Semaphore and Proxmox APIs with `curl` or `wget`, and editing the managed settings.
-- **Repository.** A deploy key dedicated to this VM, valid for this repository only. Branch protection on `main` on GitHub rejects force pushes and deletions, so the limit holds even if a client-side rule is bypassed. Before each push the clone runs `ansible-playbook --syntax-check` on the changed playbooks.
-- **Playbooks** run only through Semaphore, with a token for a dedicated account that has the Task Runner role. `scripts/semaphore-ctl` applies an allowlist of template ids. The token is readable only by a root-owned wrapper that the service user may call through one sudoers entry, so the allowlist cannot be skipped by calling the API directly. The allowlist excludes decommissioning, backup deletion and anything that destroys a VM. With Task Runner it cannot create templates: a new playbook needs a template created by the owner, an existing playbook can be edited and re-run.
+- **Repository.** A deploy key dedicated to this VM, valid for this repository only. Branch protection on `main` on GitHub rejects force pushes and deletions, so the limit holds even if a client-side rule is bypassed. A `pre-push` hook in the clone runs `ansible-playbook --syntax-check` on every playbook before anything is pushed.
+- **Playbooks** run only through Semaphore, with a token for a dedicated account that has the Task Runner role. `scripts/semaphore-ctl` applies an allowlist of template ids. The token is readable only by a root-owned wrapper that the service user may call through one sudoers entry, so the allowlist cannot be skipped by calling the API directly. The allowlist is a single `*` line: every template of the instance may be started, including decommissioning, backups and the Proxmox operations, so Semaphore is the only way to reach Proxmox. The instruction file asks the assistant to start a template that destroys something only when the request names it. With Task Runner it cannot create templates: a new playbook needs a template created by the owner, an existing playbook can be edited and re-run.
 - **Audit.** Session transcripts stay on the VM, every change is a commit, every run is a Semaphore task. The final message of each request lists the commits and task ids it produced.
 
 ## Notification
@@ -49,5 +49,4 @@ The answer to a request is the notification. Whether the phone app also pushes a
 ## Open points
 
 - How the client is installed on a host whose only package source is the Katello content views.
-- Which templates go in the allowlist.
 - Whether the owner wants the Manager role later, accepting that Claude could then create templates and run any playbook on the fleet.

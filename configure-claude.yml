@@ -1,0 +1,8 @@
+---
+- name: Configure the Claude Code assistant
+  hosts: "{{ claude_host | default('claude101') }}"
+  gather_facts: false
+  tasks:
+    - name: Install and configure the assistant
+      include_role:
+        name: claude_assistant

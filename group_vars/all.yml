@@ -119,6 +119,11 @@ grafana_host: grafana102
 node_exporter_version: "1.12.1"
 smartctl_exporter_version: "0.15.0"
 
+# The Claude Code release installed on claude_host by configure-claude.yml. Pinned because the vendor
+# repository is kept disabled (every repo outside Katello is), so the host never moves on its own.
+claude_host: claude101
+claude_code_version: "2.1.292"
+
 # OpenSCAP compliance scan (openscap-scan.yml). "cis_fleet" is the SCAP Security Guide's CIS Level 2 -
 # Server profile ("cis") from the Rocky Linux 10 datastream that scap-security-guide installs, tailored
 # by the waivers of kickstart/cis-waivers.yml.

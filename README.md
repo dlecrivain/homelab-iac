@@ -68,6 +68,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 | `configure-prometheus.yml` | Deploys Prometheus, Alertmanager and the PVE exporter on `prometheus102`. |
 | `configure-grafana.yml` | Deploys Grafana on `grafana_host` with its datasource and dashboards. |
 | `configure-monitoring.yml` | Installs `node_exporter` and `smartctl_exporter` and registers every VM and node with Prometheus. Safe to re-run, and the way a new exporter version reaches the hosts. See [Monitoring](#monitoring). |
+| `configure-claude.yml` | Installs Claude Code on `claude_host` (`claude101`) and sets up its service user, managed permission rules, Semaphore access and repository clone. See [claude101](#claude101). |
 
 ### Compliance
 
@@ -103,6 +104,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
   - **Backups**: `vzdump_backup`, `pcloud_backup_job`.
   - **Katello**: `katello_promote`, `katello_cv_retention`, `katello_register_host`, `katello_deregister_host`, `katello_repo_cleanup`.
   - **Provisioning**: `provision_vm_reconnect`, `semaphore_provision`, `phpipam_login`, `phpipam_next_ip`, `phpipam_remove_address`, `lvm_grow` (grows one or several logical volumes of the template's volume group, adding a virtual disk when needed).
+  - **Assistant**: `claude_assistant`.
   - **Monitoring**: `node_exporter_install`, `smartctl_exporter_install`, `prometheus_target`.
   - **Compliance**: `openscap_scan`.
   - **Reporting**: `send_report` (shared HTML mail skeleton), `capture_start_time`, `capture_host_list`.
@@ -302,6 +304,21 @@ The database password is in two files the repository does not keep, `/var/lib/im
 - **Network**: host networking is needed for device discovery and the HomeKit bridge. Firewalld trusts the local network as a whole, because discovery replies and device events come from addresses the stateful firewall has never seen it contact, and nothing outside it. The Matter Server listens on `127.0.0.1` only.
 - **CIS**: Thread and Matter devices are reached through routes that border routers announce in router advertisements, so `roles/homeassistant_configure` sets `accept_ra` to 2, on the interface that carries the default route as well because an interface keeps the values it was created with, and the two matching rules are waived for this host in `host_vars/homeassistant101.yml`.
 - **Reverse proxy**: BunkerWeb publishes it as `homeassistant.lecrivaindaniel.fr` (`bunkerweb_services` in `host_vars/bunkerweb102.yml`). Home Assistant answers HTTP 400 to every proxied request until `use_x_forwarded_for` and `trusted_proxies` (BunkerWeb's address) are set. Since 2026.10 it keeps its HTTP settings in `.storage/http` and ignores `http:` in `configuration.yaml`, so these two settings belong to the instance's own state rather than to this repository and travel with the VM backup.
+
+### claude101
+
+`claude101` runs Claude Code as a service that the owner drives from a phone through Remote Control. A request is the authorization: it reads, edits this repository, commits, pushes and starts playbooks without asking again for each step, then reports what it did. [docs/claude101.md](docs/claude101.md) gives the design and the reasons for its limits. `configure-claude.yml` applies the `claude_assistant` role to `claude_host`:
+
+- **Installation**: Claude Code comes from Anthropic's signed dnf repository, whose key is imported only when its fingerprint matches the published one. The repository stays disabled, like every repository outside Katello, and is enabled for the one install of `claude_code_version`, so the host moves only when that variable changes.
+- **Privileges**: the service runs as an unprivileged user that has no sudo and no ssh key to another host. Its permission rules and its `auto` permission mode are in `/etc/claude-code/managed-settings.json`, owned by root, where deny rules apply in every mode and bypass mode is disabled.
+- **Playbooks**: the assistant types `semaphore-ctl`, which runs the repository's script as another user, `claude-semaphore`, through one sudoers rule. That user alone reads the Semaphore token (`/etc/claude-assistant/semaphore.token`), and the template ids it may start are `claude_assistant_semaphore_allowed_templates` in the host's `host_vars` (ids are per Semaphore instance, `claude_assistant_semaphore_host`; `'*'` allows every template).
+- **Repository**: the clone reads over HTTPS and pushes with a deploy key generated on the host. A `pre-push` hook syntax-checks every playbook. Branch protection on GitHub, which has to reject force pushes and deletions of `main`, is the limit that does not depend on the host.
+
+Three steps involve a secret and are done by hand once. The end of each run lists the ones still open:
+
+1. Add the public key that the run prints to the repository as a deploy key with write access.
+2. Create a Semaphore user with the Task Runner role, and place its API token in `/etc/claude-assistant/semaphore.token` (owner `claude-semaphore`, mode 0600).
+3. Log in with `sudo -iu claude`, `claude auth login`, then start `claude remote-control` once in the clone to accept its two confirmation prompts, and run the playbook again so that the service starts.
 
 ### Compliance scanning
 

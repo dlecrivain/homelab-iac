@@ -1,0 +1,66 @@
+---
+claude_assistant_user: claude
+claude_assistant_home: "/home/{{ claude_assistant_user }}"
+claude_assistant_repo_dir: "{{ claude_assistant_home }}/homelab-iac"
+
+# The repository is public, so it is read over HTTPS without a credential; only the push goes through
+# the deploy key that is generated on the host.
+claude_assistant_fetch_url: "https://github.com/{{ git_repository }}"
+claude_assistant_push_url: "git@github.com:{{ git_repository }}.git"
+claude_assistant_git_name: claude101
+claude_assistant_git_email: noreply@anthropic.com
+
+# The release signing key of Anthropic's repository. Its fingerprint is checked before the key is imported.
+claude_assistant_gpg_key_url: https://downloads.claude.ai/keys/claude-code.asc
+claude_assistant_gpg_fingerprint: 31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE
+claude_assistant_repo_baseurl: https://downloads.claude.ai/claude-code/rpm/stable
+
+# GitHub's ed25519 host key (https://api.github.com/meta), so the first connection is not trusted blindly.
+claude_assistant_github_host_key: "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
+
+# Playbooks are started through the Semaphore instance below with a token of its own and only for the
+# listed template ids; template ids are per instance.
+claude_assistant_semaphore_host: semaphore103
+claude_assistant_semaphore_project: 1
+# Template ids, or "*" for every template of the instance.
+claude_assistant_semaphore_allowed_templates: []
+
+claude_assistant_semaphore_user: claude-semaphore
+
+claude_assistant_session_name: "{{ inventory_hostname }}"
+
+# Enforced by Claude Code in every permission mode, from a file the service user cannot write. Command
+# patterns are a best effort (a command can be spelled many ways): the limits that hold are the user's
+# lack of privileges, the Semaphore token it cannot read and the branch protection on GitHub.
+claude_assistant_managed_settings:
+  permissions:
+    disableBypassPermissionsMode: disable
+    deny:
+      - "Bash(sudo *)"
+      - "Bash(su *)"
+      - "Bash(ssh *)"
+      - "Bash(scp *)"
+      - "Bash(sftp *)"
+      - "Bash(rsync *)"
+      - "Bash(curl *)"
+      - "Bash(wget *)"
+      - "Bash(nc *)"
+      - "Bash(crontab *)"
+      - "Bash(at *)"
+      - "Bash(systemd-run *)"
+      - "Bash(git push *--force*)"
+      - "Bash(git push -f*)"
+      - "Bash(git push * -f)"
+      - "Bash(git push * -f *)"
+      - "Bash(git push *--delete*)"
+      - "Bash(git push *+*)"
+      - "Bash(git push * :*)"
+      - "Read(//home/{{ claude_assistant_user }}/.ssh/**)"
+      - "Edit(//home/{{ claude_assistant_user }}/.ssh/**)"
+      - "Read(//home/{{ claude_assistant_user }}/.claude/.credentials.json)"
+      - "Edit(//home/{{ claude_assistant_user }}/.claude/.credentials.json)"
+  allowManagedPermissionRulesOnly: true
+  env:
+    DISABLE_TELEMETRY: "1"
+    DISABLE_ERROR_REPORTING: "1"
+    DISABLE_AUTOUPDATER: "1"

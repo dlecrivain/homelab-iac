@@ -1,0 +1,8 @@
+#!/bin/sh
+# Runs as {{ claude_assistant_semaphore_user }}, the only user that can read the Semaphore token. The environment is
+# rebuilt from nothing so the caller cannot redirect the token to another URL or another allowlist.
+exec env -i PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C.UTF-8 \
+  SEMAPHORE_URL=http://{{ hostvars[claude_assistant_semaphore_host].ansible_host }}:3000 \
+  SEMAPHORE_PROJECT={{ claude_assistant_semaphore_project }} \
+  SEMAPHORE_CONFIG_DIR=/etc/claude-assistant \
+  /usr/local/sbin/claude-semaphore-ctl "$@"

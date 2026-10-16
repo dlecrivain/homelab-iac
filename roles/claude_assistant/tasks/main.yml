@@ -1,0 +1,294 @@
+---
+# Everything the assistant is allowed to do is fixed here, by a root-owned configuration, and not left to
+# the assistant itself: see docs/claude101.md. The steps that involve a secret (the login, the GitHub deploy
+# key, the Semaphore token) are done by hand once and reported at the end of the run.
+#
+# Commands run as the service user go through runuser as root, which needs neither a pipelined connection
+# nor ACLs to let one unprivileged user read the temporary files of another.
+- name: Set the command prefix that runs a command as the service user
+  ansible.builtin.set_fact:
+    claude_assistant_as: ["runuser", "-u", "{{ claude_assistant_user }}", "--", "env", "HOME={{ claude_assistant_home }}"]
+
+- name: Install git and ansible-core
+  ansible.builtin.dnf:
+    name:
+      - git
+      - ansible-core
+    state: present
+  become: true
+
+# Anthropic's repository is outside Katello, so it stays disabled and is enabled for this one install, the
+# way every other non-Katello repo is kept from moving the host (see katello_repo_cleanup).
+- name: Fetch the Claude Code release signing key
+  ansible.builtin.get_url:
+    url: "{{ claude_assistant_gpg_key_url }}"
+    dest: /etc/pki/rpm-gpg/RPM-GPG-KEY-claude-code
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: Import the signing key once its fingerprint matches the published one
+  ansible.builtin.rpm_key:
+    key: /etc/pki/rpm-gpg/RPM-GPG-KEY-claude-code
+    fingerprint: "{{ claude_assistant_gpg_fingerprint }}"
+    state: present
+  become: true
+
+- name: Define the Claude Code repository, disabled by default
+  ansible.builtin.yum_repository:
+    name: claude-code
+    description: Claude Code
+    baseurl: "{{ claude_assistant_repo_baseurl }}"
+    gpgcheck: true
+    gpgkey: file:///etc/pki/rpm-gpg/RPM-GPG-KEY-claude-code
+    enabled: false
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: "Install Claude Code {{ claude_code_version }}"
+  ansible.builtin.dnf:
+    name: "claude-code-{{ claude_code_version }}"
+    enablerepo: claude-code
+    state: present
+  become: true
+
+- name: Create the service user, with no sudo and no group
+  ansible.builtin.user:
+    name: "{{ claude_assistant_user }}"
+    shell: /bin/bash
+    create_home: true
+  become: true
+
+# The user that holds the Semaphore token, so the assistant can start an allowed template but cannot read the token.
+- name: Create the user that holds the Semaphore token
+  ansible.builtin.user:
+    name: "{{ claude_assistant_semaphore_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+  become: true
+
+- name: Create the directory of the Semaphore token and allowlist
+  ansible.builtin.file:
+    path: /etc/claude-assistant
+    state: directory
+    owner: root
+    group: "{{ claude_assistant_semaphore_user }}"
+    mode: '0750'
+  become: true
+
+- name: Write the list of Semaphore templates the assistant may start
+  ansible.builtin.copy:
+    dest: /etc/claude-assistant/allowed-templates
+    content: |
+      # One template id per line, on {{ claude_assistant_semaphore_host }}. Managed by the claude_assistant role.
+      {% for template_id in claude_assistant_semaphore_allowed_templates %}
+      {{ template_id }}
+      {% endfor %}
+    owner: root
+    group: "{{ claude_assistant_semaphore_user }}"
+    mode: '0640'
+  become: true
+
+- name: Install semaphore-ctl where only the token holder runs it
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/scripts/semaphore-ctl"
+    dest: /usr/local/sbin/claude-semaphore-ctl
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Install the script that runs semaphore-ctl with a fixed environment
+  ansible.builtin.template:
+    src: semaphore-run.j2
+    dest: /usr/local/sbin/claude-semaphore-run
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Install the semaphore-ctl command of the assistant
+  ansible.builtin.template:
+    src: semaphore-wrapper.j2
+    dest: /usr/local/bin/semaphore-ctl
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Allow the service user to run that one script as the token holder
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/claude-assistant
+    content: |
+      {{ claude_assistant_user }} ALL=({{ claude_assistant_semaphore_user }}) NOPASSWD: /usr/local/sbin/claude-semaphore-run
+    owner: root
+    group: root
+    mode: '0440'
+    validate: /usr/sbin/visudo -cf %s
+  become: true
+
+- name: Create the directory of the managed Claude Code configuration
+  ansible.builtin.file:
+    path: /etc/claude-code
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Write the managed settings, which the service user cannot change
+  ansible.builtin.copy:
+    dest: /etc/claude-code/managed-settings.json
+    content: "{{ claude_assistant_managed_settings | to_nice_json }}\n"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  register: claude_assistant_settings_result
+
+- name: Create the service user's Claude and SSH directories
+  ansible.builtin.file:
+    path: "{{ claude_assistant_home }}/{{ item }}"
+    state: directory
+    owner: "{{ claude_assistant_user }}"
+    group: "{{ claude_assistant_user }}"
+    mode: '0700'
+  become: true
+  loop:
+    - .claude
+    - .ssh
+
+- name: Write the instructions the assistant starts every session with
+  ansible.builtin.template:
+    src: CLAUDE.md.j2
+    dest: "{{ claude_assistant_home }}/.claude/CLAUDE.md"
+    owner: "{{ claude_assistant_user }}"
+    group: "{{ claude_assistant_user }}"
+    mode: '0644'
+  become: true
+
+- name: Trust GitHub's SSH host key
+  ansible.builtin.copy:
+    dest: "{{ claude_assistant_home }}/.ssh/known_hosts"
+    content: "{{ claude_assistant_github_host_key }}\n"
+    owner: "{{ claude_assistant_user }}"
+    group: "{{ claude_assistant_user }}"
+    mode: '0644'
+  become: true
+
+- name: Generate the deploy key the assistant pushes with
+  ansible.builtin.command:
+    argv: "{{ claude_assistant_as + ['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-C', claude_assistant_session_name + ' deploy key', '-f', claude_assistant_home + '/.ssh/id_ed25519'] }}"
+    creates: "{{ claude_assistant_home }}/.ssh/id_ed25519"
+  become: true
+
+- name: Clone the repository
+  ansible.builtin.command:
+    argv: "{{ claude_assistant_as + ['git', 'clone', claude_assistant_fetch_url, claude_assistant_repo_dir] }}"
+    chdir: "{{ claude_assistant_home }}"
+    creates: "{{ claude_assistant_repo_dir }}/.git"
+  become: true
+
+# Reads stay anonymous over HTTPS and only a push uses the deploy key.
+- name: Point pushes at the SSH remote
+  ansible.builtin.command:
+    argv: "{{ claude_assistant_as + ['git', '-C', claude_assistant_repo_dir, 'remote', 'set-url', '--push', 'origin', claude_assistant_push_url] }}"
+  become: true
+  changed_when: false
+
+- name: Set the git identity of the assistant
+  ansible.builtin.command:
+    argv: "{{ claude_assistant_as + ['git', '-C', claude_assistant_repo_dir, 'config', item.key, item.value] }}"
+  become: true
+  changed_when: false
+  loop:
+    - { key: user.name, value: "{{ claude_assistant_git_name }}" }
+    - { key: user.email, value: "{{ claude_assistant_git_email }}" }
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Check playbook syntax before every push
+  ansible.builtin.template:
+    src: pre-push.j2
+    dest: "{{ claude_assistant_repo_dir }}/.git/hooks/pre-push"
+    owner: "{{ claude_assistant_user }}"
+    group: "{{ claude_assistant_user }}"
+    mode: '0755'
+  become: true
+
+- name: Install the Ansible collections the playbooks need
+  ansible.builtin.command:
+    argv: "{{ claude_assistant_as + ['ansible-galaxy', 'collection', 'install', '-r', claude_assistant_repo_dir + '/collections/requirements.yml', '-p', claude_assistant_home + '/.ansible/collections'] }}"
+  become: true
+  register: claude_assistant_collections_result
+  changed_when: "'Installing' in claude_assistant_collections_result.stdout"
+
+- name: Install the Remote Control service
+  ansible.builtin.template:
+    src: claude-assistant.service.j2
+    dest: /etc/systemd/system/claude-assistant.service
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  register: claude_assistant_unit_result
+
+- name: Check whether the first login has been done
+  ansible.builtin.stat:
+    path: "{{ claude_assistant_home }}/.claude/.credentials.json"
+  become: true
+  register: claude_assistant_credentials
+
+- name: Enable the service
+  ansible.builtin.systemd:
+    name: claude-assistant.service
+    daemon_reload: true
+    enabled: true
+  become: true
+
+# Without the login there is nothing to run, and the unit's own condition would only skip it.
+- name: Start the service, or restart it after a change to its unit or settings
+  ansible.builtin.systemd:
+    name: claude-assistant.service
+    state: "{{ 'restarted' if (claude_assistant_unit_result is changed or claude_assistant_settings_result is changed) else 'started' }}"
+  become: true
+  when: claude_assistant_credentials.stat.exists
+
+- name: Read the deploy key's public half
+  ansible.builtin.command:
+    argv: [cat, "{{ claude_assistant_home }}/.ssh/id_ed25519.pub"]
+  become: true
+  register: claude_assistant_public_key
+  changed_when: false
+
+- name: Check whether the Semaphore token has been placed
+  ansible.builtin.stat:
+    path: /etc/claude-assistant/semaphore.token
+  become: true
+  register: claude_assistant_token
+
+- name: Check whether GitHub accepts the deploy key
+  ansible.builtin.command:
+    argv: "{{ claude_assistant_as + ['ssh', '-o', 'BatchMode=yes', '-T', 'git@github.com'] }}"
+  become: true
+  register: claude_assistant_github_check
+  changed_when: false
+  failed_when: false
+
+# GitHub answers a valid deploy key with "Hi <repository>!" and exit status 1, and anything else is a refusal.
+- name: Report what is left to do by hand
+  ansible.builtin.debug:
+    msg: >-
+      {{
+        (['Add this public key to the repository as a deploy key with write access: ' + claude_assistant_public_key.stdout]
+          if 'successfully authenticated' not in claude_assistant_github_check.stderr else [])
+        + (['Place the Semaphore token in /etc/claude-assistant/semaphore.token (owner ' + claude_assistant_semaphore_user + ', mode 0600)']
+          if not claude_assistant_token.stat.exists else [])
+        + (['Log in as ' + claude_assistant_user + ' with: claude auth login, then accept the prompts of a first claude remote-control run in ' + claude_assistant_repo_dir + ', then run this playbook again']
+          if not claude_assistant_credentials.stat.exists else [])
+        or ['Nothing left to do by hand']
+      }}
