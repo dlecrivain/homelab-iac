@@ -22,6 +22,7 @@
     vm_placements: "{{ (placement_result.stdout | from_json).migrate }}"
     vm_shutdowns: "{{ (placement_result.stdout | from_json).shutdown }}"
     vm_placement_warnings: "{{ (placement_result.stdout | from_json).warnings | default([]) }}"
+    vm_placement_blocked: "{{ (placement_result.stdout | from_json).blocked | default([]) }}"
 
 - name: Show computed placement
   ansible.builtin.debug:
@@ -33,6 +34,15 @@
   ansible.builtin.debug:
     msg: "WARNING - {{ item }}"
   loop: "{{ vm_placement_warnings }}"
+
+# Checked before any migration starts, so a refused evacuation leaves every VM where it is.
+- name: Stop before moving anything if a VM would not fit in the memory of the other nodes
+  ansible.builtin.fail:
+    msg: >-
+      Evacuating {{ inventory_hostname }} would overload another node, so no VM was moved:
+      {{ vm_placement_blocked | join('; ') }}. Mark a VM with pve_shutdown_for_maintenance, stop one for the
+      window, or add memory, then run again.
+  when: vm_placement_blocked | length > 0
 
 - name: Clean up the placement script
   ansible.builtin.file:

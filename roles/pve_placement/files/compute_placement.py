@@ -76,6 +76,9 @@ for node in target_nodes:
 placements = []
 planned = {}  # VM name -> chosen node, so a peer evacuated later avoids it
 warnings = []
+# A placement that would take a node past all of its memory is not a soft rule bent for a planned window: the host
+# would swap or kill a VM. It is reported separately and the evacuation stops before moving anything.
+blocked = []
 for vm in vms_to_move:
     vm_mem = vm.get('maxmem', 0)
     name = vm.get('name', f"vm-{vm['vmid']}")
@@ -116,6 +119,10 @@ for vm in vms_to_move:
 
     if not memory_safe(best_node):
         projected = (node_used_mem[best_node] + vm_mem) / node_total_mem[best_node]
+        if projected > 1.0:
+            blocked.append(
+                f"{name} ({vm_mem / 2**30:.0f} GB allocated) would bring {best_node} to {projected:.0%} of its memory"
+            )
         warnings.append(
             f"{name} ({vm_mem / 2**30:.0f} GB allocated): no node stays under the {SAFETY_THRESHOLD:.0%} "
             f"memory threshold, so it goes to {best_node} anyway, which would reach {projected:.0%} of its "
@@ -144,6 +151,7 @@ result = {
         {'vmid': vm['vmid'], 'name': vm.get('name', f"vm-{vm['vmid']}")}
         for vm in vms_to_shutdown
     ],
-    'warnings': warnings
+    'warnings': warnings,
+    'blocked': blocked
 }
 print(json.dumps(result, indent=2))
