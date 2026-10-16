@@ -1,8 +1,9 @@
 ---
-# Its disk is on node-local storage, so it can't migrate.
+# Its disk is on node-local storage, or it is too large for the other nodes' memory, so it is stopped instead of migrated.
+# pve_shutdown_timeout in its host_vars lets a VM that takes long to stop (Katello) have more than a minute.
 - name: "Shut down {{ vm.name }} for the maintenance window"
   ansible.builtin.command: >
-    qm shutdown {{ vm.vmid }} --timeout 60
+    qm shutdown {{ vm.vmid }} --timeout {{ hostvars[vm.name].pve_shutdown_timeout | default(60) }}
   changed_when: true
 
 - name: "Confirm {{ vm.name }} is stopped"

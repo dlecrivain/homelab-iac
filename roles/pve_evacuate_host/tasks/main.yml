@@ -18,13 +18,8 @@
     loop_var: vm
     label: "{{ vm.name }} -> {{ vm.target_node }}"
 
-- name: Shut down each node-pinned VM for the duration of this host's maintenance window
-  ansible.builtin.include_tasks: shutdown_for_maintenance.yml
-  loop: "{{ vm_shutdowns }}"
-  loop_control:
-    loop_var: vm
-    label: "{{ vm.name }}"
-
-- name: Remember which VMs were shut down here, so they can be started back up after the reboot
+# Recorded here so the VMs are started again after the reboot, and also when the run is blocked after they were
+# stopped. They are stopped later, by shutdown_pinned_vms.yml, once the host has installed its updates.
+- name: Remember which VMs are stopped for this host's reboot instead of being migrated
   ansible.builtin.set_fact:
     pve_vms_shutdown_for_maintenance: "{{ vm_shutdowns }}"

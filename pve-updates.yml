@@ -52,6 +52,11 @@
               include_role:
                 name: apply_updates
 
+            - name: Step 3b - Shut down the node-pinned VMs now that the updates are installed
+              include_role:
+                name: pve_evacuate_host
+                tasks_from: shutdown_pinned_vms
+
             - name: Step 4 - Reboot and wait for the host to come back
               include_role:
                 name: reboot_and_wait
@@ -77,6 +82,13 @@
           ansible.builtin.set_fact:
             pve_host_status: "BLOCKED"
             pve_host_failure_reason: "{{ ansible_failed_result.msg | default('Unknown error') }}"
+
+        # A failure after Step 3b would otherwise leave those VMs off, Katello included.
+        - name: Start back up any VM shut down for this maintenance window
+          include_role:
+            name: pve_evacuate_host
+            tasks_from: resume_after_maintenance
+          ignore_errors: true
 
         - name: Stop the entire run - no further hosts will be processed
           ansible.builtin.meta: end_play

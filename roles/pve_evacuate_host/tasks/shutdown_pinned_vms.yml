@@ -1,0 +1,10 @@
+---
+# Run right before the host reboots, after apply_updates: a VM stopped here may be the repository the host installs from
+# (lpkat101 is Katello), so it has to stay up until the updates are installed. It starts again with the host, and
+# resume_after_maintenance.yml waits for it to answer.
+- name: Shut down each node-pinned VM for the host's reboot
+  ansible.builtin.include_tasks: shutdown_for_maintenance.yml
+  loop: "{{ pve_vms_shutdown_for_maintenance | default([]) }}"
+  loop_control:
+    loop_var: vm
+    label: "{{ vm.name }}"

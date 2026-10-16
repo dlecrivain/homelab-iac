@@ -28,3 +28,7 @@ podman_units:
 lvm_grow_targets:
   - lv: lv_home
     size_gb: 12
+
+# Stopped, not migrated, just before its node reboots for its updates, so the nodes that take over the other VMs keep
+# their memory. It starts again with the node.
+pve_shutdown_for_maintenance: true
