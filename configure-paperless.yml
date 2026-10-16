@@ -1,0 +1,19 @@
+---
+- name: Configure Paperless-ngx's Podman Quadlet units
+  hosts: "{{ paperless_host | default('paperless101') }}"
+  gather_facts: false
+  tasks:
+    - name: Make room for the container images on /home
+      include_role:
+        name: lvm_grow
+      when: lvm_grow_targets is defined
+
+    - name: Deploy the Paperless-ngx Quadlet units
+      include_role:
+        name: paperless_configure
+
+    - name: Check services after config deploy
+      include_role:
+        name: health_check
+      vars:
+        health_check_fail_on_unhealthy: true

@@ -1,0 +1,17 @@
+[Unit]
+Description=Paperless-ngx Postgres
+
+[Container]
+Image={{ paperless_postgres_image }}
+ContainerName=paperless_postgres
+EnvironmentFile=/var/lib/paperless/postgres.env
+Volume=/var/lib/paperless/postgres:/var/lib/postgresql/data:Z
+Network=paperless.network
+NetworkAlias=database
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

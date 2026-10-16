@@ -1,0 +1,6 @@
+---
+# In dependency order: paperless-server Requires= both postgres and redis.
+paperless_units:
+  - paperless-postgres.service
+  - paperless-redis.service
+  - paperless-server.service

@@ -1,0 +1,25 @@
+[Unit]
+Description=Paperless-ngx
+After=paperless-postgres.service paperless-redis.service
+Requires=paperless-postgres.service paperless-redis.service
+
+[Container]
+Image=ghcr.io/paperless-ngx/paperless-ngx:{{ paperless_version }}
+ContainerName=paperless_server
+EnvironmentFile=/var/lib/paperless/paperless.env
+EnvironmentFile=/var/lib/paperless/.env
+Volume=/var/lib/paperless/data:/usr/src/paperless/data:Z
+Volume=/var/lib/paperless/media:/usr/src/paperless/media:Z
+Volume=/var/lib/paperless/export:/usr/src/paperless/export:Z
+Volume=/var/lib/paperless/consume:/usr/src/paperless/consume:Z
+Volume=/etc/localtime:/etc/localtime:ro
+PublishPort=8000:8000
+Network=paperless.network
+
+[Service]
+Restart=always
+# The first start installs the OCR language packs and runs the database migrations.
+TimeoutStartSec=900
+
+[Install]
+WantedBy=default.target

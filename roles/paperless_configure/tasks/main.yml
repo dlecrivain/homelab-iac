@@ -1,0 +1,130 @@
+# Runs rootless as the connecting user itself, like immich_configure: the host's host_vars set podman_units to
+# scope 'user' with no become_user, so systemctl --user works against this same session's runtime dir.
+
+# Without lingering, the user's systemd instance and its containers stop when the last session ends and
+# do not start at boot.
+- name: Let the user's services run without a login session
+  ansible.builtin.command: "loginctl enable-linger {{ ansible_user }}"
+  args:
+    creates: "/var/lib/systemd/linger/{{ ansible_user }}"
+  become: true
+
+# A rootless container's published port goes through the host's INPUT chain, so firewalld has to allow it.
+- name: Open Paperless-ngx in the firewall
+  ansible.posix.firewalld:
+    port: 8000/tcp
+    permanent: true
+    immediate: true
+    state: enabled
+  become: true
+
+- name: Create Paperless-ngx's data directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+  become: true
+  loop:
+    - /var/lib/paperless
+    - /var/lib/paperless/data
+    - /var/lib/paperless/media
+    - /var/lib/paperless/export
+    - /var/lib/paperless/consume
+    - /var/lib/paperless/postgres
+
+# Postgres runs as uid 999 inside the container, which is a sub-uid of the connecting user on the host. An empty
+# data directory has to be handed to that uid for the first start.
+- name: Check whether the Postgres data directory already holds a cluster
+  ansible.builtin.stat:
+    path: /var/lib/paperless/postgres/PG_VERSION
+  register: paperless_postgres_cluster
+  become: true
+
+- name: Hand an empty Postgres data directory to the container's postgres user
+  ansible.builtin.command: podman unshare chown 999:999 /var/lib/paperless/postgres
+  changed_when: true
+  when: not paperless_postgres_cluster.stat.exists
+
+# The database password and the application secret key are generated here, on the host, the first time, and are
+# never shown or stored anywhere else. Both files come from one run so they always agree.
+- name: Generate the secret environment files once
+  ansible.builtin.shell: |
+    set -e
+    umask 077
+    password=$(openssl rand -hex 24)
+    secret=$(openssl rand -hex 48)
+    printf 'POSTGRES_DB=paperless\nPOSTGRES_USER=paperless\nPOSTGRES_PASSWORD=%s\n' "$password" > /var/lib/paperless/postgres.env
+    printf 'PAPERLESS_DBPASS=%s\nPAPERLESS_SECRET_KEY=%s\n' "$password" "$secret" > /var/lib/paperless/.env
+  args:
+    executable: /bin/bash
+    creates: /var/lib/paperless/.env
+  no_log: true
+
+- name: Ensure the rootless Quadlet directory exists
+  ansible.builtin.file:
+    path: "/home/{{ ansible_user }}/.config/containers/systemd"
+    state: directory
+    mode: '0755'
+
+- name: Deploy the Paperless-ngx settings
+  ansible.builtin.template:
+    src: paperless.env.j2
+    dest: /var/lib/paperless/paperless.env
+    mode: '0644'
+  register: paperless_env_result
+
+- name: Deploy the Paperless-ngx network Quadlet
+  ansible.builtin.copy:
+    src: paperless.network
+    dest: "/home/{{ ansible_user }}/.config/containers/systemd/paperless.network"
+    mode: '0644'
+  register: paperless_network_result
+
+# paperless_version is the only image that follows Paperless-ngx's releases. Postgres and Valkey are pinned by
+# digest: neither follows its cycle, and a Postgres major bump needs a dump and restore.
+- name: Deploy the Paperless-ngx Quadlet units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/home/{{ ansible_user }}/.config/containers/systemd/{{ item }}"
+    mode: '0644'
+  loop:
+    - paperless-postgres.container
+    - paperless-redis.container
+    - paperless-server.container
+  register: paperless_quadlet_result
+
+# Named consistently with the other *_configure roles: container-updates.yml's report reads this to
+# know a Step 2.5 re-render already updated the containers.
+- name: Determine whether anything actually changed
+  ansible.builtin.set_fact:
+    paperless_config_changed: >-
+      {{
+        paperless_env_result is changed
+        or paperless_network_result is changed
+        or paperless_quadlet_result is changed
+      }}
+
+- name: Reload the user systemd instance to pick up the regenerated units
+  ansible.builtin.systemd:
+    daemon_reload: true
+    scope: user
+  when: paperless_config_changed
+
+- name: Restart the Paperless-ngx units
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: restarted
+    scope: user
+  loop: "{{ paperless_units }}"
+  when: paperless_config_changed
+
+# The restart above only happens when a unit file changed. A unit that is stopped or failed with nothing else
+# to change has to be started too, or the health check below reports it without anything bringing it back.
+- name: Make sure the Paperless-ngx units are running
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    scope: user
+  loop: "{{ paperless_units }}"

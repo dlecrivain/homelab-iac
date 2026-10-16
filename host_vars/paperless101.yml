@@ -1,2 +1,30 @@
 ansible_host: 192.168.1.118 # static IP assigned via phpIPAM by provision-vm.yml
 ansible_user: deploy
+
+# The first start installs the OCR language pack and runs the database migrations, so the default retries over 50s
+# would report a healthy first deployment as a failure.
+health_check_retries: 30
+health_check_delay: 10
+health_check_url: "http://192.168.1.118:8000/accounts/login/"
+health_check_podman_user: deploy
+health_check_containers:
+  - paperless_postgres
+  - paperless_redis
+  - paperless_server
+
+podman_units:
+  - name: paperless_postgres
+    service_name: paperless-postgres
+    scope: user
+  - name: paperless_redis
+    service_name: paperless-redis
+    scope: user
+  - name: paperless_server
+    service_name: paperless-server
+    scope: user
+
+# lvm_grow brings /home to at least this size: the rootless images (Paperless-ngx, Postgres, Valkey) are a few GB
+# and a new version needs room next to the old one, while the template makes /home only 2 GB.
+lvm_grow_targets:
+  - lv: lv_home
+    size_gb: 12

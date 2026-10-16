@@ -188,6 +188,17 @@ immich_host: immich102
 immich_postgres_image: "ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23"
 immich_redis_image: "docker.io/valkey/valkey:9@sha256:4963247afc4cd33c7d3b2d2816b9f7f8eeebab148d29056c2ca4d7cbc966f2d9"
 
+# Paperless-ngx (configure-paperless.yml), the document archive described in docs/paperless.md. Pinned rather
+# than :latest so a container restart cannot change version on its own: its upgrades run database
+# migrations, which belong in a run that snapshots the VM first.
+paperless_version: "3.3.2"
+# The host that runs Paperless-ngx, rootless as its connecting user, and the name it is published under.
+paperless_host: paperless101
+paperless_domain: paperless.lecrivaindaniel.fr
+# Pinned by digest - neither follows Paperless-ngx's release cycle, and a Postgres major bump needs a dump and restore.
+paperless_postgres_image: "docker.io/library/postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3"
+paperless_redis_image: "docker.io/valkey/valkey:9@sha256:4963247afc4cd33c7d3b2d2816b9f7f8eeebab148d29056c2ca4d7cbc966f2d9"
+
 # Docker Hub (docker_repo) and ghcr.io (ghcr_repo) repos check-image-updates.yml watches: the var to bump, and the host whose live
 # container tells it whether a bump has been applied yet. phpipam-web and phpipam-cron share
 # phpipam_version - same release, they always move together. Semaphore has its own bump playbook,
@@ -213,6 +224,11 @@ image_update_watch_list:
     version_var: matter_server_version
     container_name: matter-server
     host: "{{ homeassistant_host }}"
+  - name: paperless-ngx
+    ghcr_repo: paperless-ngx/paperless-ngx
+    version_var: paperless_version
+    container_name: paperless_server
+    host: "{{ paperless_host }}"
   - name: grafana
     docker_repo: grafana/grafana
     version_var: grafana_version
