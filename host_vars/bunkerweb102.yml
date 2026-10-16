@@ -114,6 +114,23 @@ bunkerweb_services:
       LIMIT_REQ_BURST: 100
       LIMIT_CONN_MAX_HTTP2: 200
 
+  - name: paperless
+    domain: paperless.lecrivaindaniel.fr
+    extra:
+      REVERSE_PROXY_URL: "/"
+      REVERSE_PROXY_HOST: "http://192.168.1.118:8000"
+      # The web interface keeps a WebSocket open for the processing status
+      REVERSE_PROXY_WS: "yes"
+      REVERSE_PROXY_SEND_TIMEOUT: 3600s
+      REVERSE_PROXY_READ_TIMEOUT: 3600s
+      # Documents are uploaded through the proxy
+      MAX_CLIENT_SIZE: 0
+      # The frontend must read the csrftoken cookie from JS
+      COOKIE_FLAGS: "* SameSite=Lax"
+      # The interface issues many parallel requests on load
+      LIMIT_REQ_RATE: 20r/s
+      LIMIT_REQ_BURST: 100
+
   - name: grafana
     domain: grafana.lecrivaindaniel.fr
     extra:
