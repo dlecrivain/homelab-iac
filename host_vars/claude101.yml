@@ -1,2 +1,6 @@
 ansible_host: 192.168.1.111 # static IP assigned via phpIPAM by provision-vm.yml
 ansible_user: deploy
+
+# Every template of semaphore103 may be started by the assistant, see docs/claude101.md.
+claude_assistant_semaphore_allowed_templates:
+  - "*"
