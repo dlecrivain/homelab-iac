@@ -13,4 +13,4 @@ pve_rebalance_pinned: true
 # once its node has installed its updates (it is the repository they come from), just before the reboot, and it
 # starts again with the node. Katello needs minutes to stop its services.
 pve_shutdown_for_maintenance: true
-pve_shutdown_timeout: 300
+pve_shutdown_timeout: 600
