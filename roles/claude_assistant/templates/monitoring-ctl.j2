@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Read-only view of the monitoring stack for the assistant. Every request is a GET to the two fixed addresses
+# below, so the deny rules on curl and wget can stay in force.
+#
+#   monitoring-ctl alerts            alerts that are firing or pending in Prometheus
+#   monitoring-ctl targets           scrape targets that are down, with the number that are up
+#   monitoring-ctl query '<PromQL>'  an instant query, at most 50 series
+#   monitoring-ctl grafana-health    Grafana's own health endpoint
+set -euo pipefail
+
+PROMETHEUS_URL=http://{{ hostvars[prometheus_host].ansible_host }}:9090
+GRAFANA_URL=http://{{ hostvars[grafana_host].ansible_host }}:3000
+
+die() { echo "monitoring-ctl: $*" >&2; exit 1; }
+
+case "${1:-}" in
+  alerts)
+    curl -sSf -m 20 "$PROMETHEUS_URL/api/v1/alerts" | python3 -c '
+import json, sys
+alerts = json.load(sys.stdin)["data"]["alerts"]
+print("%d alert(s)" % len(alerts))
+for a in alerts:
+    labels = a["labels"]
+    print(a["state"], labels.get("alertname", "?"), labels.get("instance", "-"), a.get("annotations", {}).get("summary", ""))
+'
+    ;;
+  targets)
+    curl -sSf -m 20 "$PROMETHEUS_URL/api/v1/targets?state=active" | python3 -c '
+import json, sys
+targets = json.load(sys.stdin)["data"]["activeTargets"]
+down = [t for t in targets if t["health"] != "up"]
+print("%d of %d targets up" % (len(targets) - len(down), len(targets)))
+for t in down:
+    print("DOWN", t["labels"].get("job", "?"), t["labels"].get("instance", "?"), t.get("lastError", ""))
+'
+    ;;
+  query)
+    [ -n "${2:-}" ] || die "usage: monitoring-ctl query '<PromQL>'"
+    curl -sS -m 30 -G --data-urlencode "query=$2" "$PROMETHEUS_URL/api/v1/query" | python3 -c '
+import json, sys
+reply = json.load(sys.stdin)
+if reply["status"] != "success":
+    sys.exit("monitoring-ctl: " + reply.get("error", "query failed"))
+data = reply["data"]
+if data["resultType"] != "vector":
+    print(data["result"])
+    sys.exit()
+print("%d series" % len(data["result"]))
+for series in data["result"][:50]:
+    labels = ",".join("%s=%s" % pair for pair in sorted(series["metric"].items()))
+    print(labels or "-", series["value"][1])
+'
+    ;;
+  grafana-health)
+    curl -sSf -m 10 "$GRAFANA_URL/api/health"
+    echo
+    ;;
+  *)
+    die "usage: monitoring-ctl alerts | targets | query '<PromQL>' | grafana-health"
+    ;;
+esac

@@ -120,6 +120,15 @@
     mode: '0755'
   become: true
 
+- name: Install the read-only view of Prometheus and Grafana
+  ansible.builtin.template:
+    src: monitoring-ctl.j2
+    dest: /usr/local/bin/monitoring-ctl
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
 - name: Allow the service user to run that one script as the token holder
   ansible.builtin.copy:
     dest: /etc/sudoers.d/claude-assistant
