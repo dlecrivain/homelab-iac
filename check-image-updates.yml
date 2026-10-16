@@ -439,7 +439,7 @@
       include_role:
         name: send_report
       vars:
-        report_subject: "[check-image-updates] {{ unified_update_items | default([]) | length }} image update(s) available, {{ major_available_images | length }} major available, {{ binary_bumped | length }} binaries bumped"
+        report_subject: "[check-image-updates] {{ (unified_update_items | default([]) | length) + (1 if immich_update_available | default(false) else 0) }} image update(s) available, {{ major_available_images | length }} major available, {{ binary_bumped | length }} binaries bumped"
         report_body: "{{ image_update_report_body }}"
       when: (unified_update_items | default([]) | length > 0) or (major_available_images | length > 0) or (immich_update_available | default(false)) or (binary_bumped | length > 0) or (binary_major_available | length > 0)
 
