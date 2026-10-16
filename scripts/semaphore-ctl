@@ -13,8 +13,8 @@
 #
 # The API token is read from a file that nobody else may read, and is handed to curl through a
 # config descriptor so it never appears on a command line. Starting a task is limited to the
-# template ids listed in an allowlist file (one id per line, '#' starts a comment); without that
-# file nothing can be started, while reading stays available.
+# template ids listed in an allowlist file (one id per line, '#' starts a comment, a line with just
+# '*' allows every template); without that file nothing can be started, while reading stays available.
 set -euo pipefail
 
 SEMAPHORE_URL=${SEMAPHORE_URL:-http://192.168.1.119:3000}
@@ -44,7 +44,7 @@ api() {
   case "$code" in 2??) printf '%s\n' "$out" ;; *) die "HTTP $code from $2: ${out:0:300}" ;; esac
 }
 
-allowed_ids() { [ -f "$ALLOW_FILE" ] && sed 's/#.*//' "$ALLOW_FILE" | tr -s '[:space:]' '\n' | grep -E '^[0-9]+$' || true; }
+allowed_ids() { [ -f "$ALLOW_FILE" ] && sed 's/#.*//' "$ALLOW_FILE" | tr -s '[:space:]' '\n' | grep -E '^([0-9]+|\*)$' || true; }
 
 cmd_templates() {
   api GET "/api/project/$SEMAPHORE_PROJECT/templates" | ALLOWED="$(allowed_ids | tr '\n' ' ')" python3 -c '
@@ -52,7 +52,7 @@ import json, os, sys
 allowed = set(os.environ["ALLOWED"].split())
 print("  * = may be started from here")
 for t in sorted(json.load(sys.stdin), key=lambda t: t["id"]):
-    mark = "*" if str(t["id"]) in allowed else " "
+    mark = "*" if ("*" in allowed or str(t["id"]) in allowed) else " "
     print("%s %3d  %-32s %s" % (mark, t["id"], t["name"][:32], t["playbook"]))
 '
 }
@@ -77,7 +77,7 @@ cmd_run() {
     esac
   done
   [[ $id =~ ^[0-9]+$ ]] || die "template id must be a number"
-  allowed_ids | grep -qx "$id" || die "template $id is not in $ALLOW_FILE - refusing to start it"
+  allowed_ids | grep -qxE "$id|\*" || die "template $id is not in $ALLOW_FILE - refusing to start it"
   local body
   # A template's survey variables travel as the task's extra variables: a JSON object inside a string.
   body=$(ID="$id" ARGS="$args" WHY="$why" python3 -c '
