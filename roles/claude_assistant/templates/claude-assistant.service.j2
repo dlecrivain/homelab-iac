@@ -11,6 +11,8 @@ User={{ claude_assistant_user }}
 Group={{ claude_assistant_user }}
 WorkingDirectory={{ claude_assistant_repo_dir }}
 Environment=HOME={{ claude_assistant_home }}
+# The hardened template's login PATH leaves out /usr/local/bin, where semaphore-ctl is.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/claude remote-control --name {{ claude_assistant_session_name }} --permission-mode auto
 # Server mode gives up and exits after a long network outage.
 Restart=always
