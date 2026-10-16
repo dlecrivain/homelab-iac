@@ -10,6 +10,7 @@
 #   semaphore-ctl schedules
 #   semaphore-ctl copy-template <source-id> <name> <playbook> [--dry-run]
 #   semaphore-ctl add-schedule <template-id> '<cron>' <name> [--dry-run]
+#   semaphore-ctl set-schedule <schedule-id> '<cron>' [--dry-run]
 #
 # The API token is read from a file that nobody else may read, and is handed to curl through a
 # config descriptor so it never appears on a command line. Starting a task is limited to the
@@ -193,6 +194,24 @@ print("template %s created: %s (%s)" % (t["id"], t["name"], t["playbook"]))
 '
 }
 
+cmd_set_schedule() {
+  local id=${1:?schedule id required} cron=${2:?cron expression required} dry=0
+  [ "${3:-}" = "--dry-run" ] && dry=1
+  [[ $id =~ ^[0-9]+$ ]] || die "schedule id must be a number"
+  [[ $cron =~ ^([0-9*/,-]+\ ){4}[0-9*/,-]+$ ]] || die "'$cron' is not a five-field cron expression"
+  local current body
+  current=$(api GET "/api/project/$SEMAPHORE_PROJECT/schedules/$id")
+  body=$(CURRENT="$current" CRON="$cron" python3 -c '
+import json, os
+s = json.loads(os.environ["CURRENT"])
+s["cron_format"] = os.environ["CRON"]
+print(json.dumps(s))
+')
+  if [ $dry -eq 1 ]; then echo "$body" | python3 -m json.tool; return 0; fi
+  api PUT "/api/project/$SEMAPHORE_PROJECT/schedules/$id" "$body" > /dev/null
+  echo "schedule $id now runs at: $cron"
+}
+
 cmd_add_schedule() {
   local id=${1:?template id required} cron=${2:?cron expression required} name=${3:?name required} dry=0
   [ "${4:-}" = "--dry-run" ] && dry=1
@@ -222,5 +241,6 @@ case "${1:-}" in
   schedules) shift; cmd_schedules "$@" ;;
   copy-template) shift; cmd_copy_template "$@" ;;
   add-schedule)  shift; cmd_add_schedule "$@" ;;
+  set-schedule)  shift; cmd_set_schedule "$@" ;;
   *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
