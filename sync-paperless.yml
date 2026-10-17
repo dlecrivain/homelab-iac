@@ -1,0 +1,59 @@
+---
+- name: Keep Paperless-ngx in step with the cloud storage folder
+  hosts: "{{ paperless_sync_host | default('immich102') }}"
+  gather_facts: false
+  # The pCloud remote lives in root's rclone configuration.
+  become: true
+  tasks:
+    - name: Run the sync and keep a failure for the report
+      block:
+        - name: Synchronise
+          include_role:
+            name: paperless_sync
+      rescue:
+        - name: Record the failure for the report
+          ansible.builtin.set_fact:
+            paperless_sync_failure: >-
+              {{ (ansible_failed_result.stdout | default('') ~ ansible_failed_result.stderr | default('') ~
+                  ansible_failed_result.msg | default('')) | trim | truncate(1500) }}
+
+- name: Tell the owner what needs a decision
+  hosts: localhost
+  gather_facts: false
+  vars:
+    sync_host: "{{ paperless_sync_host | default('immich102') }}"
+    flagged: "{{ hostvars[sync_host].paperless_sync_flagged | default([]) }}"
+    unsorted: "{{ hostvars[sync_host].paperless_sync_unsorted | default([0, 0]) }}"
+    failure: "{{ hostvars[sync_host].paperless_sync_failure | default('') }}"
+  tasks:
+    - name: Send the email when documents need a decision or the sync failed
+      include_role:
+        name: send_report
+      vars:
+        report_subject: >-
+          [sync-paperless] {{ 'PROBLEM detected' if failure | length > 0 else (flagged | length | string) ~ ' document(s) to sort' }}
+        report_body: |
+          {% if failure | length > 0 %}
+          <h2>Paperless synchronisation failed</h2>
+          <div class="alert-danger"><pre>{{ failure | e }}</pre></div>
+          {% endif %}
+          {% if flagged | length > 0 %}
+          <h2>Documents to sort</h2>
+          <p>{{ flagged | length }} new document(s) could not be given a type from their name or folder. They carry
+          the tag <strong>a-classer</strong>:</p>
+          <ul>
+          {% for path in flagged %}
+            <li>{{ path | e }}</li>
+          {% endfor %}
+          </ul>
+          <p>{{ unsorted[0] }} document(s) carry that tag in total.
+          <a href="https://{{ paperless_domain }}/documents?tags__id__all={{ unsorted[1] }}">Open them in Paperless</a>.
+          Naming a file <code>YYYY-MM_Type_Description</code> in the cloud storage, or giving the document a type in
+          Paperless, takes the tag away.</p>
+          {% endif %}
+      when: failure | length > 0 or flagged | length > 0
+
+    - name: Fail the run when the synchronisation failed
+      ansible.builtin.fail:
+        msg: "Paperless synchronisation failed: {{ failure }}"
+      when: failure | length > 0

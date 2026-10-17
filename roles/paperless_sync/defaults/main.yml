@@ -1,0 +1,12 @@
+---
+# The folder that stays the master copy, and the rules (see files/rules.example.json) that give a new file a
+# correspondent and a type. Both are rclone paths on the same remote, so the rules sit next to the documents.
+paperless_sync_source: "pcloud:Documents/Documents_numerises"
+paperless_sync_rules: "pcloud:Documents/Paperless/rules.json"
+
+# Placed by hand, like the rclone remote: the repository never holds it.
+paperless_sync_token_file: /root/.config/paperless/token
+paperless_sync_state_dir: /var/lib/paperless-sync
+
+# Report what would be done and change nothing.
+paperless_sync_dry_run: false

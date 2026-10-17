@@ -1,0 +1,448 @@
+#!/usr/bin/python3
+"""Keep Paperless-ngx in step with a folder of the cloud storage, which stays the master copy.
+
+The folder is read with rclone and compared with Paperless by SHA-256, the checksum Paperless stores for every
+original. A state file remembers which Paperless document each file of the folder became.
+
+  new file                  uploaded, with its tags from the folder names, its title and date from the file name,
+                            and a correspondent and type from the rules
+  moved or renamed file     recognised by its checksum; the document gets the tags, title, correspondent and type
+                            of its new path
+  deleted or replaced file  the document is tagged `a-purger` (the API user cannot delete) and left in place
+  new file without a type   once consumed, the document is tagged `a-classer` and listed on a FLAGGED line, so the
+                            playbook can tell the owner which documents need a decision
+  unchanged file            nothing is done
+
+The folder is never written to. Nothing is deleted from Paperless.
+
+Rules (JSON, read with rclone so they can live next to the documents) say which correspondent and type a file gets:
+
+  {"correspondents": [{"name": "ACME", "match": "acme", "file": "acme", "tags": ["Work"]}],
+   "types": [{"name": "Invoice", "file": "^\\d{4}-\\d{2}_invoice", "tags_any": ["House"], "unless": "quote"}]}
+
+`file` is a regular expression searched in the lower-case, accent-free file name without its extension. `tags`
+must all be present among the tags of the path, `tags_any` at least one, and `unless` excludes a file. The first
+rule of a list that has at least one selector and satisfies all of them wins. `match` is the regular expression
+given to Paperless when the correspondent is created, so its own matching recognises later scans.
+"""
+import argparse
+import atexit
+import datetime
+import fcntl
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import unicodedata
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+
+EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
+IGNORED_NAMES = {".DS_Store", ".sync.ffs_db", "Thumbs.db", "desktop.ini"}
+PURGE_TAG = "a-purger"
+UNCERTAIN_TAG = "a-classer"
+STALE_PENDING_DAYS = 2
+
+
+def log(message):
+    print(message, flush=True)
+
+
+def normalise(text):
+    decomposed = unicodedata.normalize("NFD", text.lower())
+    return "".join(c for c in decomposed if unicodedata.category(c) != "Mn")
+
+
+def rclone(*args, binary=False):
+    result = subprocess.run(["rclone", *args], capture_output=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"rclone {args[0]} failed: {result.stderr.decode(errors='replace').strip()[-300:]}")
+    return result.stdout if binary else result.stdout.decode()
+
+
+class Paperless:
+    def __init__(self, url, token, dry_run):
+        self.url = url.rstrip("/") + "/api"
+        self.token = token
+        self.dry_run = dry_run
+        self.cache = {}
+
+    def call(self, method, path, body=None):
+        request = urllib.request.Request(
+            self.url + path, method=method, data=json.dumps(body).encode() if body is not None else None,
+            headers={"Authorization": "Token " + self.token, "Accept": "application/json; version=9",
+                     "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                data = response.read()
+        except urllib.error.HTTPError as error:
+            raise RuntimeError(f"{method} {path} -> HTTP {error.code}: {error.read()[:200].decode(errors='replace')}")
+        return json.loads(data) if data else None
+
+    def results(self, path):
+        url = path
+        while url:
+            page = self.call("GET", url)
+            yield from page["results"]
+            url = page["next"].replace(self.url, "") if page.get("next") else None
+
+    def find_by_checksum(self, sha256):
+        found = self.call("GET", f"/documents/?checksum__iexact={sha256}&page_size=2"
+                                 "&fields=id,title,tags,correspondent,document_type,created")["results"]
+        return found[0] if found else None
+
+    def named(self, kind, name, create_body):
+        """Id of the tag, correspondent or document type with this name, created when missing (-1 in a dry run)."""
+        key = (kind, name.lower())
+        if key not in self.cache:
+            found = self.call("GET", f"/{kind}/?name__iexact={urllib.parse.quote(name)}&page_size=1")["results"]
+            if found:
+                self.cache[key] = found[0]["id"]
+            elif self.dry_run:
+                self.cache[key] = -1
+            else:
+                self.cache[key] = self.call("POST", f"/{kind}/", {"name": name, **create_body})["id"]
+                log(f"   created {kind[:-1].replace('_', ' ')} {name}")
+        return self.cache[key]
+
+    def tag(self, name):
+        return self.named("tags", name, {"matching_algorithm": 6})
+
+    def tag_if_exists(self, name):
+        found = self.call("GET", f"/tags/?name__iexact={urllib.parse.quote(name)}&page_size=1")["results"]
+        return found[0]["id"] if found else None
+
+    def correspondent(self, rule):
+        body = {"match": rule["match"], "matching_algorithm": 4, "is_insensitive": True} if rule.get("match") \
+            else {"matching_algorithm": 0}
+        return self.named("correspondents", rule["name"], body)
+
+    def document_type(self, rule):
+        return self.named("document_types", rule["name"], {"matching_algorithm": 6})
+
+    def upload(self, data, filename, fields):
+        boundary = uuid.uuid4().hex
+        body = b""
+        for key, value in fields:
+            body += f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'.encode()
+        body += (f'--{boundary}\r\nContent-Disposition: form-data; name="document"; '
+                 f'filename="{filename.replace(chr(34), "%22")}"\r\nContent-Type: application/octet-stream\r\n\r\n'
+                 ).encode() + data + f"\r\n--{boundary}--\r\n".encode()
+        request = urllib.request.Request(
+            self.url + "/documents/post_document/", method="POST", data=body,
+            headers={"Authorization": "Token " + self.token, "Accept": "application/json; version=9",
+                     "Content-Type": "multipart/form-data; boundary=" + boundary})
+        try:
+            urllib.request.urlopen(request, timeout=300).read()
+        except urllib.error.HTTPError as error:
+            raise RuntimeError(f"upload of {filename} -> HTTP {error.code}: {error.read()[:200].decode(errors='replace')}")
+
+
+def folder_tags(path):
+    """Tag names of a path: one per folder, without a leading number ("3 - X", "10 X") or underscore."""
+    names = []
+    for folder in path.split("/")[:-1]:
+        name = re.sub(r"^\d+\s*-\s*|^\d+\s+", "", folder).lstrip("_").strip()
+        if name:
+            names.append(name)
+    return names
+
+
+def created_date(stem):
+    """Date written in a file name: YYYY-MM[-DD]_..., Epson_DDMMYYYY..., Facture__DDMMYYYY, YYYY_MM or MM_YYYY."""
+    patterns = (
+        (r"^(\d{4})-(\d{2})(?:-(\d{2}))?_", lambda m: (m[1], m[2], m[3] or "01")),
+        (r"^(?:Epson_|Facture__)(\d{2})(\d{2})(\d{4})", lambda m: (m[3], m[2], m[1])),
+        (r"^(\d{4})[_-](\d{2})$", lambda m: (m[1], m[2], "01")),
+        (r"^(\d{2})[_-](\d{4})$", lambda m: (m[2], m[1], "01")),
+    )
+    for pattern, build in patterns:
+        match = re.match(pattern, stem)
+        if match:
+            year, month, day = build(match)
+            try:
+                return datetime.date(int(year), int(month), int(day)).isoformat()
+            except ValueError:
+                return None
+    return None
+
+
+def describe(path):
+    stem = os.path.splitext(os.path.basename(path))[0]
+    return {"title": stem, "created": created_date(stem), "tags": folder_tags(path)}
+
+
+def classify(info, rules):
+    """First correspondent rule and first type rule that apply to a described file, as (rule or None, rule or None)."""
+    stem = normalise(info["title"])
+    tags = set(info["tags"])
+
+    def applies(rule):
+        selectors = 0
+        if "file" in rule:
+            selectors += 1
+            if not re.search(rule["file"], stem):
+                return False
+        if "tags" in rule:
+            selectors += 1
+            if not set(rule["tags"]) <= tags:
+                return False
+        if "tags_any" in rule:
+            selectors += 1
+            if not set(rule["tags_any"]) & tags:
+                return False
+        if "unless" in rule and re.search(rule["unless"], stem):
+            return False
+        return selectors > 0
+
+    pick = lambda key: next((r for r in rules.get(key, []) if applies(r)), None)
+    return pick("correspondents"), pick("types")
+
+
+def load_rules(remote):
+    if not remote:
+        return {}
+    try:
+        return json.loads(rclone("cat", remote))
+    except (RuntimeError, ValueError) as error:
+        log(f"WARNING: no rules ({error}); files get tags and dates but no correspondent or type")
+        return {}
+
+
+def list_source(source):
+    """{path: signature} of the files of the source, and the paths Paperless cannot import.
+
+    The signature (identifier, size and modification time) is cheap to read for the whole folder and changes when
+    a file is edited, whereas the SHA-256 takes a request per file and is only asked for files whose signature is
+    new. A moved or renamed file keeps its identifier.
+    """
+    items = json.loads(rclone("lsjson", "-R", "--files-only", source))
+    supported, unsupported = {}, []
+    for item in items:
+        path = item["Path"]
+        if os.path.basename(path) in IGNORED_NAMES:
+            continue
+        if os.path.splitext(path)[1].lower() not in EXTENSIONS:
+            unsupported.append(path)
+            continue
+        supported[path] = f"{item.get('ID', '')}|{item['Size']}|{item['ModTime']}"
+    return supported, sorted(unsupported)
+
+
+def download(source, paths, directory):
+    """Copy the given files of the source into the directory and return their SHA-256.
+
+    The cloud storage computes a checksum on its side only after a long wait for a file it has not hashed yet,
+    whereas a download is fast, and a new file has to be downloaded to be uploaded anyway.
+    """
+    if not paths:
+        return {}
+    names = os.path.join(directory, "files-from.txt")
+    with open(names, "w") as handle:
+        handle.write("\n".join(paths))
+    rclone("copy", "--files-from", names, source, os.path.join(directory, "data"))
+    digests = {}
+    for path in paths:
+        digest = hashlib.sha256()
+        with open(os.path.join(directory, "data", path), "rb") as handle:
+            for block in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(block)
+        digests[path] = digest.hexdigest()
+    return digests
+
+
+def load_state(path):
+    try:
+        with open(path) as handle:
+            return json.load(handle)
+    except FileNotFoundError:
+        return {"files": {}}
+
+
+def save_state(path, state):
+    temporary = path + ".new"
+    with open(temporary, "w") as handle:
+        json.dump(state, handle, indent=1, sort_keys=True, ensure_ascii=False)
+    os.replace(temporary, path)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--url", required=True, help="Paperless-ngx base URL")
+    parser.add_argument("--token-file", default="/root/.config/paperless/token")
+    parser.add_argument("--source", required=True, help="rclone path of the folder that stays the master copy")
+    parser.add_argument("--rules", help="rclone path of the JSON rules file")
+    parser.add_argument("--state", default="/var/lib/paperless-sync/state.json")
+    parser.add_argument("--wait", type=int, default=600, help="seconds to wait for new documents to be consumed")
+    parser.add_argument("--max-new", type=int, default=100, help="most files uploaded in one run")
+    parser.add_argument("--dry-run", action="store_true", help="report what would be done, change nothing")
+    args = parser.parse_args()
+
+    os.makedirs(os.path.dirname(args.state), exist_ok=True)
+    lock = open(args.state + ".lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        sys.exit("another paperless-sync run holds the lock")
+
+    with open(args.token_file) as handle:
+        token = handle.read().strip()
+    paperless = Paperless(args.url, token, args.dry_run)
+    state = load_state(args.state)
+    files = state["files"]
+    rules = load_rules(args.rules)
+    current, unsupported = list_source(args.source)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    changes = 0
+
+    def apply_rules(info, current_type=None, current_correspondent=None, override=False):
+        correspondent_rule, type_rule = classify(info, rules)
+        body = {}
+        if correspondent_rule and (override or not current_correspondent):
+            body["correspondent"] = paperless.correspondent(correspondent_rule)
+        if type_rule and (override or not current_type):
+            body["document_type"] = paperless.document_type(type_rule)
+        return body
+
+    flagged = []
+
+    def settle(path, found):
+        """Record the document a consumed upload became, and flag it when nothing could give it a type."""
+        files[path]["doc"] = found["id"]
+        files[path].pop("since", None)
+        tag = paperless.tag(UNCERTAIN_TAG)
+        if found.get("document_type") is None and tag not in found["tags"] and not args.dry_run:
+            paperless.call("PATCH", f"/documents/{found['id']}/", {"tags": sorted(set(found["tags"]) | {tag})})
+            flagged.append(path)
+            log(f"FLAGGED {path}")
+
+    # Files uploaded by an earlier run whose document did not exist yet.
+    for path in [p for p, e in files.items() if e.get("doc") is None and p in current]:
+        found = paperless.find_by_checksum(files[path]["sha256"])
+        if found:
+            settle(path, found)
+
+    changed_paths = [p for p, signature in current.items() if files.get(p, {}).get("sig") != signature]
+    work = tempfile.mkdtemp(prefix="paperless-sync-", dir="/var/tmp")
+    atexit.register(shutil.rmtree, work, True)
+    digests = download(args.source, changed_paths, work)
+    replaced_docs, uploaded, new_count, matched, moved = set(), {}, 0, 0, 0
+    for path in sorted(changed_paths):
+        digest, info = digests[path], describe(path)
+        previous_doc = (files.get(path) or {}).get("doc")
+        document = paperless.find_by_checksum(digest)
+        if document:
+            if previous_doc:
+                replaced_docs.add(previous_doc)
+            gone = [p for p, e in files.items() if e.get("doc") == document["id"] and p not in current]
+            if gone:
+                old = describe(gone[0])
+                drop = {paperless.tag_if_exists(name) for name in old["tags"]} - {None}
+                tags = sorted((set(document["tags"]) - drop) | {paperless.tag(name) for name in info["tags"]})
+                body = {"tags": tags, **apply_rules(info, override=True)}
+                uncertain = paperless.tag_if_exists(UNCERTAIN_TAG)
+                if uncertain and ("document_type" in body or document.get("document_type")):
+                    body["tags"] = [t for t in tags if t != uncertain]
+                if document["title"] == old["title"] and info["title"] != old["title"]:
+                    body["title"] = info["title"]
+                if info["created"] and info["created"] != (document.get("created") or "")[:10]:
+                    body["created"] = info["created"]
+                log(f"MOVED   {gone[0]}  ->  {path}")
+                if not args.dry_run:
+                    paperless.call("PATCH", f"/documents/{document['id']}/", body)
+                files.pop(gone[0], None)
+                moved += 1
+                changes += 1
+            else:
+                matched += 1
+                purge_tag = paperless.tag_if_exists(PURGE_TAG)
+                if purge_tag in document["tags"]:
+                    log(f"RESTORED {path}: document {document['id']} is no longer marked {PURGE_TAG}")
+                    if not args.dry_run:
+                        paperless.call("PATCH", f"/documents/{document['id']}/",
+                                       {"tags": [t for t in document["tags"] if t != purge_tag]})
+                    changes += 1
+            files[path] = {"sig": current[path], "sha256": digest, "doc": document["id"]}
+            continue
+        if digest in uploaded:
+            files[path] = {"sig": current[path], "sha256": digest, "doc": None, "since": now.isoformat()}
+            continue
+        if new_count >= args.max_new:
+            log(f"LATER   {path}: more than {args.max_new} new files in one run, left for the next run")
+            continue
+        if previous_doc:
+            replaced_docs.add(previous_doc)
+        new_count += 1
+        changes += 1
+        log(f"NEW     {path}")
+        fields = [("title", info["title"])] + ([("created", info["created"])] if info["created"] else [])
+        fields += [("tags", paperless.tag(name)) for name in info["tags"]]
+        fields += list(apply_rules(info).items())
+        if not args.dry_run:
+            with open(os.path.join(work, "data", path), "rb") as handle:
+                paperless.upload(handle.read(), os.path.basename(path), fields)
+        uploaded[digest] = path
+        files[path] = {"sig": current[path], "sha256": digest, "doc": None, "since": now.isoformat()}
+
+    # What disappeared from the folder, or was replaced by different content under the same name.
+    candidates = set(replaced_docs)
+    for path in [p for p in files if p not in current]:
+        if files[path].get("doc"):
+            candidates.add(files[path]["doc"])
+        del files[path]
+    referenced = {e.get("doc") for e in files.values()}
+    purge = sorted(d for d in candidates if d not in referenced)
+    for document_id in purge:
+        log(f"PURGE   document {document_id} is no longer in the folder: tagged {PURGE_TAG}")
+        if not args.dry_run:
+            document = paperless.call("GET", f"/documents/{document_id}/?fields=id,tags")
+            paperless.call("PATCH", f"/documents/{document_id}/",
+                           {"tags": sorted(set(document["tags"]) | {paperless.tag(PURGE_TAG)})})
+        changes += 1
+
+    # Wait for the uploads to be consumed so their documents are known before the next run.
+    deadline = time.time() + (0 if args.dry_run else args.wait)
+    waiting = {path for path, e in files.items() if e.get("doc") is None and e["sha256"] in uploaded}
+    while waiting and time.time() < deadline:
+        time.sleep(15)
+        for path in sorted(waiting):
+            found = paperless.find_by_checksum(files[path]["sha256"])
+            if found:
+                settle(path, found)
+        waiting = {p for p in waiting if files[p].get("doc") is None}
+
+    stale = []
+    for path, entry in files.items():
+        if entry.get("doc") is None:
+            since = datetime.datetime.fromisoformat(entry["since"]) if entry.get("since") else now
+            if (now - since).days >= STALE_PENDING_DAYS:
+                stale.append(path)
+    if not args.dry_run:
+        save_state(args.state, state)
+
+    for path in unsupported:
+        log(f"SKIPPED {path}: not a PDF or an image, export it to PDF to have it imported")
+    unchanged = len(current) - len(changed_paths)
+    pending = sum(1 for e in files.values() if e.get("doc") is None)
+    log(f"{len(current)} files in the folder: {unchanged} unchanged, {matched} already in Paperless, {moved} moved or "
+        f"renamed, {new_count} new, {len(purge)} no longer in the folder, {pending} not yet consumed, "
+        f"{len(unsupported)} skipped" + (" (dry run, nothing changed)" if args.dry_run else ""))
+    log(f"CHANGES: {changes}")
+    uncertain = paperless.tag_if_exists(UNCERTAIN_TAG)
+    if uncertain:
+        total = paperless.call("GET", f"/documents/?tags__id__all={uncertain}&page_size=1&fields=id")["count"]
+        log(f"UNSORTED: {total} tag {uncertain}")
+    for path in stale:
+        log(f"ERROR   {path} was uploaded {STALE_PENDING_DAYS} days ago or more and never appeared in Paperless")
+    sys.exit(1 if stale else 0)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,6 +1,6 @@
 # paperless101: document archive
 
-Status: validated by the owner, not yet deployed.
+Status: deployed. The cloud storage folder is the master copy and `sync-paperless.yml` keeps Paperless in step with it every night.
 
 ## Goal
 
@@ -30,26 +30,25 @@ Secrets (database password, application secret key) are in 0600 environment file
 
 BunkerWeb publishes `paperless.<domain>` with the existing wildcard certificate, restricted to the LAN and the VPN like the other services. Nothing is exposed to the Internet. A monitoring target and the usual backups apply, as for every VM of the template: weekly full backup of the VM to the cloud storage, plus paperless-ngx's own `document_exporter` if a portable export is wanted.
 
-## Import
+## Synchronisation
 
-The cloud storage remote is configured on a single host (`immich102`), so the import runs from there and never copies that credential elsewhere.
+Documents are filed, renamed and deleted only in the cloud storage folder, so there is one place to keep tidy. Paperless is an index of that folder and can be rebuilt from it. Paperless always keeps its own copy of a file and cannot index a folder in place, so a job keeps the two in step.
 
-1. A read-only listing and copy of the tree to a staging directory, excluding the owner's exclusions and the unsupported or system files.
-2. A script posts each file to `/api/documents/post_document/` with its title, creation date, tags and correspondent when they can be derived from the path and from the `YYYY-MM_Type_Description` file names.
-3. Everything is logged (source path, document, checksum) so an import can be reviewed or undone. paperless-ngx refuses a duplicate by checksum.
+The cloud storage remote is configured on a single host (`immich102`), so `sync-paperless.yml` runs `paperless-sync` there and never copies that credential elsewhere. The script compares the folder with Paperless by SHA-256, the checksum Paperless stores for each original, and keeps a state file of which document each file became:
 
-An API token for a dedicated, non-administrator user is created by the owner and placed on the import host by hand, in a 0600 file. It is deleted after the import.
+1. A new file is uploaded with its tags (one per folder, the numbering stripped), its title and date from the name, and the correspondent and type the rules give it.
+2. A moved or renamed file is recognised by its checksum and its document is re-tagged and re-classified. Renaming a file is how its type is changed.
+3. A deleted or replaced file leaves its document in place, tagged `a-purger`: the API user cannot delete.
+4. A new document that no rule and no matching of Paperless could give a type is tagged `a-classer`, and an email lists those documents with the number that carry the tag.
+5. Files Paperless cannot import are listed as skipped in the run's output.
+
+An API token for a dedicated, non-administrator user without delete rights is created by the owner and placed on `immich102` by hand, in a 0600 file. paperless-ngx refuses a duplicate by checksum.
 
 ## Classification
 
-The tags come from the owner's folder structure, with the numbering stripped, and from what the OCR text shows. Order of work:
+Correspondents and types come from rules kept next to the documents in the cloud storage, not in this repository: they match the file name and the folder tags. Anything they do not cover is left to paperless-ngx's own matching, which learns from the documents that already have a type, and then to the owner through the `a-classer` tag.
 
-1. A pilot import of one small subfolder, to check the OCR quality and the way dates and correspondents are read.
-2. A proposed taxonomy (tags, correspondents, document types, storage paths) written down and approved by the owner before it is applied.
-3. Import by batches. After each batch the assistant reads the OCR text through the API, proposes corrections and applies them in bulk once approved.
-4. Matching rules (keywords or regular expressions) for the correspondents and types that repeat, then paperless-ngx's classifier learns from the labelled documents so new documents are filed automatically.
-
-Handwriting, such as an approval written on a quote, and poor scans are not read reliably by the OCR; for those the assistant looks at the document itself. Sensitive documents are read through the assistant only if the owner has not excluded them.
+Handwriting, such as an approval written on a quote, and poor scans are not read reliably by the OCR. Sensitive documents are read through the assistant only if the owner has not excluded them, and the assistant is not needed for the nightly synchronisation, which reads no content.
 
 ## Operations
 
@@ -58,18 +57,11 @@ Handwriting, such as an approval written on a quote, and poor scans are not read
 - `vm-updates.yml` patches the host and `container-updates.yml` the containers, each after a snapshot;
 - a health check polls the login page.
 
-## Phases
-
-0. This document, validated by the owner.
-1. Provision the VM, write the role and the playbook, and create the secrets and the administrator account by hand.
-2. Pilot import and review.
-3. Full import in batches and taxonomy.
-4. Matching rules and the classifier.
-
 ## Decisions
 
 - The VM is named `paperless101`.
 - No subfolder of the tree is excluded.
-- The cloud storage stays the master copy: nothing is deleted there.
+- The cloud storage is the only place to file documents: Paperless never writes to it and nothing is deleted from Paperless, only tagged.
 - OCR languages: French, and English for the rare documents in that language.
-- The few office files and archives are exported to PDF by the owner before the import; anything left is skipped.
+- Office files and archives are not imported; the owner exports to PDF the ones wanted in the archive.
+- The synchronisation runs every night, and its token is the one of the non-administrator user the assistant also uses.

@@ -1,0 +1,66 @@
+---
+- name: Install rclone
+  ansible.builtin.dnf:
+    name: rclone
+    state: present
+
+# The remote holds a pCloud token, so it is copied by hand once and never stored in this repository.
+- name: Check that the pCloud remote is configured
+  ansible.builtin.command: rclone listremotes
+  register: paperless_sync_remotes
+  changed_when: false
+
+- name: Fail clearly if the pCloud remote is missing
+  ansible.builtin.fail:
+    msg: "No pcloud: remote in root's rclone configuration on {{ inventory_hostname }} - copy rclone.conf to /root/.config/rclone/ (mode 0600), see the README"
+  when: "'pcloud:' not in paperless_sync_remotes.stdout_lines"
+
+- name: Check that the Paperless API token is in place
+  ansible.builtin.stat:
+    path: "{{ paperless_sync_token_file }}"
+  register: paperless_sync_token
+
+- name: Fail clearly if the Paperless API token is missing
+  ansible.builtin.fail:
+    msg: >-
+      {{ paperless_sync_token_file }} is missing on {{ inventory_hostname }}: create a Paperless user without
+      administrator or delete rights, copy its API token there (mode 0600), see the README
+  when: not paperless_sync_token.stat.exists
+
+- name: Create the state directory
+  ansible.builtin.file:
+    path: "{{ paperless_sync_state_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Install the sync script
+  ansible.builtin.copy:
+    src: paperless-sync
+    dest: /usr/local/sbin/paperless-sync
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Synchronise Paperless with the folder
+  ansible.builtin.command: >-
+    /usr/local/sbin/paperless-sync
+    --url http://{{ hostvars[paperless_host].ansible_host }}:8000
+    --source {{ paperless_sync_source | quote }}
+    --rules {{ paperless_sync_rules | quote }}
+    --token-file {{ paperless_sync_token_file }}
+    --state {{ paperless_sync_state_dir }}/state.json
+    {{ '--dry-run' if paperless_sync_dry_run | bool else '' }}
+  register: paperless_sync_result
+  changed_when: "'CHANGES: 0' not in paperless_sync_result.stdout"
+
+- name: Show what the sync did
+  ansible.builtin.debug:
+    msg: "{{ paperless_sync_result.stdout_lines }}"
+
+# For the email of the playbook: the files nothing could give a type, and how many documents wait for a decision.
+- name: Keep the documents that need a decision
+  ansible.builtin.set_fact:
+    paperless_sync_flagged: "{{ paperless_sync_result.stdout_lines | select('match', '^FLAGGED ') | map('regex_replace', '^FLAGGED ', '') | list }}"
+    paperless_sync_unsorted: "{{ (paperless_sync_result.stdout | regex_search('UNSORTED: (\\d+) tag (\\d+)', '\\1', '\\2') | default([0, 0], true)) }}"

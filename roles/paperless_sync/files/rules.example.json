@@ -1,0 +1,11 @@
+{
+  "correspondents": [
+    {"name": "Example Energy", "match": "example energy", "file": "example-energy"},
+    {"name": "Example Employer", "match": "\\bexample employer\\b", "tags": ["Work", "Example Employer"]}
+  ],
+  "types": [
+    {"name": "Payslip", "file": "^\\d{4}[_-]\\d{1,2}$", "tags": ["Work"]},
+    {"name": "Invoice", "file": "^\\d{4}-\\d{2}_invoice"},
+    {"name": "Quote", "file": "^\\d{4}-\\d{2}_quote", "unless": "signed"}
+  ]
+}
