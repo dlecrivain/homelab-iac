@@ -180,7 +180,7 @@ matter_server_version: "1.5.1"
 # Immich (configure-immich.yml). Pinned rather than :release so a container restart cannot change
 # version on its own: Immich's upgrades run database migrations, which belong in a run that snapshots
 # the VM first. Server and machine-learning share this version, they always move together.
-immich_version: "v3.3.3"
+immich_version: "v3.3.4"
 # The host that runs Immich (configure-immich.yml), rootless as its connecting user.
 immich_host: immich102
 # Pinned by digest - neither follows Immich's release cycle, and the Postgres image carries the
