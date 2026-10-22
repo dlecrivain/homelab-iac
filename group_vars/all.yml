@@ -159,10 +159,10 @@ grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') }}"
 # Pinned image versions. check-image-updates.yml bumps these in place when a same-major-line
 # update is available; the container itself is left alone, so the next container-updates run
 # applies it like any other config change. Semaphore has its own bump playbook instead.
-prometheus_version: "v3.15.0"
+prometheus_version: "v3.15.1"
 alertmanager_version: "v0.34.1"
 grafana_version: "13.2.4"
-bunkerweb_version: "1.6.16"
+bunkerweb_version: "1.6.17"
 # The host that runs BunkerWeb (configure-bunkerweb.yml); its reverse-proxied sites are bunkerweb_services in its host_vars.
 bunkerweb_host: bunkerweb102
 # The host that runs AdGuard Home (configure-adguard.yml), rootless as its connecting user.
@@ -175,7 +175,7 @@ pve_exporter_version: "3.10.1"
 homeassistant_host: homeassistant101
 homeassistant_version: "2026.10.2"
 # The same matter.js server the Home Assistant Matter Server add-on 9.2.0 is built on.
-matter_server_version: "1.5.1"
+matter_server_version: "1.5.2"
 
 # Immich (configure-immich.yml). Pinned rather than :release so a container restart cannot change
 # version on its own: Immich's upgrades run database migrations, which belong in a run that snapshots
