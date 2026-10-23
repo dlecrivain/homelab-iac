@@ -1,0 +1,163 @@
+#!/bin/sh
+# Read-only views of a host for the assistant of claude101. It runs as root through the one sudoers rule of the
+# claude-ro account: each verb runs a fixed command, and the arguments are checked against a pattern and never
+# reach a shell.
+PATH=/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+LC_ALL=C.UTF-8
+export PATH LC_ALL
+LIMIT=400
+
+die() { echo "claude-ro: $*" >&2; exit 2; }
+cap() { head -n "$LIMIT"; }
+section() { printf '== %s\n' "$1"; }
+
+# A unit or container name: no leading dash, so it can never be taken for an option.
+check_name() {
+    printf '%s' "$1" | grep -Eq '^[A-Za-z0-9@._:][A-Za-z0-9@._:-]{0,99}$' || die "invalid name"
+}
+
+# A number of lines between 1 and 500, 100 when absent.
+lines_or_default() {
+    LINES_WANTED=${1:-100}
+    printf '%s' "$LINES_WANTED" | grep -Eq '^[0-9]{1,3}$' || die "invalid number of lines"
+    [ "$LINES_WANTED" -ge 1 ] && [ "$LINES_WANTED" -le 500 ] || die "the number of lines is between 1 and 500"
+}
+
+help() {
+    cat <<'TEXT'
+overview                      host, system, kernel, uptime, memory, disks, failed units, pending reboot
+updates                       packages that have an update available
+units                         failed units and timers
+unit NAME                     systemctl status NAME
+logs UNIT [LINES]             journal of a unit, 100 lines by default, 500 at most
+journal [LINES]               warnings and errors of the journal
+containers                    Podman containers, for root and for every user with rootless containers
+container-logs NAME [LINES]   logs of a container
+network                       listening sockets and addresses
+firewall                      firewalld's active zone
+TEXT
+}
+
+overview() {
+    section host
+    hostname
+    if [ -r /etc/os-release ]; then
+        . /etc/os-release
+        echo "$PRETTY_NAME"
+    fi
+    section kernel
+    echo "running:   $(uname -r)"
+    if command -v rpm >/dev/null 2>&1; then
+        echo "installed: $(rpm -q kernel-core --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' 2>/dev/null | sort -V | tail -n 1)"
+    fi
+    section uptime
+    uptime
+    section memory
+    free -m
+    section disks
+    df -hT -x tmpfs -x devtmpfs -x squashfs -x overlay
+    section failed units
+    systemctl list-units --failed --no-legend --no-pager | cap
+    section reboot
+    if command -v dnf >/dev/null 2>&1; then
+        dnf needs-restarting -r 2>&1 | tail -n 2
+    elif [ -f /run/reboot-required ]; then
+        echo "reboot required"
+    else
+        echo "no reboot pending"
+    fi
+}
+
+updates() {
+    if command -v dnf >/dev/null 2>&1; then
+        pending=$(dnf check-update -q 2>&1)
+        if [ -z "$pending" ]; then echo "no update available"; else echo "$pending" | cap; fi
+    elif command -v apt >/dev/null 2>&1; then
+        apt list --upgradable 2>/dev/null | cap
+    fi
+}
+
+units() {
+    section failed
+    systemctl list-units --failed --no-pager | cap
+    section timers
+    systemctl list-timers --no-pager | cap
+}
+
+unit() {
+    check_name "$1"
+    systemctl status "$1" --no-pager -n 20 2>&1 | cap
+}
+
+logs() {
+    check_name "$1"
+    lines_or_default "$2"
+    journalctl -u "$1" -n "$LINES_WANTED" --no-pager 2>&1 | cap
+}
+
+journal() {
+    lines_or_default "$1"
+    journalctl -p warning -n "$LINES_WANTED" --no-pager 2>&1 | cap
+}
+
+network() {
+    section sockets
+    ss -tulnH 2>&1 | cap
+    section addresses
+    ip -br addr 2>&1 | cap
+}
+
+firewall() {
+    if command -v firewall-cmd >/dev/null 2>&1; then
+        firewall-cmd --list-all 2>&1 | cap
+    else
+        echo "firewalld is not installed"
+    fi
+}
+
+# Runs podman for root and for each user that has a runtime directory, where rootless containers live.
+each_podman() {
+    command -v podman >/dev/null 2>&1 || { echo "podman is not installed"; return; }
+    echo "-- root"
+    (cd / && podman "$@" 2>&1) | cap
+    for dir in /run/user/*; do
+        uid=${dir##*/}
+        [ "$uid" -ge 1000 ] 2>/dev/null || continue
+        user=$(id -nu "$uid" 2>/dev/null) || continue
+        home=$(getent passwd "$user" | cut -d: -f6)
+        echo "-- $user"
+        (cd / && runuser -u "$user" -- env HOME="$home" XDG_RUNTIME_DIR="$dir" podman "$@" 2>&1) | cap
+    done
+}
+
+containers() {
+    each_podman ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+}
+
+container_logs() {
+    check_name "$1"
+    lines_or_default "$2"
+    each_podman logs --tail "$LINES_WANTED" "$1"
+}
+
+verb=${1:-help}
+[ $# -gt 0 ] && shift
+case "$verb" in
+    help|overview|updates|units|network|firewall|containers)
+        [ $# -eq 0 ] || die "$verb takes no argument"
+        "$verb" ;;
+    journal)
+        [ $# -le 1 ] || die "journal takes at most one argument"
+        journal "$@" ;;
+    unit)
+        [ $# -eq 1 ] || die "unit takes one name"
+        unit "$@" ;;
+    logs)
+        [ $# -ge 1 ] && [ $# -le 2 ] || die "logs takes a unit and optionally a number of lines"
+        logs "$@" ;;
+    container-logs)
+        [ $# -ge 1 ] && [ $# -le 2 ] || die "container-logs takes a name and optionally a number of lines"
+        container_logs "$@" ;;
+    *)
+        die "unknown verb '$verb' (help lists them)" ;;
+esac

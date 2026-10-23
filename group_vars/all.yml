@@ -123,6 +123,8 @@ smartctl_exporter_version: "0.15.0"
 # repository is kept disabled (every repo outside Katello is), so the host never moves on its own.
 claude_host: claude101
 claude_code_version: "2.1.292"
+# The read-only account the assistant of claude_host reads the VMs with (configure-claude-access.yml).
+claude_readonly_user: claude-ro
 
 # OpenSCAP compliance scan (openscap-scan.yml). "cis_fleet" is the SCAP Security Guide's CIS Level 2 -
 # Server profile ("cis") from the Rocky Linux 10 datastream that scap-security-guide installs, tailored

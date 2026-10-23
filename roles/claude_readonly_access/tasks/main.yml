@@ -1,0 +1,89 @@
+---
+# The login shell only forwards a fixed list of verbs to one root-owned script through one sudoers rule, so the
+# account reads a host but cannot change it. claude_readonly_public_key is the public key of the fleet account
+# on claude101.
+- name: Install the script that runs the verbs
+  ansible.builtin.copy:
+    src: claude-ro-tools
+    dest: /usr/local/sbin/claude-ro-tools
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Install the login shell of the account
+  ansible.builtin.copy:
+    src: claude-ro-shell
+    dest: /usr/local/sbin/claude-ro-shell
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: List the login shell among the valid shells
+  ansible.builtin.lineinfile:
+    path: /etc/shells
+    line: /usr/local/sbin/claude-ro-shell
+  become: true
+
+- name: Create the account, with no password
+  ansible.builtin.user:
+    name: "{{ claude_readonly_user }}"
+    shell: /usr/local/sbin/claude-ro-shell
+    password_lock: true
+    create_home: true
+  become: true
+
+- name: Create the account's SSH directory
+  ansible.builtin.file:
+    path: "/home/{{ claude_readonly_user }}/.ssh"
+    state: directory
+    owner: "{{ claude_readonly_user }}"
+    group: "{{ claude_readonly_user }}"
+    mode: '0700'
+  become: true
+
+# restrict turns off the terminal, forwardings and agent, and from limits the key to claude101.
+- name: Authorize the key of the assistant, from its host only
+  ansible.builtin.copy:
+    dest: "/home/{{ claude_readonly_user }}/.ssh/authorized_keys"
+    content: 'restrict,from="{{ claude_readonly_source }}" {{ claude_readonly_public_key }}{{ "\n" }}'
+    owner: "{{ claude_readonly_user }}"
+    group: "{{ claude_readonly_user }}"
+    mode: '0600'
+  become: true
+
+- name: Allow the account to run the script as root, and nothing else
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/claude-ro
+    content: |
+      {{ claude_readonly_user }} ALL=(root) NOPASSWD: /usr/local/sbin/claude-ro-tools
+    owner: root
+    group: root
+    mode: '0440'
+    validate: /usr/sbin/visudo -cf %s
+  become: true
+
+# The hardened template lets only deploy in (AllowUsers in 00-fleet.conf), and sshd keeps the first value it reads,
+# so the list is written again, with the account added, in a file that sorts before it.
+- name: Read the users sshd lets in
+  ansible.builtin.command: sshd -T
+  register: claude_readonly_sshd
+  changed_when: false
+  become: true
+
+- name: Work out the list of users sshd is restricted to
+  ansible.builtin.set_fact:
+    claude_readonly_allowed_users: >-
+      {{ (claude_readonly_sshd.stdout_lines | select('match', '^allowusers ') | list | first | default('')).split()[1:] }}
+
+- name: Let the account in where sshd is restricted to a list of users
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/00-claude-ro.conf
+    content: "AllowUsers {{ (claude_readonly_allowed_users + [claude_readonly_user]) | unique | join(' ') }}\n"
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+  when: claude_readonly_allowed_users | length > 0
+  notify: Reload sshd

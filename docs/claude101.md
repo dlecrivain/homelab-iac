@@ -1,6 +1,6 @@
 # claude101: Claude Code assistant on the cluster
 
-Status: proposal, nothing is deployed.
+Status: deployed. Reading the VMs, described under "Reading the fleet", is the part added last.
 
 ## Goal
 
@@ -26,12 +26,22 @@ The service starts with `--permission-mode auto`: a classifier reviews each acti
 
 ## Limits that do not depend on the model
 
-- **Unprivileged user.** The service runs as a dedicated user with no sudo and no ssh key to any other host. The fleet's `deploy` account has passwordless sudo everywhere, so an ssh key would be root everywhere.
+- **Unprivileged user.** The service runs as a dedicated user with no sudo and no ssh key of its own to any other host. The fleet's `deploy` account has passwordless sudo everywhere, so an ssh key to it would be root everywhere; the assistant reads the VMs through a restricted account instead, see "Reading the fleet".
 - **Root-owned managed settings** hold the `deny` rules, so the service user cannot edit them. Deny rules apply in every permission mode. They forbid at least: `sudo`, `ssh`, `scp`, force pushes, branch deletion, reading credential and token files, direct calls to the Semaphore and Proxmox APIs with `curl` or `wget`, and editing the managed settings.
 - **Repository.** A deploy key dedicated to this VM, valid for this repository only. Branch protection on `main` on GitHub rejects force pushes and deletions, so the limit holds even if a client-side rule is bypassed. A `pre-push` hook in the clone runs `ansible-playbook --syntax-check` on every playbook before anything is pushed.
 - **Playbooks** run only through Semaphore, with a token for a dedicated account that has the Task Runner role. `scripts/semaphore-ctl` applies an allowlist of template ids. The token is readable only by a root-owned wrapper that the service user may call through one sudoers entry, so the allowlist cannot be skipped by calling the API directly. The allowlist is a single `*` line: every template of the instance may be started, including decommissioning, backups and the Proxmox operations, so Semaphore is the only way to reach Proxmox. The instruction file asks the assistant to start a template that destroys something only when the request names it. With Task Runner it cannot create templates: a new playbook needs a template created by the owner, an existing playbook can be edited and re-run.
 - **Monitoring** is read through `monitoring-ctl`, which sends GET requests to the fixed addresses of Prometheus and Grafana. `curl` stays denied, so the assistant has no general way to send data out of the VM.
 - **Audit.** Session transcripts stay on the VM, every change is a commit, every run is a Semaphore task. The final message of each request lists the commits and task ids it produced.
+
+## Reading the fleet
+
+The owner asked for the assistant to see the same servers as an operator does, without being able to change them. `fleet-ro <vm> <verb>` does that:
+
+- A user `claude-fleet` on `claude101` holds an ed25519 key. The assistant cannot read it and starts the one script that uses it through a sudoers rule, the way `semaphore-ctl` reaches the Semaphore token.
+- The script reaches only the hosts of a list written from the inventory, always as the account `claude-ro`, and refuses any argument that is not plain words.
+- On each VM, `claude-ro` has a locked password, the key authorized from `claude101` only with `restrict` (no terminal, no forwarding), and a login shell that splits the SSH command into words and gives them to `claude-ro-tools` through a sudoers rule. The script runs a fixed list of verbs, checks each argument against a pattern, runs no shell and caps its output. It can show the state of a host, its units, journal, containers, listening ports and pending updates, and change nothing.
+- What the account can read includes logs and container logs, which may hold a secret in the rare case a service prints one. `podman inspect`, which would show container environment variables, is not offered. The instruction file tells the assistant to copy no log into the repository or a report.
+- The Proxmox nodes are not covered: they have no `sudo`. They stay visible through Prometheus and the Semaphore templates. A read-only token of the Proxmox API held like the Semaphore token would cover them later.
 
 ## Notification
 

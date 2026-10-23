@@ -27,6 +27,11 @@ claude_assistant_semaphore_allowed_templates: []
 
 claude_assistant_semaphore_user: claude-semaphore
 
+# The user that holds the key of the read-only account on the VMs (fleet-ro): the assistant can start the one script
+# that uses it, and cannot read the key.
+claude_fleet_user: claude-fleet
+claude_fleet_dir: /var/lib/claude-fleet
+
 claude_assistant_session_name: "{{ inventory_hostname }}"
 
 # Enforced by Claude Code in every permission mode, from a file the service user cannot write. Command

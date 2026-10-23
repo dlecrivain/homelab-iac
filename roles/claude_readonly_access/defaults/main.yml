@@ -1,0 +1,4 @@
+---
+# The account is claude_readonly_user (group_vars/all.yml); see docs/claude101.md.
+# The only address the account accepts a connection from.
+claude_readonly_source: "{{ hostvars[claude_host].ansible_host }}"

@@ -1,0 +1,4 @@
+# Name and address of the VMs fleet-ro may reach. Managed by the claude_assistant role.
+{% for host in groups['proxmox_all_qemu'] | sort if host != inventory_hostname %}
+{{ host }} {{ hostvars[host].ansible_host }}
+{% endfor %}

@@ -1,0 +1,20 @@
+---
+# Needs configure-claude.yml to have run first: it creates the key of the fleet account on claude101.
+- name: Give the assistant of claude101 a read-only account on every VM
+  # The Proxmox nodes have no sudo, so they are left out; claude101 does not read itself.
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!claude101') }}"
+  gather_facts: false
+  tasks:
+    - name: Read the public key of the assistant's fleet account
+      ansible.builtin.slurp:
+        src: /etc/claude-fleet/read-only.pub
+      delegate_to: "{{ claude_host }}"
+      become: true
+      run_once: true
+      register: claude_readonly_key_file
+
+    - name: Install the read-only account
+      include_role:
+        name: claude_readonly_access
+      vars:
+        claude_readonly_public_key: "{{ claude_readonly_key_file.content | b64decode | trim }}"

@@ -1,0 +1,26 @@
+#!/bin/sh
+# Runs as {{ claude_fleet_user }}, the only user that can read the key of the read-only account. Only the hosts of the
+# list can be reached, always as {{ claude_readonly_user }}, and what follows the host name is plain words that the
+# account's login shell hands to a script of fixed verbs.
+if [ $# -lt 1 ]; then
+    echo "usage: fleet-ro <host> <verb> [argument...]   (fleet-ro list names the hosts, fleet-ro <host> help the verbs)" >&2
+    exit 2
+fi
+if [ "$1" = list ]; then
+    grep -v '^#' /etc/claude-fleet/hosts | cut -d' ' -f1
+    exit 0
+fi
+host=$1
+shift
+address=$(awk -v host="$host" '$1 == host { print $2; exit }' /etc/claude-fleet/hosts)
+if [ -z "$address" ]; then
+    echo "fleet-ro: unknown host '$host' (fleet-ro list)" >&2
+    exit 2
+fi
+for word in "$@"; do
+    printf '%s' "$word" | grep -Eq '^[A-Za-z0-9@._:/-]+$' || { echo "fleet-ro: an argument has characters that are not allowed" >&2; exit 2; }
+done
+[ $# -ge 1 ] || set -- help
+exec ssh -i {{ claude_fleet_dir }}/ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=10 \
+    -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile={{ claude_fleet_dir }}/ssh/known_hosts -o LogLevel=ERROR \
+    "{{ claude_readonly_user }}@$address" "$@"

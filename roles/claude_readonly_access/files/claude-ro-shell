@@ -1,0 +1,10 @@
+#!/bin/sh
+# Login shell of the read-only account. The command sent over SSH is split into words and handed to
+# claude-ro-tools as the arguments of one sudoers rule, never to a shell, so there is nothing to inject into.
+if [ "$1" != "-c" ] || [ -z "$2" ]; then
+    echo "claude-ro: no interactive login, send a verb (help lists them)" >&2
+    exit 1
+fi
+set -f
+# shellcheck disable=SC2086
+exec sudo -n /usr/local/sbin/claude-ro-tools $2

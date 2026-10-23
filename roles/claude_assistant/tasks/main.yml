@@ -140,6 +140,96 @@
     validate: /usr/sbin/visudo -cf %s
   become: true
 
+# The assistant reads the VMs through fleet-ro, which gives no privilege: the key of the read-only account belongs
+# to a user the assistant cannot become, and the script reaches only the hosts of a list, always as that account.
+- name: Create the user that holds the key of the read-only account
+  ansible.builtin.user:
+    name: "{{ claude_fleet_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ claude_fleet_dir }}"
+    create_home: true
+  become: true
+
+- name: Create the directory of the key
+  ansible.builtin.file:
+    path: "{{ claude_fleet_dir }}/ssh"
+    state: directory
+    owner: "{{ claude_fleet_user }}"
+    group: "{{ claude_fleet_user }}"
+    mode: '0700'
+  become: true
+
+- name: Generate the key of the read-only account
+  ansible.builtin.command:
+    argv: [runuser, -u, "{{ claude_fleet_user }}", --, ssh-keygen, -q, -t, ed25519, -N, "", -C, "{{ claude_fleet_user }}@{{ inventory_hostname }}", -f, "{{ claude_fleet_dir }}/ssh/id_ed25519"]
+    creates: "{{ claude_fleet_dir }}/ssh/id_ed25519"
+  become: true
+
+- name: Read the public half of the key
+  ansible.builtin.command:
+    argv: [cat, "{{ claude_fleet_dir }}/ssh/id_ed25519.pub"]
+  become: true
+  register: claude_fleet_public_key
+  changed_when: false
+
+- name: Create the directory of the fleet files
+  ansible.builtin.file:
+    path: /etc/claude-fleet
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+# Read by configure-claude-access.yml, which installs it on the VMs.
+- name: Publish the public key of the read-only account
+  ansible.builtin.copy:
+    dest: /etc/claude-fleet/read-only.pub
+    content: "{{ claude_fleet_public_key.stdout }}\n"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: Write the list of the hosts the assistant may read
+  ansible.builtin.template:
+    src: fleet-hosts.j2
+    dest: /etc/claude-fleet/hosts
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: Install the script that reaches a host with the key
+  ansible.builtin.template:
+    src: fleet-run.j2
+    dest: /usr/local/sbin/claude-fleet-run
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Install the fleet-ro command of the assistant
+  ansible.builtin.template:
+    src: fleet-wrapper.j2
+    dest: /usr/local/bin/fleet-ro
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Allow the service user to run that one script as the key holder
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/claude-fleet
+    content: |
+      {{ claude_assistant_user }} ALL=({{ claude_fleet_user }}) NOPASSWD: /usr/local/sbin/claude-fleet-run
+    owner: root
+    group: root
+    mode: '0440'
+    validate: /usr/sbin/visudo -cf %s
+  become: true
+
 - name: Create the directory of the managed Claude Code configuration
   ansible.builtin.file:
     path: /etc/claude-code

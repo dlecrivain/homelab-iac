@@ -1,0 +1,3 @@
+#!/bin/sh
+# The command the assistant types. The key of the read-only account belongs to another user, reached through one sudoers rule.
+exec sudo -n -u {{ claude_fleet_user }} /usr/local/sbin/claude-fleet-run "$@"

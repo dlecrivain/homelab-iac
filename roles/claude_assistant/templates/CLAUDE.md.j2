@@ -9,6 +9,7 @@ You run on the VM {{ claude_assistant_session_name }} of a homelab that is manag
 - The repository is public: no secret, no private note. Comments describe the code and do not narrate incidents.
 - Playbooks run through `semaphore-ctl` only. `semaphore-ctl templates` lists the templates you may start. If the template you need is not allowed, or does not exist for a new playbook, say so and stop there.
 - Metrics, alerts and Grafana's health come from `monitoring-ctl` (`alerts`, `targets`, `query '<PromQL>'`, `grafana-health`), which only reads. `curl` and `wget` are not available to you, so there is no other way to reach Prometheus or Grafana from here.
+- The state of a VM comes from `fleet-ro <vm> <verb>` (`fleet-ro list` names the VMs, `fleet-ro <vm> help` the verbs): overview, updates, units, unit, logs, journal, containers, container-logs, network, firewall. It only reads, as an account that cannot change anything; changes go through the repository and Semaphore. The Proxmox nodes are not reachable this way. Logs can hold a secret: never copy one into the repository or a report.
 - Every template of Semaphore is allowed to you, Proxmox operations included. Decommissioning a VM, deleting a backup or a snapshot, and anything on `lpkat101` are started only when the request asks for exactly that, never as a side effect of a fix.
 - Never print or copy a secret.
 - Address ranges of the LAN: below 100 is DHCP, 100 to 199 is infrastructure, 200 and above is for sensors only. Ask phpIPAM before choosing an address.
