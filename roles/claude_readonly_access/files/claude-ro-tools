@@ -57,7 +57,8 @@ overview() {
     section disks
     df -hT -x tmpfs -x devtmpfs -x squashfs -x overlay
     section failed units
-    systemctl list-units --failed --no-legend --no-pager | cap
+    failed=$(systemctl list-units --failed --no-legend --no-pager)
+    if [ -z "$failed" ]; then echo "none"; else echo "$failed" | cap; fi
     section reboot
     if command -v dnf >/dev/null 2>&1; then
         dnf needs-restarting -r 2>&1 | tail -n 2
@@ -115,7 +116,8 @@ firewall() {
     fi
 }
 
-# Runs podman for root and for each user that has a runtime directory, where rootless containers live.
+# Runs podman for root and for each user that has a runtime directory, where rootless containers live. The account
+# that asked, claude-ro, has no container and is left out.
 each_podman() {
     command -v podman >/dev/null 2>&1 || { echo "podman is not installed"; return; }
     echo "-- root"
@@ -124,6 +126,7 @@ each_podman() {
         uid=${dir##*/}
         [ "$uid" -ge 1000 ] 2>/dev/null || continue
         user=$(id -nu "$uid" 2>/dev/null) || continue
+        [ "$user" != "$SUDO_USER" ] || continue
         home=$(getent passwd "$user" | cut -d: -f6)
         echo "-- $user"
         (cd / && runuser -u "$user" -- env HOME="$home" XDG_RUNTIME_DIR="$dir" podman "$@" 2>&1) | cap
