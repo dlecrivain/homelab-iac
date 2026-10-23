@@ -185,6 +185,14 @@
             - not (snapshot_already_exists | default(false))
             - inventory_hostname == (immich_host | default('immich102'))
 
+        - name: "Step 2.5 (Paperless host only) - Re-render the Paperless-ngx Quadlets first, same reason as above"
+          include_role:
+            name: paperless_configure
+          when:
+            - podman_units is defined
+            - not (snapshot_already_exists | default(false))
+            - inventory_hostname == (paperless_host | default('paperless101'))
+
         - name: Step 3 - Update Podman containers (normal tag pull)
           include_role:
             name: podman_update
@@ -291,6 +299,7 @@
             + (['bunkerweb-aio'] if (hostvars[bunkerweb_host | default('bunkerweb102')].bunkerweb_config_changed | default(false)) else [])
             + (['adguardhome'] if (hostvars[adguard_host | default('adguard102')].adguard_config_changed | default(false)) else [])
             + (['immich_server', 'immich_machine_learning'] if (hostvars[immich_host | default('immich102')].immich_config_changed | default(false)) else [])
+            + (['paperless_server'] if (hostvars[paperless_host | default('paperless101')].paperless_config_changed | default(false)) else [])
             + (['pve-exporter'] if (hostvars[prometheus_host | default('prometheus102')].pve_exporter_config_changed | default(false)) else [])
           }}
 
