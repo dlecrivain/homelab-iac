@@ -9,7 +9,7 @@ LIMIT=400
 
 die() { echo "claude-ro: $*" >&2; exit 2; }
 cap() { head -n "$LIMIT"; }
-section() { printf '== %s\n' "$1"; }
+section() { printf '== %s\n' "$*"; }
 
 # A unit or container name: no leading dash, so it can never be taken for an option.
 check_name() {
