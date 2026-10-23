@@ -7,7 +7,7 @@ Ansible automation for a homelab built on Proxmox VE, Foreman/Katello and Podman
 The repository covers the maintenance cycle of a three-node Proxmox cluster and the VMs it runs: Rocky Linux 10 managed through Katello, with services deployed as rootless or root Podman containers described by [Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) files.
 
 1. **Content views.** The Katello content views (`CV_Rocky_10` for the VMs, `CV_Proxmox` for the hypervisors) are promoted and published by their own playbook on its own schedule, so re-running a patch stage never publishes a new version. Their history is capped at `cv_retention_count` versions.
-2. **OS patching.** Each VM is checked for updates, snapshotted if there are any, patched, rebooted and health-checked.
+2. **OS patching.** Each VM is checked for updates, snapshotted if there are any, patched, rebooted and health-checked. A VM with nothing to install but a reboot pending (`dnf needs-restarting -r`: a kernel or core library installed but not running, as on a VM provisioned after its packages were updated) goes through the same steps, so it does not stay on the old version until the next release.
 3. **Container updates.** Quadlet files are re-rendered from the pinned versions in `group_vars/all.yml`, then each container is snapshotted, updated and health-checked, and old images are pruned.
 4. **Snapshots.** A safety snapshot is removed as soon as the post-update health check passes. One left behind by a failed check is swept up by a separately scheduled run.
 5. **Proxmox hosts.** Each node is evacuated by live migration, patched and rebooted in turn, then the cluster is rebalanced.

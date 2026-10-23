@@ -21,11 +21,25 @@
   changed_when: false
   when: ansible_facts['pkg_mgr'] == 'apt'
 
-- name: Determine whether updates are available
+# A kernel or core library that is installed but not running is as pending as an update: a VM provisioned after the
+# packages were updated, or one whose reboot did not happen, has nothing to install and would otherwise stay on the
+# old version until the next release. dnf exits with 1 both when a reboot is required and when the plugin is missing,
+# so the message is what decides.
+- name: Check whether a reboot is pending (dnf/yum)
+  ansible.builtin.command: dnf needs-restarting -r
+  register: dnf_reboot
+  failed_when: dnf_reboot.rc not in [0, 1]
+  changed_when: false
+  become: true
+  when: ansible_facts['pkg_mgr'] in ['dnf', 'yum']
+
+- name: Determine whether updates are available or a reboot is pending
   ansible.builtin.set_fact:
     has_updates: >-
       {{
         (ansible_facts['pkg_mgr'] in ['dnf','yum'] and dnf_check.rc == 100)
+        or
+        (ansible_facts['pkg_mgr'] in ['dnf','yum'] and dnf_reboot.rc == 1 and 'Reboot is required' in dnf_reboot.stdout)
         or
         (ansible_facts['pkg_mgr'] == 'apt' and (apt_check.stdout_lines | length) > 1)
       }}
