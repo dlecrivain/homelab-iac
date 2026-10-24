@@ -175,9 +175,9 @@ pve_exporter_version: "3.10.1"
 # Home Assistant Container (configure-homeassistant.yml). Home Assistant releases monthly under the
 # year as its major line, so check-image-updates.yml bumps within the year and only reports a new year.
 homeassistant_host: homeassistant101
-homeassistant_version: "2026.10.2"
+homeassistant_version: "2026.10.3"
 # The same matter.js server the Home Assistant Matter Server add-on 9.2.0 is built on.
-matter_server_version: "1.5.2"
+matter_server_version: "1.5.4"
 
 # Immich (configure-immich.yml). Pinned rather than :release so a container restart cannot change
 # version on its own: Immich's upgrades run database migrations, which belong in a run that snapshots
