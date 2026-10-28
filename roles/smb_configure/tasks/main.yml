@@ -166,30 +166,3 @@
     state: enabled
   loop: "{{ smb_allowed_hosts | product(['samba', 'mdns']) | list }}"
   become: true
-
-- name: Delete the old files every night
-  when: smb_retention_days | int > 0
-  become: true
-  block:
-    - name: Install the deletion unit
-      ansible.builtin.template:
-        src: aqara-retention.service.j2
-        dest: /etc/systemd/system/aqara-retention.service
-        owner: root
-        group: root
-        mode: '0644'
-
-    - name: Install its timer
-      ansible.builtin.template:
-        src: aqara-retention.timer.j2
-        dest: /etc/systemd/system/aqara-retention.timer
-        owner: root
-        group: root
-        mode: '0644'
-
-    - name: Enable the timer
-      ansible.builtin.systemd:
-        name: aqara-retention.timer
-        enabled: true
-        state: started
-        daemon_reload: true
