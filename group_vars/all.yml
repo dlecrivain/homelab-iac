@@ -201,6 +201,9 @@ paperless_domain: paperless.lecrivaindaniel.fr
 paperless_postgres_image: "docker.io/library/postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3"
 paperless_redis_image: "docker.io/valkey/valkey:9@sha256:4963247afc4cd33c7d3b2d2816b9f7f8eeebab148d29056c2ca4d7cbc966f2d9"
 
+# The host that shares the files of the Aqara doorbell over SMB (configure-smb.yml), see the README.
+smb_host: smb101
+
 # Docker Hub (docker_repo) and ghcr.io (ghcr_repo) repos check-image-updates.yml watches: the var to bump, and the host whose live
 # container tells it whether a bump has been applied yet. phpipam-web and phpipam-cron share
 # phpipam_version - same release, they always move together. Semaphore has its own bump playbook,

@@ -1,2 +1,9 @@
 ansible_host: 192.168.1.123 # static IP assigned via phpIPAM by provision-vm.yml
 ansible_user: deploy
+
+# The chime of the Aqara doorbell writes its event clips here, and immich102 copies them to the cloud storage.
+# The chime gets its address from DHCP: give it a fixed one on the router, or this list stops matching.
+smb_allowed_hosts:
+  - 192.168.1.31   # Doorbell Repeater
+  - 192.168.1.117  # immich102
+smb_data_size_gb: 30

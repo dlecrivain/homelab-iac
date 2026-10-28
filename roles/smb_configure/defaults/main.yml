@@ -1,0 +1,29 @@
+---
+# One share, written by one account and read by another. The accounts are Samba users of the host only, with no
+# shell and no password in this repository: see "SMB share for the Aqara doorbell" in the README.
+smb_share_name: Aqara
+smb_share_path: /srv/aqara
+smb_workgroup: WORKGROUP
+smb_netbios_name: "{{ inventory_hostname | upper }}"
+# The oldest dialect a client may use. The doorbell's chime needs SMB 3.
+smb_min_protocol: SMB3
+
+smb_writer_user: aqara
+smb_reader_user: aqara-sync
+smb_group: aqara
+
+# The addresses that may connect: the device that writes the files and the host that copies them away. Required.
+smb_allowed_hosts: []
+
+# The files live on their own volume, so that they cannot fill the system's. It is created small and grown
+# by lvm_grow to smb_data_size_gb.
+smb_vg: vg_system
+smb_data_lv: lv_aqara
+smb_data_size_gb: 30
+
+# Files older than this many days are deleted every night; 0 deletes nothing.
+smb_retention_days: 0
+
+# Each account's password is read from <smb_password_dir>/<account>-password, mode 0600. The writer's is placed by
+# hand, since it is typed into the device; the reader's is generated here.
+smb_password_dir: /root/.config/smb

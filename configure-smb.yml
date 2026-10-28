@@ -1,0 +1,10 @@
+---
+# The password of the writing account has to be in place on the host before this runs, see the README.
+- name: Configure the SMB share of the Aqara doorbell
+  hosts: "{{ smb_host | default('smb101') }}"
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Install and configure the share
+      include_role:
+        name: smb_configure

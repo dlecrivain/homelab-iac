@@ -1,0 +1,212 @@
+---
+- name: Install Samba, the announcement of the share and the SELinux tools
+  ansible.builtin.dnf:
+    name:
+      - samba
+      - samba-common-tools
+      - avahi
+      - policycoreutils-python-utils
+    state: present
+  become: true
+
+- name: Create the group of the files
+  ansible.builtin.group:
+    name: "{{ smb_group }}"
+    system: true
+  become: true
+
+# No shell and no home directory: the accounts only exist to be given a Samba password.
+- name: Create the accounts
+  ansible.builtin.user:
+    name: "{{ item }}"
+    group: "{{ smb_group }}"
+    shell: /usr/sbin/nologin
+    create_home: false
+    system: true
+  loop:
+    - "{{ smb_writer_user }}"
+    - "{{ smb_reader_user }}"
+  become: true
+
+# The volume is created small, then grown by lvm_grow, which adds a virtual disk to the VM when the volume group
+# has too little room and grows the file system with it.
+- name: Create the volume of the files
+  community.general.lvol:
+    vg: "{{ smb_vg }}"
+    lv: "{{ smb_data_lv }}"
+    size: 1g
+    shrink: false
+  become: true
+
+- name: Create the file system
+  community.general.filesystem:
+    fstype: xfs
+    dev: "/dev/{{ smb_vg }}/{{ smb_data_lv }}"
+  become: true
+
+- name: Create the mount point
+  ansible.builtin.file:
+    path: "{{ smb_share_path }}"
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Mount the volume
+  ansible.posix.mount:
+    path: "{{ smb_share_path }}"
+    src: "/dev/{{ smb_vg }}/{{ smb_data_lv }}"
+    fstype: xfs
+    opts: defaults,nodev,nosuid,noexec
+    state: mounted
+  become: true
+
+- name: Grow the volume to its size
+  ansible.builtin.include_role:
+    name: lvm_grow
+  vars:
+    lvm_grow_targets:
+      - lv: "{{ smb_data_lv }}"
+        size_gb: "{{ smb_data_size_gb }}"
+
+- name: Label the files for Samba
+  community.general.sefcontext:
+    target: "{{ smb_share_path }}(/.*)?"
+    setype: samba_share_t
+    state: present
+  become: true
+  register: smb_selinux_context
+
+- name: Apply the label
+  ansible.builtin.command: "restorecon -R {{ smb_share_path }}"
+  become: true
+  when: smb_selinux_context is changed
+  changed_when: true
+
+- name: Give the files to the writing account, with the group that the reading account shares
+  ansible.builtin.file:
+    path: "{{ smb_share_path }}"
+    state: directory
+    owner: "{{ smb_writer_user }}"
+    group: "{{ smb_group }}"
+    mode: '2770'
+  become: true
+
+- name: Write the Samba configuration
+  ansible.builtin.template:
+    src: smb.conf.j2
+    dest: /etc/samba/smb.conf
+    owner: root
+    group: root
+    mode: '0644'
+    validate: testparm -s %s
+  become: true
+  notify: Restart Samba
+
+- name: Announce the share on the local network
+  ansible.builtin.template:
+    src: avahi-smb.service.j2
+    dest: /etc/avahi/services/smb.service
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  notify: Restart Avahi
+
+- name: Create the directory of the password files
+  ansible.builtin.file:
+    path: "{{ smb_password_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  become: true
+
+- name: Look for the password of the writing account
+  ansible.builtin.stat:
+    path: "{{ smb_password_dir }}/{{ smb_writer_user }}-password"
+  become: true
+  register: smb_writer_password
+
+# The writer's password is typed into the device, so it is chosen by the owner and never generated here.
+- name: Stop until the password of the writing account is in place
+  ansible.builtin.fail:
+    msg: >-
+      {{ smb_password_dir }}/{{ smb_writer_user }}-password is missing on {{ inventory_hostname }}: place the
+      password of {{ smb_writer_user }} there (mode 0600), then run this again. See the README.
+  when: not smb_writer_password.stat.exists or smb_writer_password.stat.size == 0
+
+- name: Generate the password of the reading account
+  ansible.builtin.shell: "umask 077 && openssl rand -hex 24 > {{ smb_password_dir }}/{{ smb_reader_user }}-password"
+  args:
+    creates: "{{ smb_password_dir }}/{{ smb_reader_user }}-password"
+  become: true
+
+# smbpasswd keeps its own database, so the password is applied when its file is newer than the last time it was.
+- name: Give each account the Samba password of its file
+  ansible.builtin.shell: |
+    set -e
+    f="{{ smb_password_dir }}/{{ item }}-password"
+    stamp="/var/lib/samba/private/.{{ item }}-password-applied"
+    if [ ! -e "$stamp" ] || [ "$f" -nt "$stamp" ]; then
+      p=$(tr -d '\r\n' < "$f")
+      printf '%s\n%s\n' "$p" "$p" | smbpasswd -a -s {{ item }} > /dev/null
+      touch "$stamp"
+      echo applied
+    fi
+  args:
+    executable: /bin/bash
+  loop:
+    - "{{ smb_writer_user }}"
+    - "{{ smb_reader_user }}"
+  register: smb_passwords
+  changed_when: "'applied' in smb_passwords.stdout"
+  no_log: true
+  become: true
+
+- name: Start the services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - smb
+    - nmb
+    - avahi-daemon
+  become: true
+
+# Only the device that writes and the host that copies the files away may reach the share, and be found.
+- name: Open the share to the allowed addresses
+  ansible.posix.firewalld:
+    rich_rule: 'rule family="ipv4" source address="{{ item.0 }}" service name="{{ item.1 }}" accept'
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ smb_allowed_hosts | product(['samba', 'mdns']) | list }}"
+  become: true
+
+- name: Delete the old files every night
+  when: smb_retention_days | int > 0
+  become: true
+  block:
+    - name: Install the deletion unit
+      ansible.builtin.template:
+        src: aqara-retention.service.j2
+        dest: /etc/systemd/system/aqara-retention.service
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Install its timer
+      ansible.builtin.template:
+        src: aqara-retention.timer.j2
+        dest: /etc/systemd/system/aqara-retention.timer
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Enable the timer
+      ansible.builtin.systemd:
+        name: aqara-retention.timer
+        enabled: true
+        state: started
+        daemon_reload: true

@@ -66,6 +66,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 | `configure-immich.yml` | Deploys Immich's four Quadlet units on `immich_host` (`immich102`) from `immich_version`, as the connecting user like `adguard_configure`. |
 | `configure-paperless.yml` | Deploys Paperless-ngx's three Quadlet units (server, Postgres, Valkey) on `paperless_host` (`paperless101`) from `paperless_version`, as the connecting user like `configure-immich.yml`. See [Paperless](#paperless). |
 | `sync-paperless.yml` | Keeps Paperless-ngx in step with the cloud storage folder that stays the master copy, run from `immich102`: new files are uploaded, moved or renamed files are recognised by checksum and re-tagged, files that disappeared are tagged `a-purger`, and documents nothing could give a type are tagged `a-classer` and listed in an email. See [Paperless](#paperless). |
+| `configure-smb.yml` | Installs Samba on `smb_host` (`smb101`) and shares one folder, on its own volume, for the Aqara doorbell: SMB 3 only, one account that writes and one that only reads, reachable from the addresses of `smb_allowed_hosts` only, and announced by NetBIOS and mDNS. See [SMB share for the Aqara doorbell](#smb-share-for-the-aqara-doorbell). |
 | `configure-homeassistant.yml` | Deploys Home Assistant and the Matter Server as Quadlet units on `homeassistant_host` (`homeassistant101`) from `homeassistant_version` and `matter_server_version`. See [Home Assistant](#home-assistant). |
 | `configure-prometheus.yml` | Deploys Prometheus, Alertmanager and the PVE exporter on `prometheus102`. |
 | `configure-grafana.yml` | Deploys Grafana on `grafana_host` with its datasource and dashboards. |
@@ -107,6 +108,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
   - **Backups**: `vzdump_backup`, `pcloud_backup_job`.
   - **Katello**: `katello_promote`, `katello_cv_retention`, `katello_register_host`, `katello_deregister_host`, `katello_repo_cleanup`.
   - **Provisioning**: `provision_vm_reconnect`, `semaphore_provision`, `phpipam_login`, `phpipam_next_ip`, `phpipam_remove_address`, `lvm_grow` (grows one or several logical volumes of the template's volume group, adding a virtual disk when needed).
+  - **File shares**: `smb_configure` (Samba on `smb101`, for the Aqara doorbell).
   - **Assistant**: `claude_assistant`, `claude_readonly_access` (the read-only account on the VMs).
   - **Monitoring**: `node_exporter_install`, `smartctl_exporter_install`, `prometheus_target`.
   - **Compliance**: `openscap_scan`.
@@ -313,6 +315,19 @@ The cloud storage folder stays the only place where documents are filed and rena
 - Files Paperless cannot import (Office documents, archives) are listed in the run's output as skipped; export them to PDF to have them imported.
 
 The rules are a JSON file next to the documents (`paperless_sync_rules`), not in this repository, since they name the owner's correspondents; `roles/paperless_sync/files/rules.example.json` shows the format. Each rule has selectors (`file`, a regular expression on the lower-case, accent-free name; `tags`, `tags_any`; `unless`) and the first rule of a list that satisfies them wins. A correspondent rule can carry `match`, the regular expression given to Paperless when it creates the correspondent. The API token is of a Paperless user without administrator or delete rights, placed by hand in `paperless_sync_token_file`; `paperless_sync_dry_run` reports what would be done and changes nothing. A run uploads at most 100 new files, so a folder copied by mistake cannot flood the archive, and it fails, and so does the email, when an upload never shows up in Paperless two days later. The Semaphore template runs the playbook every night.
+
+### SMB share for the Aqara doorbell
+
+The chime of the Aqara Video Doorbell G4 (the indoor unit, which also holds its storage) can back its event clips up to an SMB share from the Aqara Home app. `smb101` is a small VM, created with `provision-vm.yml`, that provides that share, so that a connected device that is not trusted writes to a host that holds nothing else, and so that the cloud storage credential stays on `immich102`. The Freebox's own share was not used: it has a single login for the whole disk and no per-folder rights.
+
+`configure-smb.yml` runs the `smb_configure` role:
+
+- **Volume**: the files live on `smb_data_lv`, mounted on `smb_share_path` with `nodev,nosuid,noexec` and labelled `samba_share_t`, so they cannot fill the system's volumes. It is created at 1 GiB and grown by `lvm_grow` to `smb_data_size_gb`, which adds a virtual disk to the VM when the volume group is too small.
+- **Accounts**: `smb_writer_user` writes, and is the one typed into the device; `smb_reader_user` only reads, and is the one `immich102` copies the files away with. Both are Samba accounts with no shell. The writer's password is placed by hand in `/root/.config/smb/<account>-password` (mode 0600) before the first run, which stops with the command to use when it is missing; the reader's is generated on the host and never displayed. Neither is in this repository.
+- **Access**: SMB 3 at the least (`smb_min_protocol`), no guest access, and `hosts allow` plus one firewalld rule per address of `smb_allowed_hosts` for the `samba` and `mdns` services, so that only the device and `immich102` can reach or find the share. `nmbd` (NetBIOS) and Avahi (mDNS) announce it, since devices find a server through one or the other.
+- **Retention**: files older than `smb_retention_days` are deleted every night at 03:30 by a systemd timer; the default of 0 deletes nothing, and the delay has to be longer than the longest gap between two copies to the cloud storage.
+
+The chime gets its address from DHCP, so `smb_allowed_hosts` only keeps matching if the router gives it a fixed one.
 
 ### Home Assistant
 

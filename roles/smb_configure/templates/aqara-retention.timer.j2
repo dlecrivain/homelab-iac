@@ -1,0 +1,9 @@
+[Unit]
+Description=Delete the old files of {{ smb_share_path }} every night
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
