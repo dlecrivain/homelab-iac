@@ -7,14 +7,22 @@ smb_allowed_hosts:
   - 192.168.1.31  # Doorbell
 smb_data_size_gb: 30
 
-# The Aqara Home app deletes the clips from the share after the delay chosen there, 90 days; the copy to the cloud
-# storage never deletes anything. Files younger than 10 minutes may still be written, so they wait for the next run.
 # immich102 exports its photo and video library read-only to this host (immich_library_readers), which copies it.
 pcloud_backup_mounts:
   - src: "192.168.1.117:/var/lib/immich/photos/library"
     path: /mnt/immich-library
 
 pcloud_backup_jobs:
+  - name: Immich Daniel
+    mode: copy
+    source: /mnt/immich-library/ee67ced3-2998-420c-82b5-2768292c81ab/
+    dest: "pcloud:Backups/Immich/Daniel"
+  - name: Immich Marine
+    mode: copy
+    source: /mnt/immich-library/1c98b908-3122-4969-b34a-e63b6a242994/
+    dest: "pcloud:Backups/Immich/Marine"
+  # The Aqara Home app deletes the clips from the share after the delay chosen there, 90 days; the copy to the cloud
+  # storage never deletes anything. Files younger than 10 minutes may still be written, so they wait for the next run.
   - name: Aqara doorbell
     mode: copy
     source: /srv/aqara

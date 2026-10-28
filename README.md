@@ -46,7 +46,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 | Playbook | Purpose |
 |---|---|
 | `vm-backups.yml` | `vzdump` (zstd) of every VM, three at a time: each VM is migrated to `vm_backup_node` if it is not already there, backed up to `Stockage_SSD`, uploaded to pCloud, then migrated straight back. A final rebalance only runs if a migrate-back failed and left something stranded. |
-| `pcloud-backups.yml` | `rclone` backups to pCloud. With `pcloud_backup_source` passed as an extra var it runs that one job, otherwise each host (`immich102` and `smb101`) runs the jobs of its own `pcloud_backup_jobs` in parallel, straight from the files on its own disk. See [Backups](#backups-1). |
+| `pcloud-backups.yml` | `rclone` backups to pCloud. With `pcloud_backup_source` passed as an extra var it runs that one job, otherwise the host (`smb101`, or `pcloud_backup_host`) runs the jobs of its own `pcloud_backup_jobs` in parallel: the doorbell's files on its own disk and the Immich library mounted read-only from `immich102`. See [Backups](#backups-1). |
 
 ### Provisioning
 
@@ -222,7 +222,7 @@ The rebalance builds one plan that is complete: a VM is moved only if that narro
 **pCloud copies.** `pcloud-backups.yml` has two modes, selected by whether `pcloud_backup_source` is passed as an extra var:
 
 - **Single job**: `pcloud_backup_source`, `pcloud_backup_dest`, `pcloud_backup_mode` (`sync` or `copy`, default `sync`) and `pcloud_backup_extra_args` are passed as extra vars, and one `rclone` command runs through the `pcloud_backup_job` role. Each backup is its own Semaphore template on the same playbook, with its own schedule and extra vars.
-- **All jobs**: with no extra vars, the jobs in each host's `pcloud_backup_jobs` (its `host_vars`) run in parallel, each launched with `async` and `poll: 0` and then awaited with `async_status`, so one failure does not stop the others. This mode launches `rclone` directly, because `async` applies to a single module task and not to `include_role`.
+- **All jobs**: with no extra vars, the jobs in the host's `pcloud_backup_jobs` (its `host_vars`) run in parallel, each launched with `async` and `poll: 0` and then awaited with `async_status`, so one failure does not stop the others. This mode launches `rclone` directly, because `async` applies to a single module task and not to `include_role`.
 
 A host can also list `pcloud_backup_mounts` (an NFS `src` and a mount `path`): each one is mounted read-only before the jobs run, so `rclone` reads it as an ordinary folder. A share that cannot be mounted stops the play, and a host that is down at boot does not hold up the one that mounts it (`nofail`).
 
@@ -395,7 +395,7 @@ The API token is read from a file that must not be readable by anyone else (`~/.
   - Python packages: `pip install -r requirements.txt`
 - A Proxmox API token with enough privileges to list VMs, create and delete snapshots, and migrate VMs.
 - SSH access to all target hosts and to the Proxmox nodes, using a key stored in Semaphore's Key Store (never committed to this repository).
-- `rclone` with a `pcloud:` remote on `pve1` (for `vm-backups.yml`), on `immich102` (for `pcloud-backups.yml`, which installs the package) and on `smb101` (for the copy of the doorbell's files, installed by `configure-smb.yml`). The remote holds a pCloud token, so its `rclone.conf` is copied by hand to `/root/.config/rclone/` (mode 0600) on `immich102` and never stored here.
+- `rclone` with a `pcloud:` remote on `pve1` (for `vm-backups.yml`), on `smb101` (for `pcloud-backups.yml`, which installs the package: the doorbell's files and the Immich library) and on `immich102` (for `sync-paperless.yml`). The remote holds a pCloud token, so its `rclone.conf` is copied by hand to `/root/.config/rclone/` (mode 0600) on each of them and never stored here.
 - For `sync-paperless.yml`, on `immich102`: the API token of a Paperless user without administrator or delete rights, in `/root/.config/paperless/token` (mode 0600). It is placed by hand and never stored here.
 
 ## Secrets
