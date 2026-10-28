@@ -1,7 +1,0 @@
-[Unit]
-Description=Delete the files of {{ smb_share_path }} older than {{ smb_retention_days }} days
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/find {{ smb_share_path }} -type f -mtime +{{ smb_retention_days }} -delete
-ExecStart=/usr/bin/find {{ smb_share_path }} -mindepth 1 -type d -empty -delete

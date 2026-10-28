@@ -9,23 +9,13 @@
     state: present
   become: true
 
-- name: Create the group of the files
-  ansible.builtin.group:
-    name: "{{ smb_group }}"
-    system: true
-  become: true
-
-# No shell and no home directory: the accounts only exist to be given a Samba password.
-- name: Create the accounts
+# No shell and no home directory: the account only exists to be given a Samba password.
+- name: Create the account
   ansible.builtin.user:
-    name: "{{ item }}"
-    group: "{{ smb_group }}"
+    name: "{{ smb_writer_user }}"
     shell: /usr/sbin/nologin
     create_home: false
     system: true
-  loop:
-    - "{{ smb_writer_user }}"
-    - "{{ smb_reader_user }}"
   become: true
 
 # The volume is created small, then grown by lvm_grow, which adds a virtual disk to the VM when the volume group
@@ -82,13 +72,13 @@
   when: smb_selinux_context is changed
   changed_when: true
 
-- name: Give the files to the writing account, with the group that the reading account shares
+- name: Give the files to the writing account
   ansible.builtin.file:
     path: "{{ smb_share_path }}"
     state: directory
     owner: "{{ smb_writer_user }}"
-    group: "{{ smb_group }}"
-    mode: '2770'
+    group: "{{ smb_writer_user }}"
+    mode: '0750'
   become: true
 
 - name: Write the Samba configuration
@@ -127,7 +117,7 @@
   become: true
   register: smb_writer_password
 
-# The writer's password is typed into the device, so it is chosen by the owner and never generated here.
+# The password is typed into the device, so it is chosen by the owner and never generated here.
 - name: Stop until the password of the writing account is in place
   ansible.builtin.fail:
     msg: >-
@@ -135,14 +125,8 @@
       password of {{ smb_writer_user }} there (mode 0600), then run this again. See the README.
   when: not smb_writer_password.stat.exists or smb_writer_password.stat.size == 0
 
-- name: Generate the password of the reading account
-  ansible.builtin.shell: "umask 077 && openssl rand -hex 24 > {{ smb_password_dir }}/{{ smb_reader_user }}-password"
-  args:
-    creates: "{{ smb_password_dir }}/{{ smb_reader_user }}-password"
-  become: true
-
 # smbpasswd keeps its own database, so the password is applied when its file is newer than the last time it was.
-- name: Give each account the Samba password of its file
+- name: Give the account the Samba password of its file
   ansible.builtin.shell: |
     set -e
     f="{{ smb_password_dir }}/{{ item }}-password"
@@ -157,7 +141,6 @@
     executable: /bin/bash
   loop:
     - "{{ smb_writer_user }}"
-    - "{{ smb_reader_user }}"
   register: smb_passwords
   changed_when: "'applied' in smb_passwords.stdout"
   no_log: true
@@ -174,7 +157,7 @@
     - avahi-daemon
   become: true
 
-# Only the device that writes and the host that copies the files away may reach the share, and be found.
+# Only the devices that write may reach the share, and find it.
 - name: Open the share to the allowed addresses
   ansible.posix.firewalld:
     rich_rule: 'rule family="ipv4" source address="{{ item.0 }}" service name="{{ item.1 }}" accept'

@@ -318,16 +318,16 @@ The rules are a JSON file next to the documents (`paperless_sync_rules`), not in
 
 ### SMB share for the Aqara doorbell
 
-The chime of the Aqara Video Doorbell G4 (the indoor unit, which also holds its storage) can back its event clips up to an SMB share from the Aqara Home app. `smb101` is a small VM, created with `provision-vm.yml`, that provides that share, so that a connected device that is not trusted writes to a host that holds nothing else, and so that the cloud storage credential stays on `immich102`. The Freebox's own share was not used: it has a single login for the whole disk and no per-folder rights.
+The chime of the Aqara Video Doorbell G4 (the indoor unit, "Doorbell Repeater", which also holds its storage) can back its event clips up to an SMB share from the Aqara Home app. `smb101` is a small VM, created with `provision-vm.yml`, that provides that share and copies the files to the cloud storage itself, so that a connected device that is not trusted writes to a host that holds nothing else. The Freebox's own share was not used: it has a single login for the whole disk and no per-folder rights.
 
 `configure-smb.yml` runs the `smb_configure` role:
 
 - **Volume**: the files live on `smb_data_lv`, mounted on `smb_share_path` with `nodev,nosuid,noexec` and labelled `samba_share_t`, so they cannot fill the system's volumes. It is created at 1 GiB and grown by `lvm_grow` to `smb_data_size_gb`, which adds a virtual disk to the VM when the volume group is too small.
-- **Accounts**: `smb_writer_user` writes, and is the one typed into the device; `smb_reader_user` only reads, and is the one `immich102` copies the files away with. Both are Samba accounts with no shell. The writer's password is placed by hand in `/root/.config/smb/<account>-password` (mode 0600) before the first run, which stops with the command to use when it is missing; the reader's is generated on the host and never displayed. Neither is in this repository.
-- **Access**: SMB 3 at the least (`smb_min_protocol`), no guest access, and `hosts allow` plus one firewalld rule per address of `smb_allowed_hosts` for the `samba` and `mdns` services, so that only the device and `immich102` can reach or find the share. `nmbd` (NetBIOS) and Avahi (mDNS) announce it, since devices find a server through one or the other.
-- **Retention**: files older than `smb_retention_days` are deleted every night at 03:30 by a systemd timer; the default of 0 deletes nothing, and the delay has to be longer than the longest gap between two copies to the cloud storage.
+- **Account**: one Samba account, `smb_writer_user`, with no shell, which is the one typed into the device. Its password is placed by hand in `/root/.config/smb/<account>-password` (mode 0600) before the first run, which stops with the command to use when it is missing. It is not in this repository.
+- **Access**: SMB 3 at the least (`smb_min_protocol`), no guest access, and `hosts allow` plus one firewalld rule per address of `smb_allowed_hosts` for the `samba` and `mdns` services, so that only the devices of the doorbell can reach or find the share. `nmbd` (NetBIOS) and Avahi (mDNS) announce it, since devices find a server through one or the other. The router has to give those devices a fixed address, or the list stops matching.
+- **Copy to the cloud storage**: `pcloud-backups.yml` copies the files from this host, with its own `rclone` and its own pCloud token (`rclone authorize "pcloud"` on a machine with a browser, put in `/root/.config/rclone/rclone.conf` by hand, mode 0600), on the same Semaphore schedule as the other copies to that storage. The job is in `pcloud_backup_jobs` in `host_vars/smb101.yml`: files younger than 10 minutes wait for the next run, since the device may still be writing them, and nothing is ever deleted from the cloud storage. A token of its own can be revoked without touching the other hosts, which is worth it since this host faces a device that is not trusted.
+- **Retention**: the Aqara Home app deletes the clips from the share after the delay chosen in it (90 days). The copy to the cloud storage keeps them.
 
-The chime gets its address from DHCP, so `smb_allowed_hosts` only keeps matching if the router gives it a fixed one.
 
 ### Home Assistant
 
@@ -391,7 +391,7 @@ The API token is read from a file that must not be readable by anyone else (`~/.
   - Python packages: `pip install -r requirements.txt`
 - A Proxmox API token with enough privileges to list VMs, create and delete snapshots, and migrate VMs.
 - SSH access to all target hosts and to the Proxmox nodes, using a key stored in Semaphore's Key Store (never committed to this repository).
-- `rclone` with a `pcloud:` remote on `pve1` (for `vm-backups.yml`) and on `immich102` (for `pcloud-backups.yml`, which installs the package). The remote holds a pCloud token, so its `rclone.conf` is copied by hand to `/root/.config/rclone/` (mode 0600) on `immich102` and never stored here.
+- `rclone` with a `pcloud:` remote on `pve1` (for `vm-backups.yml`), on `immich102` (for `pcloud-backups.yml`, which installs the package) and on `smb101` (for the copy of the doorbell's files, installed by `configure-smb.yml`). The remote holds a pCloud token, so its `rclone.conf` is copied by hand to `/root/.config/rclone/` (mode 0600) on `immich102` and never stored here.
 - For `sync-paperless.yml`, on `immich102`: the API token of a Paperless user without administrator or delete rights, in `/root/.config/paperless/token` (mode 0600). It is placed by hand and never stored here.
 
 ## Secrets
