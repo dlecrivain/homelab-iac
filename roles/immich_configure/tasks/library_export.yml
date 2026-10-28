@@ -1,0 +1,59 @@
+---
+# The hosts in immich_library_readers read the photo and video library over NFS, read-only, to copy it to the cloud
+# storage. Only NFSv4 is served, so the one port to open is 2049/tcp, and only to them. Every file is readable by
+# everyone, so root_squash stays: a reader gets no more access than an unprivileged user.
+- name: Install the NFS server
+  ansible.builtin.dnf:
+    name: nfs-utils
+    state: present
+  become: true
+
+- name: Serve NFSv4 only
+  community.general.ini_file:
+    path: /etc/nfs.conf
+    section: nfsd
+    option: vers3
+    value: "n"
+    no_extra_spaces: true
+    mode: '0644'
+  become: true
+  register: immich_nfs_conf
+
+- name: Export the library read-only to its readers
+  ansible.builtin.copy:
+    dest: /etc/exports.d/immich-library.exports
+    content: "{{ immich_library_path }} {{ immich_library_readers | map('regex_replace', '$', '(ro,sync,no_subtree_check,root_squash)') | join(' ') }}\n"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  register: immich_nfs_exports
+
+- name: Start the NFS server
+  ansible.builtin.systemd:
+    name: nfs-server
+    enabled: true
+    state: started
+  become: true
+
+- name: Restart the NFS server to apply its configuration
+  ansible.builtin.systemd:
+    name: nfs-server
+    state: restarted
+  become: true
+  when: immich_nfs_conf is changed
+
+- name: Read the exports again
+  ansible.builtin.command: exportfs -ra
+  become: true
+  changed_when: true
+  when: immich_nfs_exports is changed
+
+- name: Open NFS to the readers only
+  ansible.posix.firewalld:
+    rich_rule: 'rule family="ipv4" source address="{{ item }}" port port="2049" protocol="tcp" accept'
+    permanent: true
+    immediate: true
+    state: enabled
+  become: true
+  loop: "{{ immich_library_readers }}"

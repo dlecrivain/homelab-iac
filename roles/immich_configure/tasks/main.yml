@@ -123,3 +123,7 @@
     state: started
     scope: user
   loop: "{{ immich_units }}"
+
+- name: Share the library with the hosts that copy it
+  ansible.builtin.include_tasks: library_export.yml
+  when: immich_library_readers | length > 0

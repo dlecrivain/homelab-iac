@@ -224,6 +224,8 @@ The rebalance builds one plan that is complete: a VM is moved only if that narro
 - **Single job**: `pcloud_backup_source`, `pcloud_backup_dest`, `pcloud_backup_mode` (`sync` or `copy`, default `sync`) and `pcloud_backup_extra_args` are passed as extra vars, and one `rclone` command runs through the `pcloud_backup_job` role. Each backup is its own Semaphore template on the same playbook, with its own schedule and extra vars.
 - **All jobs**: with no extra vars, the jobs in each host's `pcloud_backup_jobs` (its `host_vars`) run in parallel, each launched with `async` and `poll: 0` and then awaited with `async_status`, so one failure does not stop the others. This mode launches `rclone` directly, because `async` applies to a single module task and not to `include_role`.
 
+A host can also list `pcloud_backup_mounts` (an NFS `src` and a mount `path`): each one is mounted read-only before the jobs run, so `rclone` reads it as an ordinary folder. A share that cannot be mounted stops the play, and a host that is down at boot does not hold up the one that mounts it (`nofail`).
+
 ### Provisioning a new Semaphore peer
 
 `provision-semaphore-peer.yml`, run from `semaphore103` against the new VM, copies the seven Quadlet unit files (`semaphore-network.network`, four `.volume` files, `semaphore-db.container`, `semaphore.container`, identical on both instances since nothing in them is host-specific), generates fresh `SEMAPHORE_DB_PASS`, `POSTGRES_PASSWORD` (kept in sync) and `SEMAPHORE_ADMIN_PASSWORD` secrets, clones this repository into `/home/deploy/repos/homelab-iac` (bind-mounted into the container as `/repos`), then enables and starts both services.
@@ -297,6 +299,8 @@ Two dedicated VMs run it: `prometheus102` (Prometheus, Alertmanager and `prometh
 ### Immich
 
 `immich102` runs Immich's four containers (server, machine learning, Valkey and Postgres) rootless as the connecting user `deploy`, like `adguard102`, from `immich_version`. The `immich_configure` role enables lingering, opens 2283/tcp, creates `/var/lib/immich/photos` and `/var/lib/immich/postgres` and hands an empty Postgres directory to the container's own user. `lvm_grow_targets` in `host_vars/immich102.yml` (`/var` at 500 GB for the library, `/home` at 24 GB for the rootless images, which the template's 2 GB cannot hold) is applied by `configure-immich.yml` through `lvm_grow`.
+
+The photo and video library is also exported read-only over NFSv4 to the addresses in `immich_library_readers` (`library_export.yml`, included by the role): `smb101`, which copies it to the cloud storage. Only 2049/tcp is open, and only to those addresses, and `root_squash` stays on since every file is readable by everyone, so a reader has no more access than an unprivileged user.
 
 The database password is in two files the repository does not keep, `/var/lib/immich/.env` and `/var/lib/immich/postgres.env`, owned by the connecting user with mode 0600. The role stops with a clear message when one is missing, so a new host has to receive them before its first run. Data that comes from another host is copied with `rsync --numeric-ids` and `--usermap`/`--groupmap` from the previous owners to the new user: files owned by the old user become `deploy`, and the Postgres files go to the user's sub-uid base plus 998, which is uid 999 of the container's postgres user (`/etc/subuid` gives the base).
 

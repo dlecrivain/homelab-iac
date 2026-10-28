@@ -11,6 +11,25 @@
         name: rclone
         state: present
 
+    # What a job reads from another host is mounted read-only first, so rclone sees an ordinary folder. A host that
+    # is down at boot does not hold up this one (nofail), and the play stops here if the share cannot be mounted.
+    - name: Install the NFS client
+      ansible.builtin.dnf:
+        name: nfs-utils
+        state: present
+      when: pcloud_backup_mounts | default([]) | length > 0
+
+    - name: Mount what the jobs read from other hosts
+      ansible.posix.mount:
+        path: "{{ item.path }}"
+        src: "{{ item.src }}"
+        fstype: nfs4
+        opts: ro,nfsvers=4.2,nosuid,nodev,noexec,_netdev,nofail
+        state: mounted
+      loop: "{{ pcloud_backup_mounts | default([]) }}"
+      loop_control:
+        label: "{{ item.path }}"
+
     # The remote holds a pCloud token, so it is copied by hand once and never stored in this repository.
     - name: Check that the pCloud remote is configured
       ansible.builtin.command: rclone listremotes

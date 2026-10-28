@@ -5,3 +5,7 @@ immich_units:
   - immich-redis.service
   - immich-machine-learning.service
   - immich-server.service
+
+# The folder of the photo and video library, and the addresses of the hosts allowed to read it over NFS (read-only).
+immich_library_path: /var/lib/immich/photos/library
+immich_library_readers: []

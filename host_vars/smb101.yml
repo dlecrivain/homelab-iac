@@ -9,6 +9,11 @@ smb_data_size_gb: 30
 
 # The Aqara Home app deletes the clips from the share after the delay chosen there, 90 days; the copy to the cloud
 # storage never deletes anything. Files younger than 10 minutes may still be written, so they wait for the next run.
+# immich102 exports its photo and video library read-only to this host (immich_library_readers), which copies it.
+pcloud_backup_mounts:
+  - src: "192.168.1.117:/var/lib/immich/photos/library"
+    path: /mnt/immich-library
+
 pcloud_backup_jobs:
   - name: Aqara doorbell
     mode: copy
