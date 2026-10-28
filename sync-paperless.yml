@@ -1,6 +1,6 @@
 ---
 - name: Keep Paperless-ngx in step with the cloud storage folder
-  hosts: "{{ paperless_sync_host | default('immich102') }}"
+  hosts: "{{ paperless_sync_host | default('smb101') }}"
   gather_facts: false
   # The pCloud remote lives in root's rclone configuration.
   become: true
@@ -21,7 +21,7 @@
   hosts: localhost
   gather_facts: false
   vars:
-    sync_host: "{{ paperless_sync_host | default('immich102') }}"
+    sync_host: "{{ paperless_sync_host | default('smb101') }}"
     flagged: "{{ hostvars[sync_host].paperless_sync_flagged | default([]) }}"
     unsorted: "{{ hostvars[sync_host].paperless_sync_unsorted | default([0, 0]) }}"
     failure: "{{ hostvars[sync_host].paperless_sync_failure | default('') }}"

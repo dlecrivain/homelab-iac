@@ -34,7 +34,7 @@ BunkerWeb publishes `paperless.<domain>` with the existing wildcard certificate,
 
 Documents are filed, renamed and deleted only in the cloud storage folder, so there is one place to keep tidy. Paperless is an index of that folder and can be rebuilt from it. Paperless always keeps its own copy of a file and cannot index a folder in place, so a job keeps the two in step.
 
-The cloud storage remote is configured on a single host (`immich102`), so `sync-paperless.yml` runs `paperless-sync` there and never copies that credential elsewhere. The script compares the folder with Paperless by SHA-256, the checksum Paperless stores for each original, and keeps a state file of which document each file became:
+The cloud storage remote is configured on `smb101`, which copies to it, so `sync-paperless.yml` runs `paperless-sync` there and that credential is not copied to more hosts. The script compares the folder with Paperless by SHA-256, the checksum Paperless stores for each original, and keeps a state file of which document each file became:
 
 1. A new file is uploaded with its tags (one per folder, the numbering stripped), its title and date from the name, and the correspondent and type the rules give it.
 2. A moved or renamed file is recognised by its checksum and its document is re-tagged and re-classified. Renaming a file is how its type is changed.
@@ -42,7 +42,7 @@ The cloud storage remote is configured on a single host (`immich102`), so `sync-
 4. A new document that no rule and no matching of Paperless could give a type is tagged `a-classer`, and an email lists those documents with the number that carry the tag.
 5. Files Paperless cannot import are listed as skipped in the run's output.
 
-An API token for a dedicated, non-administrator user without delete rights is created by the owner and placed on `immich102` by hand, in a 0600 file. paperless-ngx refuses a duplicate by checksum.
+An API token for a dedicated, non-administrator user without delete rights is created by the owner and placed on `smb101` by hand, in a 0600 file. paperless-ngx refuses a duplicate by checksum.
 
 ## Classification
 
