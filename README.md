@@ -46,7 +46,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 | Playbook | Purpose |
 |---|---|
 | `vm-backups.yml` | `vzdump` (zstd) of every VM, three at a time: each VM is migrated to `vm_backup_node` if it is not already there, backed up to `Stockage_SSD`, uploaded to pCloud, then migrated straight back. A final rebalance only runs if a migrate-back failed and left something stranded. |
-| `pcloud-backups.yml` | `rclone` backups to pCloud. With `pcloud_backup_source` passed as an extra var it runs that one job, otherwise it runs the two built-in jobs (Immich Daniel, Immich Marine) in parallel on `immich102`, straight from the library on its own disk. See [Backups](#backups-1). |
+| `pcloud-backups.yml` | `rclone` backups to pCloud. With `pcloud_backup_source` passed as an extra var it runs that one job, otherwise each host (`immich102` and `smb101`) runs the jobs of its own `pcloud_backup_jobs` in parallel, straight from the files on its own disk. See [Backups](#backups-1). |
 
 ### Provisioning
 
@@ -222,7 +222,7 @@ The rebalance builds one plan that is complete: a VM is moved only if that narro
 **pCloud copies.** `pcloud-backups.yml` has two modes, selected by whether `pcloud_backup_source` is passed as an extra var:
 
 - **Single job**: `pcloud_backup_source`, `pcloud_backup_dest`, `pcloud_backup_mode` (`sync` or `copy`, default `sync`) and `pcloud_backup_extra_args` are passed as extra vars, and one `rclone` command runs through the `pcloud_backup_job` role. Each backup is its own Semaphore template on the same playbook, with its own schedule and extra vars.
-- **All jobs**: with no extra vars, the jobs in `pcloud_backup_jobs` run in parallel, each launched with `async` and `poll: 0` and then awaited with `async_status`, so one failure does not stop the others. This mode launches `rclone` directly, because `async` applies to a single module task and not to `include_role`.
+- **All jobs**: with no extra vars, the jobs in each host's `pcloud_backup_jobs` (its `host_vars`) run in parallel, each launched with `async` and `poll: 0` and then awaited with `async_status`, so one failure does not stop the others. This mode launches `rclone` directly, because `async` applies to a single module task and not to `include_role`.
 
 ### Provisioning a new Semaphore peer
 

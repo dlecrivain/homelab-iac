@@ -7,6 +7,17 @@ vm_backup_local_retention: 1 # the backup is large (photo and video library), so
 # ~400G over the mesh and writes it to the target NVMe. It is still migrated when its node is patched.
 pve_rebalance_pinned: true
 
+# What pcloud-backups.yml copies to the cloud storage from this host, straight from the library on its own disk.
+pcloud_backup_jobs:
+  - name: Immich Daniel
+    mode: copy
+    source: /var/lib/immich/photos/library/ee67ced3-2998-420c-82b5-2768292c81ab/
+    dest: "pcloud:Backups/Immich/Daniel"
+  - name: Immich Marine
+    mode: copy
+    source: /var/lib/immich/photos/library/1c98b908-3122-4969-b34a-e63b6a242994/
+    dest: "pcloud:Backups/Immich/Marine"
+
 # A version bump pulls ~1.7G before the server even starts, then runs database migrations on its
 # first run, so the default 5 retries over 50s would report a healthy upgrade as a failure.
 health_check_retries: 30

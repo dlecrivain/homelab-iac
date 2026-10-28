@@ -1,19 +1,10 @@
 ---
+# Each host copies what its own pcloud_backup_jobs, in its host_vars, list. The pCloud remote lives in root's rclone
+# configuration on each of them, and root can read the files whoever owns them.
 - name: Run pCloud backup(s) via rclone
-  hosts: "{{ pcloud_backup_host | default('immich102') }}"
+  hosts: "{{ pcloud_backup_host | default('immich102:smb101') }}"
   gather_facts: false
-  # The pCloud remote lives in root's rclone configuration, and root can read the library whoever owns it.
   become: true
-  vars:
-    pcloud_backup_jobs:
-      - name: Immich Daniel
-        mode: copy
-        source: /var/lib/immich/photos/library/ee67ced3-2998-420c-82b5-2768292c81ab/
-        dest: "pcloud:Backups/Immich/Daniel"
-      - name: Immich Marine
-        mode: copy
-        source: /var/lib/immich/photos/library/1c98b908-3122-4969-b34a-e63b6a242994/
-        dest: "pcloud:Backups/Immich/Marine"
   tasks:
     - name: Install rclone
       ansible.builtin.dnf:
@@ -37,7 +28,7 @@
         name: pcloud_backup_job
       when: pcloud_backup_source is defined
 
-    # All-jobs mode: no extra vars passed, run every job in pcloud_backup_jobs in parallel.
+    # All-jobs mode: no extra vars passed, run every job in the host's pcloud_backup_jobs in parallel.
     # Launched directly (not via the pcloud_backup_job role) because async/poll only apply
     # to a single module invocation, not to include_role.
     - name: Start pCloud backup
@@ -46,7 +37,7 @@
       async: 21600
       poll: 0
       register: pcloud_launch
-      loop: "{{ pcloud_backup_jobs }}"
+      loop: "{{ pcloud_backup_jobs | default([]) }}"
       loop_control:
         label: "{{ item.name }}"
       when: pcloud_backup_source is not defined
