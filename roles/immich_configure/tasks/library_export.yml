@@ -29,9 +29,12 @@
   become: true
   register: immich_nfs_exports
 
+# The CIS-hardened template masks nfs-server. Exporting the library is the one reason to switch it on, and rpcbind
+# stays masked since NFSv4 does not use it.
 - name: Start the NFS server
   ansible.builtin.systemd:
     name: nfs-server
+    masked: false
     enabled: true
     state: started
   become: true
