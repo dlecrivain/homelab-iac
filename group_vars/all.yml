@@ -162,7 +162,7 @@ grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') }}"
 # update is available; the container itself is left alone, so the next container-updates run
 # applies it like any other config change. Semaphore has its own bump playbook instead.
 prometheus_version: "v3.15.1"
-alertmanager_version: "v0.34.1"
+alertmanager_version: "v0.34.2"
 grafana_version: "13.3.0"
 bunkerweb_version: "1.6.17"
 # The host that runs BunkerWeb (configure-bunkerweb.yml); its reverse-proxied sites are bunkerweb_services in its host_vars.
