@@ -193,7 +193,7 @@ immich_redis_image: "docker.io/valkey/valkey:9@sha256:4963247afc4cd33c7d3b2d2816
 # Paperless-ngx (configure-paperless.yml), the document archive described in docs/paperless.md. Pinned rather
 # than :latest so a container restart cannot change version on its own: its upgrades run database
 # migrations, which belong in a run that snapshots the VM first.
-paperless_version: "3.3.4"
+paperless_version: "3.4.0"
 # The host that runs Paperless-ngx, rootless as its connecting user, and the name it is published under.
 paperless_host: paperless101
 paperless_domain: paperless.lecrivaindaniel.fr
