@@ -326,6 +326,27 @@
   register: claude_assistant_collections_result
   changed_when: "'Installing' in claude_assistant_collections_result.stdout"
 
+# The service user has a login shell, so the CIS profile wants the dotfiles of its home to be 0740 at most. /etc/skel
+# gives 0644 and the tools it runs create others with a wider mode. The home is 0700, so this takes nothing away.
+- name: Find the dotfiles of the service user
+  ansible.builtin.find:
+    paths: "{{ claude_assistant_home }}"
+    patterns: '^\.[\w\- ]+$'
+    use_regex: true
+    hidden: true
+    file_type: any
+  register: claude_assistant_dotfiles
+  become: true
+
+- name: Keep them private
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    mode: 'g-wx,o-rwx'
+  loop: "{{ claude_assistant_dotfiles.files | rejectattr('islnk') | list }}"
+  loop_control:
+    label: "{{ item.path }}"
+  become: true
+
 - name: Install the Remote Control service
   ansible.builtin.template:
     src: claude-assistant.service.j2
