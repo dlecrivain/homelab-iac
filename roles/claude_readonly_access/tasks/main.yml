@@ -34,6 +34,18 @@
     create_home: true
   become: true
 
+# The account has a login shell, so the CIS profile counts it among the users who can log in and wants its dotfiles
+# to be 0740 at most. /etc/skel gives 0644, and the login shell reads none of them.
+- name: Keep the startup files of the account private
+  ansible.builtin.file:
+    path: "/home/{{ claude_readonly_user }}/{{ item }}"
+    mode: 'g-wx,o-rwx'
+  loop:
+    - .bash_logout
+    - .bash_profile
+    - .bashrc
+  become: true
+
 - name: Create the account's SSH directory
   ansible.builtin.file:
     path: "/home/{{ claude_readonly_user }}/.ssh"
