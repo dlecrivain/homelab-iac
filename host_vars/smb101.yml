@@ -7,6 +7,11 @@ smb_allowed_hosts:
   - 192.168.1.31  # Doorbell
 smb_data_size_gb: 30
 
+# The share is what this host is for, and roles/smb_configure announces it to the doorbell devices.
+openscap_waived_rules:
+  package_samba_removed: The host serves the SMB share the Aqara doorbell writes its clips to.
+  service_avahi-daemon_disabled: Avahi announces the share to the doorbell devices, the only addresses mDNS is open to.
+
 # immich102 exports its photo and video library read-only to this host (immich_library_readers), which copies it.
 pcloud_backup_mounts:
   - src: "192.168.1.117:/var/lib/immich/photos/library"

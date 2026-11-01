@@ -11,6 +11,10 @@ pve_rebalance_pinned: true
 immich_library_readers:
   - 192.168.1.123
 
+# The export needs the NFS server, see roles/immich_configure/tasks/library_export.yml.
+openscap_waived_rules:
+  service_nfs_disabled: The photo and video library is exported read-only over NFSv4 to the host that copies it to the cloud storage.
+
 # A version bump pulls ~1.7G before the server even starts, then runs database migrations on its
 # first run, so the default 5 retries over 50s would report a healthy upgrade as a failure.
 health_check_retries: 30
