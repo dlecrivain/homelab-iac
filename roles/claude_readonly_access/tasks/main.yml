@@ -64,26 +64,59 @@
     validate: /usr/sbin/visudo -cf %s
   become: true
 
-# The hardened template lets only deploy in (AllowUsers in 00-fleet.conf), and sshd keeps the first value it reads,
-# so the list is written again, with the account added, in a file that sorts before it.
+# The hardened template lets only deploy in (AllowUsers in 00-fleet.conf). The account is added to that line rather
+# than given one of its own: sshd keeps the first AllowUsers it reads, and the CIS profile wants exactly one.
 - name: Read the users sshd lets in
   ansible.builtin.command: sshd -T
   register: claude_readonly_sshd
   changed_when: false
   become: true
 
+# sshd -T may print the list on one line or one user per line.
 - name: Work out the list of users sshd is restricted to
   ansible.builtin.set_fact:
     claude_readonly_allowed_users: >-
-      {{ (claude_readonly_sshd.stdout_lines | select('match', '^allowusers ') | list | first | default('')).split()[1:] }}
+      {{ (claude_readonly_sshd.stdout_lines | select('match', '^allowusers ') | join(' ')).split()
+         | reject('equalto', 'allowusers') | list }}
+
+- name: Find the file that restricts sshd to a list of users
+  ansible.builtin.find:
+    paths:
+      - /etc/ssh
+      - /etc/ssh/sshd_config.d
+    patterns:
+      - sshd_config
+      - '*.conf'
+    excludes:
+      - 00-claude-ro.conf
+    contains: '\s*AllowUsers\s'
+  register: claude_readonly_allowusers_files
+  become: true
+
+- name: Stop if more than one file restricts sshd to a list of users
+  ansible.builtin.assert:
+    that: claude_readonly_allowusers_files.matched <= 1
+    fail_msg: >-
+      AllowUsers is set in {{ claude_readonly_allowusers_files.files | map(attribute='path') | join(', ') }}:
+      merge them into one line, then run this again.
+    quiet: true
 
 - name: Let the account in where sshd is restricted to a list of users
-  ansible.builtin.copy:
-    dest: /etc/ssh/sshd_config.d/00-claude-ro.conf
-    content: "AllowUsers {{ (claude_readonly_allowed_users + [claude_readonly_user]) | unique | join(' ') }}\n"
-    owner: root
-    group: root
-    mode: '0600'
+  ansible.builtin.lineinfile:
+    path: "{{ claude_readonly_allowusers_files.files[0].path }}"
+    regexp: '^\s*AllowUsers\s'
+    line: "AllowUsers {{ (claude_readonly_allowed_users + [claude_readonly_user]) | unique | join(' ') }}"
+    validate: /usr/sbin/sshd -t -f %s
   become: true
-  when: claude_readonly_allowed_users | length > 0
+  when: claude_readonly_allowed_users | length > 0 and claude_readonly_allowusers_files.matched == 1
+  notify: Reload sshd
+
+# Its line would be a second AllowUsers. It is kept where it is the only one, since removing it would let every
+# user in.
+- name: Remove the account's own AllowUsers file
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d/00-claude-ro.conf
+    state: absent
+  become: true
+  when: claude_readonly_allowusers_files.matched == 1
   notify: Reload sshd
