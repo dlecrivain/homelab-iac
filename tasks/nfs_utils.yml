@@ -16,3 +16,17 @@
     - rpcbind.service
     - rpcbind.socket
   become: true
+
+# mount.nfs is setuid root. The CIS profile wants every such binary audited, which the template does for the ones it
+# ships, and counts the rules, so there is one per architecture. The audit configuration is immutable: the rule is
+# loaded at the next boot.
+- name: Audit the use of mount.nfs
+  ansible.builtin.copy:
+    dest: /etc/audit/rules.d/nfs-utils.rules
+    content: |
+      -a always,exit -F arch=b32 -F path=/usr/sbin/mount.nfs -F perm=x -F auid>=1000 -F auid!=unset -k privileged
+      -a always,exit -F arch=b64 -F path=/usr/sbin/mount.nfs -F perm=x -F auid>=1000 -F auid!=unset -k privileged
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
