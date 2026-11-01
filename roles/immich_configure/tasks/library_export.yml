@@ -3,10 +3,7 @@
 # storage. Only NFSv4 is served, so the one port to open is 2049/tcp, and only to them. Every file is readable by
 # everyone, so root_squash stays: a reader gets no more access than an unprivileged user.
 - name: Install the NFS server
-  ansible.builtin.dnf:
-    name: nfs-utils
-    state: present
-  become: true
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/nfs_utils.yml"
 
 - name: Serve NFSv4 only
   community.general.ini_file:

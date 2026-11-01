@@ -14,9 +14,7 @@
     # What a job reads from another host is mounted read-only first, so rclone sees an ordinary folder. A host that
     # is down at boot does not hold up this one (nofail), and the play stops here if the share cannot be mounted.
     - name: Install the NFS client
-      ansible.builtin.dnf:
-        name: nfs-utils
-        state: present
+      ansible.builtin.include_tasks: tasks/nfs_utils.yml
       when: pcloud_backup_mounts | default([]) | length > 0
 
     - name: Mount what the jobs read from other hosts

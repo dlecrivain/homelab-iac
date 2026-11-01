@@ -1,0 +1,18 @@
+---
+# Installs nfs-utils on a host of the CIS template, which serves or mounts NFSv4 only. NFSv4 does not use rpcbind:
+# the template masks rpcbind.service, and the CIS profile also wants the socket that nfs-utils brings masked.
+- name: Install nfs-utils
+  ansible.builtin.dnf:
+    name: nfs-utils
+    state: present
+  become: true
+
+- name: Keep rpcbind masked, with its socket
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    masked: true
+    state: stopped
+  loop:
+    - rpcbind.service
+    - rpcbind.socket
+  become: true
