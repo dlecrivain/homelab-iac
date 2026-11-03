@@ -1,0 +1,16 @@
+---
+# Shuts down the VMs of the kubernetes pool, the Talos nodes of the test cluster, so that the backup and update windows
+# have the memory they need. kubernetes-start.yml brings them back. With no such pool the play matches no host and does
+# nothing.
+- name: Shut down the Kubernetes nodes
+  hosts: proxmox_pool_kubernetes
+  gather_facts: false
+  tasks:
+    - name: Resolve a reachable Proxmox node for delegate_to (falls back to pve2/pve3 if pve1 is down)
+      include_role:
+        name: resolve_proxmox_api_host
+
+    - name: Stop this node
+      ansible.builtin.include_tasks: tasks/kubernetes_power.yml
+      vars:
+        kubernetes_power_target: stopped

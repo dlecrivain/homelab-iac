@@ -1,0 +1,37 @@
+---
+# Brings one VM of the kubernetes pool to kubernetes_power_target, stopped or running, through the Proxmox API of a
+# reachable node. A VM that is already there is left alone.
+- name: Read the current state of this node
+  ansible.builtin.command: >
+    pvesh get /nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/status/current --output-format json
+  delegate_to: "{{ proxmox_api_host }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+  register: kubernetes_power_current
+  changed_when: false
+
+# The shutdown is the ACPI one, which Talos answers by stopping cleanly, and it is forced after two minutes.
+- name: "Bring this node to {{ kubernetes_power_target }}"
+  ansible.builtin.command: >
+    pvesh create /nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/status/{{
+      'shutdown --timeout 120 --forceStop 1' if kubernetes_power_target == 'stopped' else 'start' }}
+  delegate_to: "{{ proxmox_api_host }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+  when: (kubernetes_power_current.stdout | from_json).status != kubernetes_power_target
+  changed_when: true
+
+- name: "Wait for this node to be {{ kubernetes_power_target }}"
+  ansible.builtin.command: >
+    pvesh get /nodes/{{ proxmox_node }}/qemu/{{ proxmox_vmid }}/status/current --output-format json
+  delegate_to: "{{ proxmox_api_host }}"
+  remote_user: "{{ proxmox_ssh_user }}"
+  vars:
+    ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+  register: kubernetes_power_after
+  changed_when: false
+  retries: 30
+  delay: 5
+  until: (kubernetes_power_after.stdout | from_json).status == kubernetes_power_target
