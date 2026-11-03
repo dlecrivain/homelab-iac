@@ -79,7 +79,7 @@ phpipam_db_password: "{{ lookup('env', 'PHPIPAM_DB_PASSWORD') }}"
 phpipam_db_root_password: "{{ lookup('env', 'PHPIPAM_DB_ROOT_PASSWORD') }}"
 # Pinned instead of :latest so updates are a reviewable version bump (check-image-updates.yml
 # checks Docker Hub and self-heals this value) rather than a silent, unannounced image swap.
-phpipam_version: "v1.8.3"
+phpipam_version: "v1.9.0"
 # Pinned rather than :latest so container-updates.yml can't pull a major version that fails to
 # start against the existing datadir. Deliberately not in image_update_watch_list: a database
 # engine bump is reviewed and applied by hand here.
@@ -169,7 +169,7 @@ bunkerweb_version: "1.6.17"
 bunkerweb_host: bunkerweb102
 # The host that runs AdGuard Home (configure-adguard.yml), rootless as its connecting user.
 adguard_host: adguard102
-adguard_version: "v0.107.79"
+adguard_version: "v0.107.80"
 # phpipam_version is declared above, with the phpIPAM container stack.
 pve_exporter_version: "3.11.0"
 # Home Assistant Container (configure-homeassistant.yml). Home Assistant releases monthly under the
