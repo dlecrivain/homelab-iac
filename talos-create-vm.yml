@@ -111,14 +111,20 @@
       ansible.builtin.command: qm start {{ talos_vm.vmid }}
       when: "talos_vm_status.rc != 0 or 'status: stopped' in talos_vm_status.stdout"
 
-    # The guest agent of the ISO reports the address the node got from DHCP while it waits for its configuration.
+    # The guest agent of the ISO reports the address the node got from DHCP while it waits for its configuration. It
+    # answers before DHCP has finished, so the wait is over once an IPv4 address other than the loopback shows.
     - name: Wait for the address of the node in maintenance mode
       ansible.builtin.command: qm guest cmd {{ talos_vm.vmid }} network-get-interfaces
       register: talos_interfaces
       changed_when: false
       retries: 30
       delay: 10
-      until: talos_interfaces.rc == 0
+      until: >-
+        talos_interfaces.rc == 0 and
+        (talos_interfaces.stdout | from_json
+        | rejectattr('name', 'equalto', 'lo')
+        | map(attribute='ip-addresses', default=[]) | flatten
+        | selectattr('ip-address-type', 'equalto', 'ipv4') | list | length > 0)
       failed_when: false
 
     - name: Report what to do next
