@@ -1,0 +1,28 @@
+# The web interface to look at the cluster and, signed in as admin, to change it. Its values are in k8s/values.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: headlamp
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://kubernetes-sigs.github.io/headlamp/
+      chart: headlamp
+      targetRevision: 0.46.0
+      helm:
+        valueFiles:
+          - $values/k8s/values/headlamp.yaml
+    - repoURL: https://github.com/dlecrivain/homelab-iac.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: headlamp
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

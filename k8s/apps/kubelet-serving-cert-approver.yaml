@@ -1,0 +1,25 @@
+# Approves the serving certificate requests of the kubelets (serverTLSBootstrap in the Talos configuration), which
+# Kubernetes leaves pending. Its role is limited to the kubernetes.io/kubelet-serving signer. The project publishes a
+# manifest, not a chart: the tag pins it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kubelet-serving-cert-approver
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/alex1989hu/kubelet-serving-cert-approver.git
+    targetRevision: v0.12.1
+    path: deploy
+    directory:
+      include: standalone-install.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kubelet-serving-cert-approver
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

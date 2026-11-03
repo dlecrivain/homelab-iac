@@ -1,0 +1,17 @@
+# Cilium replaces kube-proxy and the Flannel of Talos. KubePrism, on localhost:7445 of every node, is how the agents reach the
+# Kubernetes API before the network exists. The settings follow the Talos guide for Cilium.
+ipam:
+  mode: kubernetes
+kubeProxyReplacement: true
+securityContext:
+  capabilities:
+    ciliumAgent: [CHOWN, KILL, NET_ADMIN, NET_RAW, IPC_LOCK, SYS_ADMIN, SYS_RESOURCE, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    cleanCiliumState: [NET_ADMIN, SYS_ADMIN, SYS_RESOURCE]
+cgroup:
+  autoMount:
+    enabled: false
+  hostRoot: /sys/fs/cgroup
+k8sServiceHost: localhost
+k8sServicePort: 7445
+operator:
+  replicas: 1

@@ -1,0 +1,13 @@
+# Values of the one-time helm install of Argo CD, see the README.
+configs:
+  params:
+    # Plain HTTP: the NodePort is reached on the LAN for now, and Traefik will terminate TLS in front of it.
+    server.insecure: true
+dex:
+  enabled: false
+notifications:
+  enabled: false
+server:
+  service:
+    type: NodePort
+    nodePortHttp: 30081

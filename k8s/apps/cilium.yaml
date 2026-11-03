@@ -1,0 +1,25 @@
+# The network of the cluster. It is synchronised by hand: a change here reaches the network of every pod, so it is
+# looked at in the Argo CD diff before it is applied. Its values are in k8s/values.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cilium
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://helm.cilium.io/
+      chart: cilium
+      targetRevision: 1.20.4
+      helm:
+        valueFiles:
+          - $values/k8s/values/cilium.yaml
+    - repoURL: https://github.com/dlecrivain/homelab-iac.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true

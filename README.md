@@ -98,6 +98,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 - `requirements.txt` and `collections/requirements.yml`: Python packages for the inventory plugin, and the Ansible collections (`community.proxmox`, `community.general`, `ansible.posix`).
 - `inventory/proxmox.yml`: dynamic Proxmox inventory for the VMs (API token read from the environment).
 - `group_vars/all.yml`: shared variables (Proxmox API host, Katello organization, SMTP, retention and placement tuning, pinned image and binary versions, the mesh and corosync topology).
+- `k8s/`: what runs on the Kubernetes test cluster, applied by Argo CD rather than by a playbook, see [Kubernetes workloads](#kubernetes-workloads-argo-cd).
 - `host_vars/`: per-VM variables (health checks, `podman_units`, backup and placement flags) and per-node connection and network details (`pve1`, `pve2`, `pve3`).
 - `scripts/semaphore-ctl`: small client for the Semaphore API, see [Operating Semaphore from a terminal](#operating-semaphore-from-a-terminal).
 - `scripts/katello-host-delete`: deletes the Katello record of a host whose VM no longer exists, for the leftover of a provisioning run that failed after the registration. It refuses while a Proxmox VM of that name exists.
@@ -354,6 +355,17 @@ The VMs of the Proxmox pool `kubernetes` are the nodes of a test cluster running
 - **Installing it.** `talosctl apply-config` from a workstation writes Talos to the disk and sets the reserved address. The generated configuration holds the secrets of the cluster, so it stays outside this repository.
 - **Moving it.** `talos-place-vm.yml` takes the same variable, ejects the ISO, whose storage exists only on `pve1`, and migrates the node with its disk to the Proxmox node that `talos_nodes` gives it.
 - **Memory windows.** `kubernetes-stop.yml` and `kubernetes-start.yml`, scheduled in Semaphore, shut the nodes down and start them again around the Thursday backup and the Friday update, whose evacuations need the memory the nodes use.
+
+### Kubernetes workloads (Argo CD)
+
+[Argo CD](https://argo-cd.readthedocs.io) runs in the cluster, compares what `k8s/` describes with what runs, and applies the difference. A change reaches the cluster by being committed to `main`, and going back is a `git revert`. Nothing in this directory holds a secret, since the repository is public.
+
+- `k8s/bootstrap/argocd-values.yaml` holds the values of the one-time `helm install` of Argo CD (chart `argo/argo-cd`, pinned in the command below). `k8s/bootstrap/root-application.yaml` is the only Application created by hand: it watches `k8s/apps`.
+- `k8s/apps/` has one Application per component of the cluster. Adding a file installs the component, removing one uninstalls it. Each pins a chart version or a tag; the Helm ones read their values from `k8s/values/` through a second source of the same repository.
+- `k8s/headlamp-accounts/` holds the plain manifests of the accounts used to sign in to Headlamp.
+- Components synchronise by themselves and heal manual changes, except Cilium, which is synchronised by hand after its diff has been read. A replica count changed by hand is therefore set back, unless the Application lists it in `ignoreDifferences`.
+
+Installing it on a new cluster: `helm install argocd argo/argo-cd --version 10.11.7 --namespace argocd --create-namespace -f k8s/bootstrap/argocd-values.yaml`, then `kubectl apply -f k8s/bootstrap/root-application.yaml`. The first password of the `admin` account is in the `argocd-initial-admin-secret` Secret. The interface is on port 30081 of any node until Traefik publishes it.
 
 ### claude101
 
