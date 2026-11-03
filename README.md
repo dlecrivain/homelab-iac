@@ -70,6 +70,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 | `configure-paperless.yml` | Deploys Paperless-ngx's three Quadlet units (server, Postgres, Valkey) on `paperless_host` (`paperless101`) from `paperless_version`, as the connecting user like `configure-immich.yml`. See [Paperless](#paperless). |
 | `sync-paperless.yml` | Keeps Paperless-ngx in step with the cloud storage folder that stays the master copy, run from `smb101`: new files are uploaded, moved or renamed files are recognised by checksum and re-tagged, files that disappeared are tagged `a-purger`, and documents nothing could give a type are tagged `a-classer` and listed in an email. See [Paperless](#paperless). |
 | `configure-smb.yml` | Installs Samba on `smb_host` (`smb101`) and shares one folder, on its own volume, for the Aqara doorbell: SMB 3 only, one account, reachable from the addresses of `smb_allowed_hosts` only, and announced by NetBIOS and mDNS. See [SMB share for the Aqara doorbell](#smb-share-for-the-aqara-doorbell). |
+| `configure-nfs.yml` | Serves the files of the Kubernetes test cluster over NFSv4 from `nfs101`, on a volume of its own, to the nodes of the cluster and to the hosts that read a share. See [NFS server for the Kubernetes test cluster](#nfs-server-for-the-kubernetes-test-cluster). |
 | `configure-homeassistant.yml` | Deploys Home Assistant and the Matter Server as Quadlet units on `homeassistant_host` (`homeassistant101`) from `homeassistant_version` and `matter_server_version`. See [Home Assistant](#home-assistant). |
 | `configure-prometheus.yml` | Deploys Prometheus, Alertmanager and the PVE exporter on `prometheus102`. |
 | `configure-grafana.yml` | Deploys Grafana on `grafana_host` with its datasource and dashboards. |
@@ -377,6 +378,15 @@ Installing it on a new cluster: `helm install argocd argo/argo-cd --version 10.1
 - **Certificates.** cert-manager and the OVH webhook answer the DNS-01 challenge of Let's Encrypt in the OVH zone, through the `le-staging` and `le-prod` issuers. `k8s/ingress/certificate.yaml` asks for `*.k8s.lecrivaindaniel.fr` and makes it the default certificate of Traefik, so a new interface under that name needs only an Ingress. It is issued by `le-prod`; `le-staging`, whose certificates browsers do not trust, is there to try a change without using the production limits of Let's Encrypt.
 - **Secret.** The webhook reads the `ovh-credentials` Secret of the `cert-manager` namespace, with the keys `applicationKey`, `applicationSecret` and `applicationConsumerKey`. It holds the OVH API credentials BunkerWeb already uses, and it is created by hand, once, since this repository is public: `kubectl -n cert-manager create secret generic ovh-credentials --from-literal=applicationKey=... --from-literal=applicationSecret=... --from-literal=applicationConsumerKey=...`.
 - **Order.** The Applications install in sync waves: cert-manager, then its OVH webhook and Traefik, then `ingress`, which needs the CRDs of both.
+
+### NFS server for the Kubernetes test cluster
+
+`nfs101` holds the files of the applications that move to the cluster, until a NAS takes over. It is a VM like the others, created by `provision-vm.yml` (`pve_clone_node` chooses the Proxmox node) and configured by `configure-nfs.yml` (the `nfs_configure` role, with its variables in `host_vars/nfs101.yml`). It is separate from `smb101`, which faces the doorbell and must not carry the data of the cluster.
+
+- **Volume.** The files live on `lv_nfs`, mounted on `/srv/nfs`, grown by `lvm_grow` to `nfs_data_size_gb` on a virtual disk of its own. That disk has `backup=0`, so `vm-backups.yml` copies the system disk and leaves the data out: it would not fit in the cloud storage, and it is protected otherwise. `smb101` reads the Immich share read-only and copies it, and Paperless is rebuilt from the cloud storage.
+- **Shares.** `nfs_shares` lists them: each is a directory of `/srv/nfs`, exported on its own. The nodes of `nfs_clients` read and write with `no_root_squash`, since the volumes of a pod are set up by root on the node, and the hosts in a share's `readers` mount it read-only with root squashed. Only NFSv4 is served, so the one port opened is 2049/tcp, and only to those addresses.
+- **CIS profile.** The hardened template masks `nfs-server`, which the role switches on, so OpenSCAP lists the NFS rules as failed on this host, as it does on `immich102`.
+- **Mounting from a pod.** A volume of type `nfs` with the server `nfs101` and the path `/srv/nfs/<share>`, with `nfsvers=4.2`. The mount is hard: if `nfs101` stops, the pods that use it wait for it.
 
 ### claude101
 

@@ -1,0 +1,9 @@
+---
+- name: Configure the NFS server of the Kubernetes test cluster
+  hosts: "{{ nfs_host | default('nfs101') }}"
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Install and configure the shares
+      include_role:
+        name: nfs_configure

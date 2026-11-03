@@ -1,0 +1,18 @@
+---
+# The files of the Kubernetes test cluster, served over NFSv4. Each share is a directory of nfs_root, exported on its
+# own, and only the hosts named below may connect, to port 2049 alone.
+nfs_root: /srv/nfs
+
+# The files live on their own volume, so that they cannot fill the system's. It is created small and grown by lvm_grow to
+# nfs_data_size_gb, on a disk that vzdump leaves out: the data is protected by the cloud copies, see the README.
+nfs_vg: vg_system
+nfs_data_lv: lv_nfs
+nfs_data_size_gb: 400
+
+# The nodes of the cluster, which mount the shares and write to them. Their root is not squashed: the volumes of a pod are
+# set up by root on the node, and the addresses are the only thing that decides who may mount.
+nfs_clients: []
+
+# The shares. name is the directory; readers are hosts that mount it read-only, with root squashed; owner, group and
+# mode set the directory, root and 0755 when left out.
+nfs_shares: []

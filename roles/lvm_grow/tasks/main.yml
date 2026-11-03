@@ -61,7 +61,7 @@
         for n in 1 2 3 4 5 6 7 8 9; do
           qm config {{ proxmox_vmid }} | grep -q "^scsi$n:" || { slot=scsi$n; break; }
         done
-        qm set {{ proxmox_vmid }} --$slot {{ lvm_grow_storage }}:{{ lvm_grow_extra_gb }},discard=on,iothread=1,ssd=1
+        qm set {{ proxmox_vmid }} --$slot {{ lvm_grow_storage }}:{{ lvm_grow_extra_gb }},discard=on,iothread=1,ssd=1{{ '' if lvm_grow_backup else ',backup=0' }}
       delegate_to: "{{ proxmox_node }}"
       remote_user: "{{ proxmox_ssh_user }}"
       vars:

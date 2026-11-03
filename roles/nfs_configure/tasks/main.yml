@@ -1,0 +1,124 @@
+---
+- name: Install the NFS server
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/nfs_utils.yml"
+
+# The volume is created small, then grown by lvm_grow, which adds a virtual disk to the VM when the volume group has too
+# little room and grows the file system with it.
+- name: Create the volume of the files
+  community.general.lvol:
+    vg: "{{ nfs_vg }}"
+    lv: "{{ nfs_data_lv }}"
+    size: 1g
+    shrink: false
+  become: true
+
+- name: Create the file system
+  community.general.filesystem:
+    fstype: xfs
+    dev: "/dev/{{ nfs_vg }}/{{ nfs_data_lv }}"
+  become: true
+
+- name: Create the mount point
+  ansible.builtin.file:
+    path: "{{ nfs_root }}"
+    state: directory
+  become: true
+
+- name: Mount the volume
+  ansible.posix.mount:
+    path: "{{ nfs_root }}"
+    src: "/dev/{{ nfs_vg }}/{{ nfs_data_lv }}"
+    fstype: xfs
+    opts: defaults,nodev,nosuid,noexec
+    state: mounted
+  become: true
+
+- name: Grow the volume to its size
+  ansible.builtin.include_role:
+    name: lvm_grow
+  vars:
+    lvm_grow_targets:
+      - lv: "{{ nfs_data_lv }}"
+        size_gb: "{{ nfs_data_size_gb }}"
+    lvm_grow_backup: false
+
+- name: Create the directories of the shares
+  ansible.builtin.file:
+    path: "{{ nfs_root }}/{{ item.name }}"
+    state: directory
+    owner: "{{ item.owner | default('root') }}"
+    group: "{{ item.group | default('root') }}"
+    mode: "{{ item.mode | default('0755') }}"
+  loop: "{{ nfs_shares }}"
+  loop_control:
+    label: "{{ item.name }}"
+  become: true
+
+- name: Serve NFSv4 only
+  community.general.ini_file:
+    path: /etc/nfs.conf
+    section: nfsd
+    option: vers3
+    value: "n"
+    no_extra_spaces: true
+    mode: '0644'
+  become: true
+  register: nfs_conf
+
+# One line per share: the nodes read and write, the readers of the share read only.
+- name: Export the shares
+  ansible.builtin.copy:
+    dest: /etc/exports.d/k8s.exports
+    content: "{{ nfs_export_lines }}\n"
+    owner: root
+    group: root
+    mode: '0644'
+  vars:
+    nfs_newline: "\n"
+    nfs_export_lines: >-
+      {%- set out = [] -%}
+      {%- for share in nfs_shares -%}
+        {%- set specs = [] -%}
+        {%- for c in nfs_clients -%}
+          {%- set _ = specs.append(c ~ '(rw,sync,no_subtree_check,no_root_squash)') -%}
+        {%- endfor -%}
+        {%- for r in share.readers | default([]) -%}
+          {%- set _ = specs.append(r ~ '(ro,sync,no_subtree_check,root_squash)') -%}
+        {%- endfor -%}
+        {%- set _ = out.append(nfs_root ~ '/' ~ share.name ~ ' ' ~ (specs | join(' '))) -%}
+      {%- endfor -%}
+      {{ out | join(nfs_newline) }}
+  become: true
+  register: nfs_exports
+
+# The CIS-hardened template masks nfs-server. Serving the files is the one reason to switch it on, and rpcbind stays
+# masked since NFSv4 does not use it.
+- name: Start the NFS server
+  ansible.builtin.systemd:
+    name: nfs-server
+    masked: false
+    enabled: true
+    state: started
+  become: true
+
+- name: Restart the NFS server to apply its configuration
+  ansible.builtin.systemd:
+    name: nfs-server
+    state: restarted
+  become: true
+  when: nfs_conf is changed
+
+- name: Read the exports again
+  ansible.builtin.command: exportfs -ra
+  become: true
+  changed_when: true
+  when: nfs_exports is changed
+
+- name: Open NFS to the nodes and the readers only
+  ansible.posix.firewalld:
+    rich_rule: 'rule family="ipv4" source address="{{ item }}" port port="2049" protocol="tcp" accept'
+    permanent: true
+    immediate: true
+    state: enabled
+  become: true
+  loop: "{{ (nfs_clients + (nfs_shares | map(attribute='readers', default=[]) | flatten)) | unique | list }}"
