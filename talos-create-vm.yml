@@ -37,6 +37,7 @@
         name: phpipam_next_ip
       when: talos_node_ip is not defined
 
+    # The description column of phpIPAM holds 64 characters, and a longer text makes it refuse the address.
     - name: Reserve it for this node
       ansible.builtin.uri:
         url: "{{ phpipam_base_url }}/addresses/"
@@ -48,7 +49,7 @@
           subnetId: "{{ phpipam_subnet_id }}"
           ip: "{{ resolved_new_ip }}"
           hostname: "{{ talos_vm.name }}"
-          description: "Talos node of the Kubernetes test cluster, created by talos-create-vm.yml"
+          description: "Talos node of the Kubernetes test cluster"
         status_code: [200, 201]
       when: talos_node_ip is not defined
       no_log: true
