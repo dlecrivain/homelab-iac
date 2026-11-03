@@ -1,7 +1,0 @@
-# The chart binds the service account of Headlamp to cluster-admin by default, which is turned off here: people sign in with
-# their own token, see headlamp-accounts. The NodePort is reached on the LAN until Traefik publishes it.
-clusterRoleBinding:
-  create: false
-service:
-  type: NodePort
-  nodePort: 30080

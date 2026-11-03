@@ -1,4 +1,4 @@
-# Resource usage of nodes and pods, for kubectl top, Headlamp and the autoscalers. The kubelets' serving certificates are
+# Resource usage of nodes and pods, for kubectl top and the autoscalers. The kubelets' serving certificates are
 # signed through kubelet-serving-cert-approver, so it checks them like any other client.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
