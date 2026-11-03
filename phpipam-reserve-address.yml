@@ -1,0 +1,18 @@
+---
+# Reserves one address in phpIPAM under the name reserve_name, and reports it. Running it again for the same name reports
+# the address already reserved. reserve_description is optional.
+- name: Reserve an address in phpIPAM
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Fail clearly if reserve_name was not provided
+      ansible.builtin.fail:
+        msg: "reserve_name is required - pass it with -e reserve_name=<name>"
+      when: reserve_name is not defined
+
+    - name: Reserve the address
+      ansible.builtin.include_tasks: tasks/phpipam_reserve.yml
+
+    - name: Report the address
+      ansible.builtin.debug:
+        msg: "{{ reserve_name }} has the address {{ reserved_ip }} in phpIPAM."

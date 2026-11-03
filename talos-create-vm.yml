@@ -14,50 +14,15 @@
         msg: "talos_vm_name must be one of: {{ talos_nodes | map(attribute='name') | join(', ') }}"
       when: talos_vm | length == 0
 
-    - name: Log in to phpIPAM
-      include_role:
-        name: phpipam_login
-
-    - name: Look for an address already reserved for this node
-      ansible.builtin.uri:
-        url: "{{ phpipam_base_url }}/addresses/search_hostname/{{ talos_vm.name }}/"
-        headers:
-          token: "{{ phpipam_session_token }}"
-        status_code: [200, 404]
-      register: talos_reserved
-      no_log: true
-
-    - name: Keep that address
-      ansible.builtin.set_fact:
-        talos_node_ip: "{{ talos_reserved.json.data[0].ip }}"
-      when: talos_reserved.status == 200
-
-    - name: Resolve the next free address
-      include_role:
-        name: phpipam_next_ip
-      when: talos_node_ip is not defined
-
-    # The description column of phpIPAM holds 64 characters, and a longer text makes it refuse the address.
-    - name: Reserve it for this node
-      ansible.builtin.uri:
-        url: "{{ phpipam_base_url }}/addresses/"
-        method: POST
-        headers:
-          token: "{{ phpipam_session_token }}"
-        body_format: json
-        body:
-          subnetId: "{{ phpipam_subnet_id }}"
-          ip: "{{ resolved_new_ip }}"
-          hostname: "{{ talos_vm.name }}"
-          description: "Talos node of the Kubernetes test cluster"
-        status_code: [200, 201]
-      when: talos_node_ip is not defined
-      no_log: true
+    - name: Reserve the address of the node
+      ansible.builtin.include_tasks: tasks/phpipam_reserve.yml
+      vars:
+        reserve_name: "{{ talos_vm.name }}"
+        reserve_description: Talos node of the Kubernetes test cluster
 
     - name: Remember the address
       ansible.builtin.set_fact:
-        talos_node_ip: "{{ resolved_new_ip }}"
-      when: talos_node_ip is not defined
+        talos_node_ip: "{{ reserved_ip }}"
 
 - name: Create the Talos node on pve1
   hosts: pve1
