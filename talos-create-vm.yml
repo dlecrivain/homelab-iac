@@ -1,0 +1,136 @@
+---
+# Creates one node of the Talos test cluster, the one named by talos_vm_name from talos_nodes, on pve1 where the Talos
+# ISO is, and starts it from the ISO. The node then waits for its configuration in maintenance mode. It is installed with
+# talosctl from the address this run reports, and talos-place-vm.yml moves it to its own Proxmox node afterwards.
+# The cluster address of the node is reserved in phpIPAM, once: running this again for an existing node reuses it.
+- name: Reserve the address of a Talos node in phpIPAM
+  hosts: localhost
+  gather_facts: false
+  vars:
+    talos_vm: "{{ talos_nodes | selectattr('name', 'equalto', talos_vm_name | default('')) | first | default({}) }}"
+  tasks:
+    - name: Fail clearly if talos_vm_name is not a node of the cluster
+      ansible.builtin.fail:
+        msg: "talos_vm_name must be one of: {{ talos_nodes | map(attribute='name') | join(', ') }}"
+      when: talos_vm | length == 0
+
+    - name: Log in to phpIPAM
+      include_role:
+        name: phpipam_login
+
+    - name: Look for an address already reserved for this node
+      ansible.builtin.uri:
+        url: "{{ phpipam_base_url }}/addresses/search_hostname/{{ talos_vm.name }}/"
+        headers:
+          token: "{{ phpipam_session_token }}"
+        status_code: [200, 404]
+      register: talos_reserved
+      no_log: true
+
+    - name: Keep that address
+      ansible.builtin.set_fact:
+        talos_node_ip: "{{ talos_reserved.json.data[0].ip }}"
+      when: talos_reserved.status == 200
+
+    - name: Resolve the next free address
+      include_role:
+        name: phpipam_next_ip
+      when: talos_node_ip is not defined
+
+    - name: Reserve it for this node
+      ansible.builtin.uri:
+        url: "{{ phpipam_base_url }}/addresses/"
+        method: POST
+        headers:
+          token: "{{ phpipam_session_token }}"
+        body_format: json
+        body:
+          subnetId: "{{ phpipam_subnet_id }}"
+          ip: "{{ resolved_new_ip }}"
+          hostname: "{{ talos_vm.name }}"
+          description: "Talos node of the Kubernetes test cluster, created by talos-create-vm.yml"
+        status_code: [200, 201]
+      when: talos_node_ip is not defined
+      no_log: true
+
+    - name: Remember the address
+      ansible.builtin.set_fact:
+        talos_node_ip: "{{ resolved_new_ip }}"
+      when: talos_node_ip is not defined
+
+- name: Create the Talos node on pve1
+  hosts: pve1
+  gather_facts: false
+  vars:
+    talos_vm: "{{ talos_nodes | selectattr('name', 'equalto', talos_vm_name) | first }}"
+    talos_vm_bytes: "{{ talos_vm.memory_mb | int * 1048576 }}"
+  tasks:
+    - name: Check whether the VM already exists
+      ansible.builtin.command: qm status {{ talos_vm.vmid }}
+      register: talos_vm_status
+      changed_when: false
+      failed_when: false
+
+    # pve1 holds the VMs that migrate there for the backups, so a node is only created while it keeps 2 GiB of memory.
+    - name: Read the memory of pve1
+      ansible.builtin.command: pvesh get /nodes/pve1/status --output-format json
+      register: talos_pve1_status
+      changed_when: false
+      when: talos_vm_status.rc != 0
+
+    - name: Fail clearly if pve1 has no room for the node
+      ansible.builtin.fail:
+        msg: "pve1 has {{ ((talos_pve1_status.stdout | from_json).memory.available / 1048576) | int }} MiB available, not enough for {{ talos_vm.memory_mb }} MiB plus 2 GiB of margin"
+      when:
+        - talos_vm_status.rc != 0
+        - (talos_pve1_status.stdout | from_json).memory.available - (talos_vm_bytes | int) < 2147483648
+
+    - name: List the pools
+      ansible.builtin.command: pvesh get /pools --output-format json
+      register: talos_pools
+      changed_when: false
+
+    - name: Create the kubernetes pool
+      ansible.builtin.command: >
+        pvesh create /pools --poolid kubernetes --comment "Talos nodes of the Kubernetes test cluster"
+      when: "'kubernetes' not in (talos_pools.stdout | from_json | map(attribute='poolid') | list)"
+
+    # q35 and the x86-64-v3 processor are those of the golden template, which every node of the cluster can run. The
+    # disk is on nvme_data, present on the three nodes, so the VM can move to its own node with its disk.
+    - name: Create the VM
+      ansible.builtin.command: >
+        qm create {{ talos_vm.vmid }} --name {{ talos_vm.name }} --pool kubernetes --tags talos
+        --memory {{ talos_vm.memory_mb }} --balloon 0 --cores {{ talos_vm.cores }} --cpu x86-64-v3 --machine q35
+        --ostype l26 --agent enabled=1 --onboot 1 --scsihw virtio-scsi-single
+        --scsi0 nvme_data:{{ talos_vm.disk_gb }},discard=on,iothread=1 --net0 virtio,bridge=vmbr0
+        --ide2 {{ talos_iso_volume }},media=cdrom --boot order=ide2;scsi0
+      when: talos_vm_status.rc != 0
+
+    - name: Start the VM from the ISO
+      ansible.builtin.command: qm start {{ talos_vm.vmid }}
+      when: "talos_vm_status.rc != 0 or 'status: stopped' in talos_vm_status.stdout"
+
+    # The guest agent of the ISO reports the address the node got from DHCP while it waits for its configuration.
+    - name: Wait for the address of the node in maintenance mode
+      ansible.builtin.command: qm guest cmd {{ talos_vm.vmid }} network-get-interfaces
+      register: talos_interfaces
+      changed_when: false
+      retries: 30
+      delay: 10
+      until: talos_interfaces.rc == 0
+      failed_when: false
+
+    - name: Report what to do next
+      ansible.builtin.debug:
+        msg:
+          - "{{ talos_vm.name }} (VM {{ talos_vm.vmid }}, {{ talos_vm.role }}) runs on pve1 and waits for its configuration."
+          - "Address reserved in phpIPAM, to put in its configuration: {{ hostvars['localhost'].talos_node_ip }}"
+          - >-
+            Address it has now, from DHCP:
+            {{ (talos_interfaces.stdout | from_json
+            | rejectattr('name', 'equalto', 'lo')
+            | map(attribute='ip-addresses', default=[]) | flatten
+            | selectattr('ip-address-type', 'equalto', 'ipv4')
+            | map(attribute='ip-address') | list | first | default('not reported yet'))
+            if talos_interfaces.rc == 0 else 'not reported yet' }}
+          - "Once it is installed, talos-place-vm.yml moves it to {{ talos_vm.node }}."

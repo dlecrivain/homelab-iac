@@ -1,0 +1,39 @@
+---
+# Moves a Talos node created by talos-create-vm.yml and already installed with talosctl from pve1 to the Proxmox node
+# chosen for it in talos_nodes. The ISO is ejected first: it is on a storage only pve1 has, and from now on the node boots
+# from its disk. Run it once per node, after the node has been installed and restarted from its disk.
+- name: Move a Talos node to its own Proxmox node
+  hosts: pve1
+  gather_facts: false
+  vars:
+    talos_vm: "{{ talos_nodes | selectattr('name', 'equalto', talos_vm_name | default('')) | first | default({}) }}"
+  tasks:
+    - name: Fail clearly if talos_vm_name is not a node of the cluster
+      ansible.builtin.fail:
+        msg: "talos_vm_name must be one of: {{ talos_nodes | map(attribute='name') | join(', ') }}"
+      when: talos_vm | length == 0
+
+    - name: Check that the VM is on pve1
+      ansible.builtin.command: qm status {{ talos_vm.vmid }}
+      register: talos_vm_status
+      changed_when: false
+      failed_when: false
+
+    - name: Stop here if the VM is not on pve1
+      ansible.builtin.debug:
+        msg: "{{ talos_vm.name }} is not on pve1, there is nothing to move."
+      when: talos_vm_status.rc != 0
+
+    - name: Eject the ISO and boot from the disk
+      ansible.builtin.command: qm set {{ talos_vm.vmid }} --ide2 none,media=cdrom --boot order=scsi0
+      when: talos_vm_status.rc == 0
+
+    - name: Move the VM with its disk, over the mesh link of the pair
+      include_role:
+        name: pve_migrate_vm
+      vars:
+        migrate_vmid: "{{ talos_vm.vmid }}"
+        migrate_target_node: "{{ talos_vm.node }}"
+      when:
+        - talos_vm_status.rc == 0
+        - talos_vm.node != 'pve1'
