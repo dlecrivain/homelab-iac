@@ -211,9 +211,9 @@ talos_iso_volume: "Stockage_SSD:iso/talos-{{ talos_version }}-qemu-guest-agent.i
 # The nodes of the cluster. Each is created on pve1 by talos-create-vm.yml, installed with talosctl, then moved to its
 # own node by talos-place-vm.yml. The control planes are two for now, which leaves etcd without fault tolerance.
 talos_nodes:
-  - { name: talos-cp101, vmid: 120, role: controlplane, node: pve2, memory_mb: 2048, cores: 2, disk_gb: 30 }
+  - { name: talos-cp101, vmid: 120, role: controlplane, node: pve2, memory_mb: 3072, cores: 2, disk_gb: 30 }
   - { name: talos-wk101, vmid: 121, role: worker, node: pve2, memory_mb: 3072, cores: 2, disk_gb: 40 }
-  - { name: talos-cp102, vmid: 122, role: controlplane, node: pve3, memory_mb: 2048, cores: 2, disk_gb: 30 }
+  - { name: talos-cp102, vmid: 122, role: controlplane, node: pve3, memory_mb: 3072, cores: 2, disk_gb: 30 }
   - { name: talos-wk102, vmid: 123, role: worker, node: pve3, memory_mb: 3072, cores: 2, disk_gb: 40 }
 
 # Docker Hub (docker_repo) and ghcr.io (ghcr_repo) repos check-image-updates.yml watches: the var to bump, and the host whose live
