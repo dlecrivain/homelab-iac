@@ -3,7 +3,7 @@
   # semaphore104 is excluded for the same reason semaphore103 always was: update-semaphore-peer.yml
   # already covers its OS patching (and its container alignment), so processing it here too is
   # redundant and, worse, races with that dedicated pass in the same full-updates.yml run.
-  hosts: "{{ target_hosts | default('proxmox_all_qemu:!semaphore103:!semaphore104') }}"
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!semaphore103:!semaphore104:!proxmox_pool_kubernetes') }}"
   gather_facts: true
   serial: 1
   tasks:

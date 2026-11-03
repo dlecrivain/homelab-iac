@@ -4,7 +4,7 @@
   # snapshot lifecycle end-to-end, and this playbook runs on its own independent schedule - if it
   # fired mid-run it could remove the snapshot update-semaphore-peer.yml is relying on as a
   # rollback safety net.
-  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore103:!semaphore104') }}"
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore103:!semaphore104:!proxmox_pool_kubernetes') }}"
   gather_facts: false
   vars:
     snapshot_label: ansible_patching

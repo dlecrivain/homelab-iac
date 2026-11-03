@@ -1,6 +1,6 @@
 ---
 - name: One-time (or reconciliation) fleet monitoring backfill - every VM
-  hosts: "{{ target_hosts | default('proxmox_all_qemu') }}"
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!proxmox_pool_kubernetes') }}"
   gather_facts: false
   tasks:
     - name: Install node_exporter

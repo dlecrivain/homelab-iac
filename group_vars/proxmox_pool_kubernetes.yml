@@ -1,0 +1,9 @@
+# The Talos nodes of the Kubernetes cluster are the VMs of the Proxmox pool "kubernetes". Talos has no SSH, no package
+# manager and no Katello agent, so the playbooks that act on the fleet leave this pool out of their default targets.
+# Their data lives outside the VMs, so they are not backed up with vzdump either.
+
+# The nodes stay on the host they were created on: a Kubernetes node is drained, not moved by the rebalance.
+pve_rebalance_pinned: true
+
+# When their host is patched they are stopped and started again with it, instead of being migrated.
+pve_shutdown_for_maintenance: true

@@ -2,7 +2,7 @@
 # A reconciliation entry point: both provisioning playbooks now do this automatically, but hosts
 # provisioned before that was added were never caught up.
 - name: Disable any repo not managed by Katello, fleet-wide
-  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101') }}"
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!proxmox_pool_kubernetes') }}"
   gather_facts: true
   tasks:
     - name: Disable any enabled repo that isn't managed by Katello

@@ -118,7 +118,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 
 ### Dynamic inventory and node resolution
 
-`inventory/proxmox.yml` uses the `community.proxmox.proxmox` plugin with an API token that is never stored in this repository (see [Secrets](#secrets)). VMs are grouped automatically (`proxmox_all_qemu`, per-node groups) and expose their node and vmid as host facts, which the snapshot and migration roles use to target the right node. The three Proxmox nodes are not VMs, so they are a small static list, each with its own `host_vars/pve{1,2,3}.yml`.
+`inventory/proxmox.yml` uses the `community.proxmox.proxmox` plugin with an API token that is never stored in this repository (see [Secrets](#secrets)). VMs are grouped automatically (`proxmox_all_qemu`, per-node groups) and expose their node and vmid as host facts, which the snapshot and migration roles use to target the right node. The VMs of the Proxmox pool `kubernetes` (the Talos nodes) also form the group `proxmox_pool_kubernetes`: it is excluded from the default targets of every playbook that reaches the fleet over SSH, and `group_vars/proxmox_pool_kubernetes.yml` keeps them out of the rebalance and has the host stop them instead of migrating them. The three Proxmox nodes are not VMs, so they are a small static list, each with its own `host_vars/pve{1,2,3}.yml`.
 
 Every VM also has an explicit `ansible_host` in its `host_vars` file, so no playbook depends on name resolution: servers are never resolved through DNS.
 

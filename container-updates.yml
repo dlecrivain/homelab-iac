@@ -11,7 +11,7 @@
       ansible.builtin.set_fact:
         container_updates_targets_semaphore104: >-
           {{
-            'semaphore104' in query('ansible.builtin.inventory_hostnames', target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore103'))
+            'semaphore104' in query('ansible.builtin.inventory_hostnames', target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore103:!proxmox_pool_kubernetes'))
           }}
 
 # Only when semaphore104 is targeted: its images are aligned to these.
@@ -78,7 +78,7 @@
   # semaphore103 is excluded: it is the reference semaphore104 aligns to, and update-semaphore-peer.yml
   # already covers it end to end. semaphore104 is included, but Step 3 aligns it to semaphore103 by
   # digest instead of pulling a tag, so the two cannot drift apart.
-  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore103') }}"
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore103:!proxmox_pool_kubernetes') }}"
   gather_facts: false
   serial: 1
   tasks:

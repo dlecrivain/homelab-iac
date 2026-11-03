@@ -1,6 +1,6 @@
 ---
 - name: Back up every VM to Stockage_SSD then pCloud, migrating each one back after
-  hosts: "{{ target_hosts | default('proxmox_all_qemu') }}"
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!proxmox_pool_kubernetes') }}"
   gather_facts: false
   serial: 3
   tasks:
