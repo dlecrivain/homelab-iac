@@ -1,5 +1,6 @@
 # The network of the cluster. It is synchronised by hand: a change here reaches the network of every pod, so it is
-# looked at in the Argo CD diff before it is applied. Its values are in k8s/values.
+# looked at in the Argo CD diff before it is applied. Its values are in k8s/values. The chart generates the certificates of
+# Hubble each time it is rendered, so the data of those two Secrets is neither compared nor applied.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -20,6 +21,18 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: kube-system
+  ignoreDifferences:
+    - kind: Secret
+      name: cilium-ca
+      namespace: kube-system
+      jsonPointers:
+        - /data
+    - kind: Secret
+      name: hubble-server-certs
+      namespace: kube-system
+      jsonPointers:
+        - /data
   syncPolicy:
     syncOptions:
       - ServerSideApply=true
+      - RespectIgnoreDifferences=true
