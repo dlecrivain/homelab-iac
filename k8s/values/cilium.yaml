@@ -15,3 +15,9 @@ k8sServiceHost: localhost
 k8sServicePort: 7445
 operator:
   replicas: 1
+# The nodes answer ARP for the addresses of LoadBalancer services (see k8s/cilium-lb), and renew their leases often.
+l2announcements:
+  enabled: true
+k8sClientRateLimit:
+  qps: 20
+  burst: 100

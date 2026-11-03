@@ -1,0 +1,31 @@
+# The wildcard certificate of k8s.lecrivaindaniel.fr, the default certificate of Traefik, and the routes to the interfaces of
+# the cluster. Installed last: it needs the CRDs of cert-manager and of Traefik.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ingress
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/dlecrivain/homelab-iac.git
+    targetRevision: main
+    path: k8s/ingress
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

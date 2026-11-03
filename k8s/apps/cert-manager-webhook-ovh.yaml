@@ -1,0 +1,36 @@
+# The DNS-01 solver for the OVH zone, and the Let's Encrypt issuers that use it. It reads the ovh-credentials Secret, which
+# is created by hand, see the README.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-webhook-ovh
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: default
+  sources:
+    - repoURL: https://aureq.github.io/cert-manager-webhook-ovh/
+      chart: cert-manager-webhook-ovh
+      targetRevision: 0.9.19
+      helm:
+        valueFiles:
+          - $values/k8s/values/cert-manager-webhook-ovh.yaml
+    - repoURL: https://github.com/dlecrivain/homelab-iac.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 20s
+        factor: 2
+        maxDuration: 3m

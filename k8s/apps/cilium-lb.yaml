@@ -1,0 +1,21 @@
+# The addresses the load balancers of the cluster take on the LAN, and the nodes that announce them.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cilium-lb
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/dlecrivain/homelab-iac.git
+    targetRevision: main
+    path: k8s/cilium-lb
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

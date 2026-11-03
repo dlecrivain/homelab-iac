@@ -368,6 +368,16 @@ The VMs of the Proxmox pool `kubernetes` are the nodes of a test cluster running
 
 Installing it on a new cluster: `helm install argocd argo/argo-cd --version 10.11.7 --namespace argocd --create-namespace -f k8s/bootstrap/argocd-values.yaml`, then `kubectl apply -f k8s/bootstrap/root-application.yaml`. The first password of the `admin` account is in the `argocd-initial-admin-secret` Secret. The interface is on port 30081 of any node until Traefik publishes it.
 
+### Ingress and certificates (Traefik)
+
+[Traefik](https://traefik.io) is the ingress controller of the Kubernetes test cluster, in front of the interfaces of the cluster and, later, of the applications that leave BunkerWeb.
+
+- **Address.** Its Service takes `talos-lb101` (`192.168.1.128`) from the pool of `k8s/cilium-lb`, and the workers answer ARP for it (Cilium L2 announcements, enabled in `k8s/values/cilium.yaml`). The addresses come from phpIPAM, reserved with `phpipam-reserve-address.yml`; `talos-lb102` is kept for another service. Turning the announcements on needs the Cilium operator and agents to restart once after the manual synchronisation of the `cilium` Application.
+- **Names.** At OVH, `*.lecrivaindaniel.fr` points to BunkerWeb and `*.k8s.lecrivaindaniel.fr` to Traefik. A name that moves from BunkerWeb to Traefik gets its own A record, which wins over the wildcard. AdGuard filters the requests of the devices in DHCP and holds no record.
+- **Certificates.** cert-manager and the OVH webhook answer the DNS-01 challenge of Let's Encrypt in the OVH zone, through the `le-staging` and `le-prod` issuers. `k8s/ingress/certificate.yaml` asks for `*.k8s.lecrivaindaniel.fr` and makes it the default certificate of Traefik, so a new interface under that name needs only an Ingress. It starts on `le-staging`, whose certificates browsers do not trust, and moves to `le-prod` once the chain works.
+- **Secret.** The webhook reads the `ovh-credentials` Secret of the `cert-manager` namespace, with the keys `applicationKey`, `applicationSecret` and `applicationConsumerKey`. It holds the OVH API credentials BunkerWeb already uses, and it is created by hand, once, since this repository is public: `kubectl -n cert-manager create secret generic ovh-credentials --from-literal=applicationKey=... --from-literal=applicationSecret=... --from-literal=applicationConsumerKey=...`.
+- **Order.** The Applications install in sync waves: cert-manager, then its OVH webhook and Traefik, then `ingress`, which needs the CRDs of both.
+
 ### claude101
 
 `claude101` runs Claude Code as a service that the owner drives from a phone through Remote Control. A request is the authorization: it reads, edits this repository, commits, pushes and starts playbooks without asking again for each step, then reports what it did. [docs/claude101.md](docs/claude101.md) gives the design and the reasons for its limits. `configure-claude.yml` applies the `claude_assistant` role to `claude_host`:

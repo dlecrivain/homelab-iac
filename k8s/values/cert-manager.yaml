@@ -1,0 +1,3 @@
+# The CRDs come with the chart, so that the certificates below are understood once it is installed.
+crds:
+  enabled: true

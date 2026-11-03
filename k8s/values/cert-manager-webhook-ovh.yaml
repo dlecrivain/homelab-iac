@@ -1,0 +1,42 @@
+# Lets cert-manager answer the DNS-01 challenge of Let's Encrypt in the OVH zone, and creates the two issuers. The
+# credentials are those of BunkerWeb, copied by hand into the ovh-credentials Secret of the cert-manager namespace, see the
+# README: this repository is public and holds no secret. The contact is the one BunkerWeb already gives Let's Encrypt.
+groupName: acme.lecrivaindaniel.fr
+certManager:
+  namespace: cert-manager
+  serviceAccountName: cert-manager
+issuers:
+  - name: le-staging
+    create: true
+    kind: ClusterIssuer
+    acmeServerUrl: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: d.lecrivain47@gmail.com
+    ovhEndpointName: ovh-eu
+    ovhAuthenticationMethod: application
+    ovhAuthenticationRef:
+      applicationKeyRef:
+        name: ovh-credentials
+        key: applicationKey
+      applicationSecretRef:
+        name: ovh-credentials
+        key: applicationSecret
+      applicationConsumerKeyRef:
+        name: ovh-credentials
+        key: applicationConsumerKey
+  - name: le-prod
+    create: true
+    kind: ClusterIssuer
+    acmeServerUrl: https://acme-v02.api.letsencrypt.org/directory
+    email: d.lecrivain47@gmail.com
+    ovhEndpointName: ovh-eu
+    ovhAuthenticationMethod: application
+    ovhAuthenticationRef:
+      applicationKeyRef:
+        name: ovh-credentials
+        key: applicationKey
+      applicationSecretRef:
+        name: ovh-credentials
+        key: applicationSecret
+      applicationConsumerKeyRef:
+        name: ovh-credentials
+        key: applicationConsumerKey

@@ -1,0 +1,26 @@
+# The ingress controller. Its service takes talos-lb101 from the Cilium pool and is announced on the LAN. Two replicas on
+# different workers, and what arrives on port 80 goes to HTTPS.
+deployment:
+  replicas: 2
+service:
+  annotations:
+    lbipam.cilium.io/ips: 192.168.1.128
+ports:
+  web:
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+providers:
+  kubernetesIngress:
+    publishedService:
+      enabled: true
+topologySpreadConstraints:
+  - labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: traefik
+    maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
