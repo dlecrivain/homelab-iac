@@ -31,6 +31,22 @@
   ],
   "packageRules": [
     {
+      "description": "The title of a pull request and its commit say which version replaces which, which is what the mails show",
+      "matchUpdateTypes": [
+        "major",
+        "minor",
+        "patch"
+      ],
+      "commitMessageExtra": "from {{{currentVersion}}} to {{{newVersion}}}"
+    },
+    {
+      "description": "A new digest of the same tag has no version to show",
+      "matchUpdateTypes": [
+        "digest"
+      ],
+      "commitMessageExtra": "(same tag, rebuilt)"
+    },
+    {
       "description": "Paperless-ngx, its Valkey and the Postgres 17 client of its dump: minor and patch versions and digests are merged by themselves, and Argo CD deploys them after a dump of the database",
       "matchPackageNames": [
         "/paperless-ngx\\/paperless-ngx$/",
