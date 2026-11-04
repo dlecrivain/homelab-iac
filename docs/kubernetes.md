@@ -10,17 +10,21 @@ Nothing here needs a login on a node. Talos has no SSH and no shell; everything 
 
 | Name | Role | Address | VM | Proxmox node |
 |---|---|---|---|---|
-| `talos-cp101` | control plane | 192.168.1.124 | 120 | pve2 |
-| `talos-cp102` | control plane | 192.168.1.127 | 122 | pve3 |
-| `talos-wk101` | worker | 192.168.1.125 | 121 | pve2 |
-| `talos-wk102` | worker | 192.168.1.126 | 123 | pve3 |
+| `talos-cp101` | control plane | 192.168.1.124 | 120 | pve1 |
+| `talos-wk101` | worker | 192.168.1.125 | 121 | pve1 |
+| `talos-cp102` | control plane | 192.168.1.127 | 122 | pve2 |
+| `talos-wk102` | worker | 192.168.1.126 | 123 | pve2 |
+| `talos-cp103` | control plane | 192.168.1.113 | 124 | pve3 |
+| `talos-wk103` | worker | 192.168.1.118 | 125 | pve3 |
 | `nfs101` | NFS server, Postgres next to it | 192.168.1.130 | 113 | pve2 |
 
-Talos v1.14.5, Kubernetes v1.37.1. Pods get addresses in `10.244.0.0/16` (a /24 per node), Services in `10.96.0.0/12`.
+Talos v1.14.5, Kubernetes v1.37.2. Pods get addresses in `10.244.0.0/16` (a /24 per node), Services in `10.96.0.0/12`.
 `192.168.1.128` (`talos-lb101`) is the address of Traefik, `192.168.1.129` (`talos-lb102`) is kept spare. All the
-addresses are reserved in phpIPAM. The four Talos VMs form the Proxmox pool `kubernetes`, which the fleet playbooks leave
-out. Semaphore stops them Friday from 04:30 to 09:30 (templates 45 and 46, schedules 19 and 20), so that the updates of the
-nodes have the memory they need. The Thursday backup does not need it.
+addresses are reserved in phpIPAM. The six Talos VMs form the Proxmox pool `kubernetes`, which the fleet playbooks leave
+out. There is one control plane and one worker on each Proxmox node, numbered after it (101 on pve1, 102 on pve2, 103 on
+pve3). When a Proxmox node is updated or lost, its two Talos VMs are stopped with it, not migrated: etcd keeps its quorum
+with the two other control planes, the API keeps answering, and the pods of the lost worker start again on the two others,
+which hold them with room to spare. Nothing is stopped on a schedule any more.
 
 | Component | What it does | Where |
 |---|---|---|
@@ -96,20 +100,20 @@ containerd and kubelet, and the node registers with the API. Cilium starts on it
 
 | Down | Effect | Recover |
 |---|---|---|
-| One worker | Its pods are rescheduled on the other after about five minutes, if the memory allows. Traefik keeps its second pod | Start the VM |
-| One control plane | With two etcd members, the quorum is lost: `kubectl` and Argo CD stop answering. Running pods keep running | Start it again |
-| Both control planes | The same, and nothing can be changed | Start them |
+| One worker | Its pods are rescheduled on the two others, after about five minutes when it is lost, at once when it is stopped by Talos (it drains itself). Traefik keeps its second pod | Start the VM |
+| One control plane | With three etcd members, the quorum holds: `kubectl` and Argo CD keep answering | Start it again |
+| Two control planes | The quorum is lost: `kubectl` and Argo CD stop answering and nothing can be changed. Running pods keep running | Start one of them |
+| One Proxmox node (update or loss) | Its control plane and its worker go with it, the cluster keeps working on the two others. `nfs101` is the single point: the files and the databases of Paperless, phpIPAM and Home Assistant wait for it if its host is the one that stops | Wait for the Proxmox node, or for `nfs101` to start on another one |
 | Argo CD | Applications keep running, nothing is corrected or updated | Start its pods |
 | Traefik | The pages are not served. Argo CD stays reachable on port 30081 | Look at the pods and the service |
 | cert-manager or the OVH webhook | Existing certificates keep working until they end | Look at the pods and the Certificate |
 | `nfs101` | Pods that use it wait for it (hard NFS mount) | Start the VM, check `exportfs -v` |
-| phpIPAM or its MariaDB | The playbooks that reserve, look up or free an address fail (`provision-vm.yml`, `decommission-vm.yml`, `talos-create-vm.yml`, `phpipam-reserve-address.yml`); nothing else depends on it. It is also down during the Friday stop | Start the pods or the VM; a dump of its database is in `/var/backups/mariadb` on `nfs101` |
+| phpIPAM or its MariaDB | The playbooks that reserve, look up or free an address fail (`provision-vm.yml`, `decommission-vm.yml`, `talos-create-vm.yml`, `phpipam-reserve-address.yml`); nothing else depends on it. | Start the pods or the VM; a dump of its database is in `/var/backups/mariadb` on `nfs101` |
 | The OVH zone or Let's Encrypt | Only new certificates fail | Wait, or look at the challenge |
 | The laptop | Nothing stops. You cannot operate the cluster until the files of section 2 are available | Restore them from the backup |
 
-Prometheus on `prometheus102` mails you for the failures that a user would notice: Paperless or Argo CD not answering over
-HTTPS for five minutes, the Postgres port or the NFS port of `nfs101` closed, a certificate with less than 14 days left. The
-Friday stop (04:30 to 09:30) is expected, so the alerts of the cluster are held back until 10:00 on that day.
+Prometheus on `prometheus102` mails you for the failures that a user would notice: Paperless, phpIPAM or Argo CD not answering
+over HTTPS for five minutes, the Postgres, MariaDB or NFS port of `nfs101` closed, a certificate with less than 14 days left.
 
 ## 5. First reflexes
 
@@ -128,7 +132,7 @@ talosctl health                                # the cluster as Talos sees it
 talosctl service                               # services of the default node
 talosctl -n 192.168.1.126 dmesg | tail -30     # what a node says
 talosctl -n 192.168.1.124 logs kubelet         # logs of one service
-talosctl -n 192.168.1.124,192.168.1.127 etcd status
+talosctl -n 192.168.1.124,192.168.1.127,192.168.1.113 etcd status
 talosctl get members                           # the nodes of the cluster
 ```
 
@@ -136,7 +140,8 @@ talosctl get members                           # the nodes of the cluster
 
 ## 6. Routine operations
 
-- **Stop and start the nodes by hand**: Semaphore templates "Kubernetes - Stop" (45) and "Kubernetes - Start" (46).
+- **Stop and start the nodes by hand**: Semaphore templates "Kubernetes - Stop" (45) and "Kubernetes - Start" (46), for
+  a change that needs all the memory of the Proxmox nodes. They are not scheduled.
 - **Add or rebuild a node**: run "Talos - Create VM" (47) with `talos_vm_name=<name>` from `talos_nodes` in
   `group_vars/all.yml`. The node boots from the ISO on `pve1` and reports the address it got from DHCP. Write its
   configuration with `talosctl machineconfig patch` from `controlplane.yaml` or `worker.yaml` and a patch with its
@@ -174,9 +179,8 @@ talosctl upgrade -n <node> --image factory.talos.dev/metal-installer/<schematic 
   (`kexec`), checks itself, makes the change permanent, rejoins the cluster and uncordons itself.
 - If the image cannot be fetched, the update is cancelled. If the new system does not start, the node reboots on the previous
   image by itself. `talosctl rollback` goes back by hand.
-- Talos refuses to update a control plane if that would break the etcd quorum, and updates only one at a time. With two
-  control planes, taking one down breaks the quorum, so the update should be refused: a third one is needed first. This has
-  not been tried here.
+- Talos refuses to update a control plane if that would break the etcd quorum, and updates only one at a time. With three
+  control planes, taking one down keeps the quorum, so one at a time is allowed.
 - Use a `talosctl` of the same version as the cluster. Update one node, check, then the next. `talosctl dmesg -f` or
   `--wait` shows progress.
 - Nothing updates Talos automatically here yet. `talos_version` and the schematic are in `group_vars/all.yml`.
@@ -267,7 +271,7 @@ hurt anything; from level 2 on, the cluster has fewer parts for a while. Do not 
    `kubectl create namespace practice`,
    `kubectl -n practice create deployment web --image=nginx:1.27 --replicas=2`, then `kubectl -n practice get pods -o wide`.
    Scale to 4 (`kubectl -n practice scale deployment web --replicas=4`). Delete one pod and watch another appear. Expect
-   the pods to be spread over the two workers.
+   the pods to be spread over the three workers.
 2. A bad image: `kubectl -n practice set image deployment/web nginx=nginx:does-not-exist`. Read why in
    `kubectl -n practice describe pod` (`ImagePullBackOff`), then `kubectl -n practice rollout undo deployment/web`.
 3. Publish it: write a Service on port 80 and an Ingress with `ingressClassName: traefik`, the annotations
@@ -290,13 +294,14 @@ hurt anything; from level 2 on, the cluster has fewer parts for a while. Do not 
 3. A hard failure: stop the VM of `talos-wk102` in Proxmox. The node becomes `NotReady` in under a minute, its pods are
    evicted after about five minutes. Start the VM again.
 
-**Level 3: control plane (two members, no tolerance)**
+**Level 3: control plane (three members, one fault tolerated)**
 
-1. Look: `talosctl -n 192.168.1.124,192.168.1.127 etcd status` and `talosctl etcd members`. Both must be in step.
+1. Look: `talosctl -n 192.168.1.124,192.168.1.127,192.168.1.113 etcd status` and `talosctl etcd members`. All three must be in step.
 2. Take a snapshot: `talosctl -n 192.168.1.124 etcd snapshot ~/etcd-maquette.snapshot`, and keep it.
-3. Lose the quorum on purpose: `talosctl -n 192.168.1.127 reboot`. During the reboot `kubectl` stops answering, but
-   `curl https://argocd.k8s.lecrivaindaniel.fr` should still answer, since the pods already running keep serving. Explain why,
-   then wait for the API to return.
+3. Lose one member: `talosctl -n 192.168.1.127 reboot`. `kubectl get nodes` keeps answering during the reboot, since two of
+   three members are enough. Explain why, then try the same on two at once only on a day when you can wait for the API to
+   return: the quorum is lost, `kubectl` stops answering, but `curl https://argocd.k8s.lecrivaindaniel.fr` still does, since the
+   pods already running keep serving.
 
 **Level 4: certificates**
 
