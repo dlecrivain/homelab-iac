@@ -1,0 +1,46 @@
+---
+# Mails when Prometheus or Alertmanager does not answer. Prometheus raises the alerts and Alertmanager mails them, so neither
+# can warn about its own failure: this runs from Semaphore, outside the cluster, on a schedule. Each address gets six tries a
+# minute apart, so that the restart of a pod, or of a Proxmox node during its update, does not raise it.
+- name: Check that the monitoring answers
+  hosts: localhost
+  gather_facts: false
+  vars:
+    watch_monitoring_urls:
+      - { name: Prometheus, url: "https://prometheus.k8s.lecrivaindaniel.fr/-/ready" }
+      - { name: Alertmanager, url: "https://alertmanager.k8s.lecrivaindaniel.fr/-/ready" }
+  tasks:
+    - name: Ask each of them whether it is ready
+      ansible.builtin.uri:
+        url: "{{ item.url }}"
+        timeout: 10
+        status_code: 200
+      register: watch_monitoring_answers
+      retries: 6
+      delay: 60
+      until: watch_monitoring_answers.status | default(0) == 200
+      failed_when: false
+      loop: "{{ watch_monitoring_urls }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: List what does not answer
+      ansible.builtin.set_fact:
+        watch_monitoring_down: "{{ watch_monitoring_answers.results | rejectattr('status', 'defined') | map(attribute='item') | list + watch_monitoring_answers.results | selectattr('status', 'defined') | rejectattr('status', 'equalto', 200) | map(attribute='item') | list }}"
+
+    - name: Mail it
+      ansible.builtin.include_role:
+        name: send_report
+      vars:
+        report_subject: "[monitoring] {{ watch_monitoring_down | map(attribute='name') | join(' and ') }} does not answer"
+        report_body: |
+          <h2>The monitoring does not answer</h2>
+          <p>{{ watch_monitoring_down | map(attribute='name') | join(' and ') }} has not answered for six minutes, so no alert will be mailed
+          until it is back: look at the pods of the namespace <code>monitoring</code> (<code>kubectl -n monitoring get pods</code>), at
+          <code>nfs101</code>, which holds their data, and at the Proxmox node that hosts the worker they run on.</p>
+      when: watch_monitoring_down | length > 0
+
+    - name: Fail the run when something does not answer
+      ansible.builtin.fail:
+        msg: "{{ watch_monitoring_down | map(attribute='name') | join(' and ') }} does not answer"
+      when: watch_monitoring_down | length > 0
