@@ -31,6 +31,27 @@
   changed_when: false
   when: prometheus_target_state == 'present'
 
+# The target leaves Prometheus a few minutes after the commit, once Argo CD has given the files to the cluster, and NodeDown fires
+# after five minutes of silence from it. The alerts of the host are silenced for half an hour so that its removal mails nothing.
+# The silence is a courtesy: a failure to create it does not stop the decommissioning.
+- name: Silence the alerts of this host while its target goes away
+  ansible.builtin.uri:
+    url: "{{ alertmanager_url }}/api/v2/silences"
+    method: POST
+    body_format: json
+    body:
+      matchers:
+        - { name: instance, value: "{{ prometheus_target_name }}", isRegex: false, isEqual: true }
+      startsAt: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(utc=True) }}"
+      endsAt: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(('%s' | strftime | int) + 1800, utc=True) }}"
+      createdBy: prometheus_target
+      comment: "{{ prometheus_target_name }} is being decommissioned"
+    status_code: 200
+    timeout: 15
+  delegate_to: localhost
+  failed_when: false
+  when: prometheus_target_state == 'absent'
+
 - name: Remove this host as a Prometheus scrape target (no-op if already absent)
   ansible.builtin.command:
     argv: [git, rm, -f, -q, --ignore-unmatch, "k8s/prometheus/targets/{{ prometheus_target_job }}-{{ prometheus_target_name }}.json"]
