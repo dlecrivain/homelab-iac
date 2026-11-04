@@ -135,7 +135,8 @@ talosctl get members                           # the nodes of the cluster
   configuration with `talosctl machineconfig patch` from `controlplane.yaml` or `worker.yaml` and a patch with its
   hostname and its reserved address (`LinkConfig` named `ens18`), send it with
   `talosctl apply-config --insecure -n <dhcp address> -f <file>`, wait until it has installed itself, then run "Talos -
-  Place VM" (48). The reserved address is reused when a node is rebuilt.
+  Place VM" (48). The reserved address is reused when a node is rebuilt. If Kubernetes was updated since the configuration
+  files were made, generate them again first (section 7).
 - **Change a version or a setting**: edit the Application in `k8s/apps/` or its file in `k8s/values/`, commit, push.
 - **Change Cilium**: after the push, read the difference (`argocd app diff cilium` or the interface) and synchronise by
   hand. Restart the operator and the agents if the ConfigMap changed.
@@ -169,9 +170,28 @@ talosctl upgrade -n <node> --image factory.talos.dev/metal-installer/<schematic 
   not been tried here.
 - Use a `talosctl` of the same version as the cluster. Update one node, check, then the next. `talosctl dmesg -f` or
   `--wait` shows progress.
-- The Kubernetes version is updated separately (`talosctl upgrade-k8s`, see the Talos documentation); an update of Talos does
-  not change it.
 - Nothing updates Talos automatically here yet. `talos_version` and the schematic are in `group_vars/all.yml`.
+
+**Updating Kubernetes.** The Kubernetes version is separate from the one of Talos, which an update of Talos does not
+change. The versions a Talos release supports are in its support matrix. One command updates the whole cluster:
+
+```sh
+talosctl --nodes <a control plane> upgrade-k8s --to <version> --dry-run
+talosctl --nodes <a control plane> upgrade-k8s --to <version>
+```
+
+- It pulls the new images on the nodes, then patches the machine configuration of every control plane with the new
+  versions of the API server, the controller manager and the scheduler, which Talos turns into new static pods, then
+  updates the kubelet of every node and waits for it, then applies the bootstrap manifests again and prunes what is no
+  longer needed. Talos does not disrupt anything by itself, but restarting a kubelet may restart workloads. If the command
+  fails it can be run again.
+- The dry run lists the nodes, the changes and the APIs about to be deprecated, and changes nothing.
+- **The live machine configuration of the nodes changes.** The full files kept in `~/.config/talos/maquette`
+  (`controlplane.yaml`, `worker.yaml`, `node-*.yaml`) still name the old versions after that: do not apply them again to a
+  running node, and generate them again (`talosctl gen config ... --kubernetes-version <version>`, with the same
+  `secrets.yaml` and patches) before adding or rebuilding a node.
+- This cluster runs no kube-proxy, since Cilium replaces it, while the command has a step for it. What that step does here
+  is to be seen on the first real run.
 
 **Adding something to the system.**
 
@@ -268,6 +288,15 @@ hurt anything; from level 2 on, the cluster has fewer parts for a while. Do not 
 2. Run `talosctl -n 192.168.1.126 upgrade --image factory.talos.dev/metal-installer/<ID>:v1.14.5 --wait` (the same version: it
    exercises the mechanism). Watch the node cordon, drain, reboot and uncordon. Check the path of the installer image first,
    see section 7.
+
+**Level 7: update Kubernetes by a patch version**
+
+1. Take an etcd snapshot (level 3), check that the nodes and the pods are healthy, and avoid the stop windows of section 1.
+2. Run the dry run of section 7 and read it: which components, on which nodes, from which version to which.
+3. Run the real command and follow `kubectl get nodes -w` in another terminal. Expect the API to blink on each control plane
+   and the nodes to show the new version one after the other.
+4. Check `kubectl version`, `kubectl get pods -A`, `talosctl health` and `kubectl -n argocd get applications`. Update the
+   `kubectl` client to the same version, and generate the configuration files again as section 7 says.
 
 ## 10. Not tried yet
 
