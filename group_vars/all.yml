@@ -247,11 +247,6 @@ image_update_watch_list:
     version_var: matter_server_version
     container_name: matter-server
     host: "{{ homeassistant_host }}"
-  - name: paperless-ngx
-    ghcr_repo: paperless-ngx/paperless-ngx
-    version_var: paperless_version
-    container_name: paperless_server
-    host: "{{ paperless_host }}"
   - name: grafana
     docker_repo: grafana/grafana
     version_var: grafana_version
