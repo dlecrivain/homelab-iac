@@ -161,13 +161,6 @@ bunkerweb_host: bunkerweb102
 adguard_host: adguard102
 adguard_version: "v0.107.80"
 pve_exporter_version: "3.11.0"
-# Home Assistant Container (configure-homeassistant.yml). Home Assistant releases monthly under the
-# year as its major line, so check-image-updates.yml bumps within the year and only reports a new year.
-homeassistant_host: homeassistant101
-homeassistant_version: "2026.10.4"
-# The same matter.js server the Home Assistant Matter Server add-on 9.2.0 is built on.
-matter_server_version: "1.5.5"
-
 # Immich (configure-immich.yml). Pinned rather than :release so a container restart cannot change
 # version on its own: Immich's upgrades run database migrations, which belong in a run that snapshots
 # the VM first. Server and machine-learning share this version, they always move together.
@@ -223,16 +216,6 @@ image_update_watch_list:
     version_var: alertmanager_version
     container_name: alertmanager
     host: "{{ prometheus_host }}"
-  - name: homeassistant
-    docker_repo: homeassistant/home-assistant
-    version_var: homeassistant_version
-    container_name: homeassistant
-    host: "{{ homeassistant_host }}"
-  - name: matter-server
-    ghcr_repo: matter-js/matterjs-server
-    version_var: matter_server_version
-    container_name: matter-server
-    host: "{{ homeassistant_host }}"
   - name: blackbox-exporter
     docker_repo: prom/blackbox-exporter
     version_var: blackbox_exporter_version

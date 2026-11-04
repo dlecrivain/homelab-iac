@@ -145,14 +145,6 @@
             - not (snapshot_already_exists | default(false))
             - inventory_hostname == (grafana_host | default('grafana102'))
 
-        - name: "Step 2.5 (the Home Assistant host only) - Re-render the Home Assistant and Matter Server Quadlets first, same reason as above"
-          include_role:
-            name: homeassistant_configure
-          when:
-            - podman_units is defined
-            - not (snapshot_already_exists | default(false))
-            - inventory_hostname == (homeassistant_host | default('homeassistant101'))
-
         - name: "Step 2.5 (BunkerWeb host only) - Re-render the BunkerWeb Quadlet first, same reason as above"
           include_role:
             name: bunkerweb_configure
@@ -278,7 +270,6 @@
           {{
             (['prometheus', 'alertmanager'] if (hostvars[prometheus_host | default('prometheus102')].prometheus_config_changed | default(false)) else [])
             + (['grafana'] if (hostvars[grafana_host | default('grafana102')].grafana_config_changed | default(false)) else [])
-            + (['homeassistant', 'matter-server'] if (hostvars[homeassistant_host | default('homeassistant101')].homeassistant_config_changed | default(false)) else [])
             + (['bunkerweb-aio'] if (hostvars[bunkerweb_host | default('bunkerweb102')].bunkerweb_config_changed | default(false)) else [])
             + (['adguardhome'] if (hostvars[adguard_host | default('adguard102')].adguard_config_changed | default(false)) else [])
             + (['immich_server', 'immich_machine_learning'] if (hostvars[immich_host | default('immich102')].immich_config_changed | default(false)) else [])

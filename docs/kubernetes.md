@@ -41,6 +41,7 @@ which hold them with room to spare. Nothing is stopped on a schedule any more.
 | metrics-server, kubelet-serving-cert-approver | Consumption of nodes and pods; approves the certificates of the kubelets so that logs and metrics can be fetched securely | `kube-system`, `kubelet-serving-cert-approver` |
 | Paperless-ngx | The document archive, moved here as a pilot: files on `nfs101`, database in its Postgres, Valkey for the queue | `paperless` |
 | phpIPAM | The address manager the playbooks call as an API, and its subnet scan; database in the MariaDB of `nfs101` | `phpipam` |
+| Home Assistant | The home automation, with its Matter server, in one pod on the host network of a worker; configuration on `nfs101`, history in its Postgres | `homeassistant` |
 | `nfs101` | Files of the applications over NFSv4, and their Postgres and MariaDB databases on its own disk | VM outside the cluster |
 
 ## 2. How you operate it
