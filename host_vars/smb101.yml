@@ -18,6 +18,9 @@ pcloud_backup_mounts:
     path: /mnt/immich-library
   - src: "192.168.1.130:/srv/nfs/homeassistant"
     path: /mnt/homeassistant
+  # The nightly snapshot of the database of Prometheus, which a job of the cluster writes to the backup folder of the share at 01:40.
+  - src: "192.168.1.130:/srv/nfs/prometheus"
+    path: /mnt/prometheus
 
 # The configuration of Home Assistant and the data of its Matter server, packed every night into a dated archive before the copy
 # below, and kept 14 days here. The history is in a Postgres that nfs101 dumps itself, the internal backups and the caches are
@@ -59,3 +62,8 @@ pcloud_backup_jobs:
     mode: copy
     source: /srv/backups/homeassistant
     dest: "pcloud:Backups/HomeAssistant"
+  # A mirror of the last snapshot: the blocks of the database never change once written, so only the new ones are sent.
+  - name: Prometheus snapshot
+    mode: sync
+    source: /mnt/prometheus/backup/latest
+    dest: "pcloud:Backups/Prometheus"
