@@ -7,6 +7,9 @@
   "schedule": [
     "after 3am and before 4am"
   ],
+  "automergeSchedule": [
+    "after 3am and before 4am"
+  ],
   "enabledManagers": [
     "kubernetes",
     "argocd"
