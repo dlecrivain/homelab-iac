@@ -1,10 +1,10 @@
-# paperless101: document archive
+# Paperless-ngx: document archive
 
-Status: deployed. The cloud storage folder is the master copy and `sync-paperless.yml` keeps Paperless in step with it every night.
+Status: deployed, and running on the Kubernetes test cluster since the move from `paperless101`, which is kept powered off as the way back. The cloud storage folder is the master copy and `sync-paperless.yml` keeps Paperless in step with it every night.
 
 ## Goal
 
-A VM (`paperless101`) running paperless-ngx, the maintained successor of paperless-ng, that indexes the scanned documents kept in one tree of the owner's cloud storage. Each document gets an OCR text layer, a date, a correspondent, a type and tags, so it can be found by content instead of by folder. The assistant (see [claude101](claude101.md)) or this repository's tooling can classify documents through paperless-ngx's REST API, but only when the owner asks.
+An instance of paperless-ngx, the maintained successor of paperless-ng, that indexes the scanned documents kept in one tree of the owner's cloud storage. Each document gets an OCR text layer, a date, a correspondent, a type and tags, so it can be found by content instead of by folder. The assistant (see [claude101](claude101.md)) or this repository's tooling can classify documents through paperless-ngx's REST API, but only when the owner asks.
 
 ## Scope
 
@@ -14,21 +14,21 @@ The tree today is small: 631 objects and about 490 MiB, 603 of them PDF, a handf
 
 ## Stack
 
-All containers run rootless as the connecting user, as Quadlet units, like the other container hosts of this repository, with pinned versions in `group_vars/all.yml` (`paperless_version`, plus the PostgreSQL and Valkey versions) that `check-image-updates.yml` can bump.
+Paperless-ngx runs on the Kubernetes test cluster, see [kubernetes.md](kubernetes.md), from the manifests of `k8s/paperless/` that Argo CD applies. Their versions are pinned in the manifests.
 
-- `paperless-ngx` (web, task queue and OCR in one container, port 8000);
-- PostgreSQL, as the database;
-- Valkey, as the broker.
+- a pod with `paperless-ngx` (web, task queue and OCR in one container, port 8000): one replica that is replaced as a whole on an update, since two instances must not write the same files and database;
+- a pod with Valkey, the broker, which holds nothing that has to survive a restart;
+- PostgreSQL, outside the cluster: a rootless container on `nfs101`, on its local disk and never on NFS, with a nightly dump (`configure-postgres.yml`).
 
 Gotenberg and Tika, which are only needed to import office documents, are left out: the few office files are exported to PDF by the owner or skipped.
 
-Sizing: 2 vCPU and 4 GB of RAM (OCR is the heavy part), `/var` as the template provides it, and `/home` grown with `lvm_grow` for the rootless images. Data lives under `/var/lib/paperless/{data,media,consume,export,pgdata}`.
+Sizing: the pod asks for 1 GiB and may use 2.5 GiB (OCR is the heavy part). The files live on the `nfs101` share `/srv/nfs/paperless/{data,media,export}`, mounted over NFSv4.2.
 
-Secrets (database password, application secret key) are in 0600 environment files that the repository does not keep, like Immich's. The administrator account is created by hand with the application's own command. The OCR languages are French plus whatever a sample of the corpus shows.
+The database password and the application secret key are in the Secret `paperless-secrets`, made by hand because the repository is public. The administrator account was created by hand with the application's own command. The OCR languages are French plus whatever a sample of the corpus shows.
 
 ## Network and access
 
-BunkerWeb publishes `paperless.<domain>` with the existing wildcard certificate, restricted to the LAN and the VPN like the other services. Nothing is exposed to the Internet. A monitoring target and the usual backups apply, as for every VM of the template: weekly full backup of the VM to the cloud storage, plus paperless-ngx's own `document_exporter` if a portable export is wanted.
+Traefik publishes `paperless.<domain>` with its own Let's Encrypt certificate, which cert-manager obtains through the OVH DNS-01 challenge, and an A record at OVH that leads to Traefik. Nothing is exposed to the Internet. BunkerWeb no longer serves the name. The files and the database are on `nfs101`, which the VM backups cover for its system disk (the database dump) and the cloud copies for the rest, since the document folder is the master copy anyway.
 
 ## Synchronisation
 
@@ -52,14 +52,14 @@ Handwriting, such as an approval written on a quote, and poor scans are not read
 
 ## Operations
 
-- `configure-paperless.yml` and a `paperless_configure` role deploy the units, like `configure-immich.yml`;
-- the VM is provisioned with `provision-vm.yml`, which also registers it with Katello, node_exporter and Prometheus;
-- `vm-updates.yml` patches the host and `container-updates.yml` the containers, each after a snapshot;
-- a health check polls the login page.
+- Argo CD applies `k8s/paperless/`; the application is synchronised by hand. A new version is a change of the image tag in `server.yaml`, and its first start runs the migrations of the database.
+- The address the synchronisation talks to is `paperless_sync_url`.
+- **The way back.** `paperless101` is powered off, without start at boot, in the Proxmox pool `standby`, with the state of the day of the move. To go back: stop the pod (`kubectl -n paperless scale deploy/paperless --replicas=0`), start the VM, point the name at BunkerWeb again by deleting the A record `paperless` at OVH (the wildcard takes over) and set `paperless_sync_url` back to its default. What was added to the cluster since is not in the VM, but the cloud storage folder holds the documents, so the next synchronisation fills the difference. Add the VM back to the monitoring with `configure-monitoring.yml -e target_hosts=paperless101`.
+- `configure-paperless.yml` and the `paperless_configure` role are what built the VM, and stay as long as the way back does.
 
 ## Decisions
 
-- The VM is named `paperless101`.
+- The first host was the VM `paperless101`; it was moved to the Kubernetes test cluster once its data had been copied and checked.
 - No subfolder of the tree is excluded.
 - The cloud storage is the only place to file documents: Paperless never writes to it and nothing is deleted from Paperless, only tagged.
 - OCR languages: French, and English for the rare documents in that language.
