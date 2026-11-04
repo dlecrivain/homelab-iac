@@ -1,0 +1,46 @@
+# A dump of the database before every synchronisation of this application, which Argo CD runs as a hook: the first start of a
+# newer version migrates the database, and a migration cannot be undone. If the dump fails the synchronisation stops and nothing
+# is replaced. The last two weeks are kept in a folder of their own on the share of nfs101, next to the dumps Immich makes itself.
+# The client has to be of the major version of the server or newer: pg_dump refuses to dump a newer server.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: immich-dump
+  namespace: immich
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      enableServiceLinks: false
+      containers:
+        - name: dump
+          image: docker.io/library/postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: immich-secrets
+                  key: DB_PASSWORD
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              file=/backups/immich-$(date +%Y%m%d-%H%M%S).dump
+              pg_dump -h 192.168.1.130 -p 5435 -U immich -Fc immich > "$file.tmp"
+              mv "$file.tmp" "$file"
+              find /backups -name 'immich-*.dump' -mtime +14 -delete
+              ls -l "$file"
+          volumeMounts:
+            - name: backups
+              mountPath: /backups
+      volumes:
+        - name: backups
+          nfs:
+            server: 192.168.1.130
+            path: /srv/nfs/immich/presync-dumps

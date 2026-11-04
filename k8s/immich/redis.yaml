@@ -1,0 +1,47 @@
+# The queue and the cache of Immich. Nothing in it has to survive a restart, so it has no volume. The image is pinned by digest,
+# and Renovate keeps it up to date.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: immich-redis
+  namespace: immich
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: immich-redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: immich-redis
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: valkey
+          image: docker.io/valkey/valkey:9@sha256:3add1a336a920ea54770a001ab6feb3da5fceea96a40373a3a2cd469b815f0b7
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            tcpSocket:
+              port: redis
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: immich-redis
+  namespace: immich
+spec:
+  selector:
+    app.kubernetes.io/name: immich-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis

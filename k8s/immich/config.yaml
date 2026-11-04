@@ -1,0 +1,15 @@
+# The settings of Immich. The password of the database is in the immich-secrets Secret, made by hand because this repository is
+# public, see the README. The database is the Postgres of nfs101, on its own disk, and the photos are on its immich share.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: immich
+  namespace: immich
+data:
+  DB_HOSTNAME: 192.168.1.130
+  DB_PORT: "5435"
+  DB_USERNAME: immich
+  DB_DATABASE_NAME: immich
+  REDIS_HOSTNAME: immich-redis
+  IMMICH_MACHINE_LEARNING_URL: http://immich-machine-learning:3003
+  TZ: Europe/Paris
