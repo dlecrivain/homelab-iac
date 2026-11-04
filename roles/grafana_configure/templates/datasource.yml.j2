@@ -4,6 +4,6 @@ datasources:
     uid: prometheus
     type: prometheus
     access: proxy
-    url: "http://{{ hostvars[prometheus_host].ansible_host }}:9090"
+    url: "{{ prometheus_url }}"
     isDefault: true
     editable: false
