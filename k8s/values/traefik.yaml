@@ -13,6 +13,14 @@ ports:
           to: websecure
           scheme: https
           permanent: true
+  websecure:
+    # The default read timeout of 60 seconds covers the whole request and would cut a long upload, such as a video sent to
+    # Immich. The other timeouts keep their defaults.
+    transport:
+      respondingTimeouts:
+        readTimeout: 0
+        writeTimeout: 0
+        idleTimeout: 600s
 providers:
   kubernetesIngress:
     publishedService:
