@@ -1,8 +1,10 @@
 ---
 # One rootless Postgres container per entry, each with its own port, data directory and password. Only the addresses in
 # clients reach its port. An entry has: name, image, port, database, user and clients, and major when it is 18 or later (see
-# tasks/layout.yml; the data of a version from 18 is in a directory of its own). The password is generated on the
-# host the first time and read from there to make the Secret of the application by hand, since this repository is public.
+# tasks/layout.yml; the data of a version from 18 is in a directory of its own). initdb_args (arguments of initdb, read
+# when the cluster is created) and shm_size (size of /dev/shm, for an image whose default of 64 MB is too small) are
+# optional. The password is generated on the host the first time and read from there to make the Secret of the
+# application by hand, since this repository is public.
 postgres_instances: []
 
 postgres_root: /var/lib/postgres

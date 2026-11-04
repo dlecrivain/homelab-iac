@@ -7,6 +7,9 @@ ContainerName=postgres_{{ pg.name }}
 EnvironmentFile={{ postgres_root }}/{{ pg.name }}.env
 Volume={{ pg_data_dir }}:{{ pg_volume }}:Z
 PublishPort={{ pg.port }}:5432
+{% if pg.shm_size is defined %}
+ShmSize={{ pg.shm_size }}
+{% endif %}
 HealthCmd=pg_isready -U {{ pg.user }} -d {{ pg.database }}
 HealthInterval=30s
 

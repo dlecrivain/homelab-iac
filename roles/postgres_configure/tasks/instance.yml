@@ -27,7 +27,7 @@
   ansible.builtin.shell: |
     set -e
     umask 077
-    printf 'POSTGRES_DB={{ pg.database }}\nPOSTGRES_USER={{ pg.user }}\nPOSTGRES_PASSWORD=%s\n' "$(openssl rand -hex 24)" > {{ postgres_root }}/{{ pg.name }}.env
+    printf 'POSTGRES_DB={{ pg.database }}\nPOSTGRES_USER={{ pg.user }}\nPOSTGRES_PASSWORD=%s\n{% if pg.initdb_args is defined %}POSTGRES_INITDB_ARGS={{ pg.initdb_args }}\n{% endif %}' "$(openssl rand -hex 24)" > {{ postgres_root }}/{{ pg.name }}.env
   args:
     executable: /bin/bash
     creates: "{{ postgres_root }}/{{ pg.name }}.env"
