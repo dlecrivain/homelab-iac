@@ -1,4 +1,5 @@
-# The job of phpIPAM that scans the subnets every hour to tell which addresses answer. It needs the raw sockets of ping.
+# The job of phpIPAM that scans the subnets every hour to tell which addresses answer. Ping needs raw sockets, which containerd gives to
+# every container by default; the PodSecurity baseline of the cluster would refuse any capability added to them.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -31,11 +32,6 @@ spec:
                   key: IPAM_DATABASE_PASS
             - name: SCAN_INTERVAL
               value: 1h
-          securityContext:
-            capabilities:
-              add:
-                - NET_ADMIN
-                - NET_RAW
           resources:
             requests:
               cpu: 20m

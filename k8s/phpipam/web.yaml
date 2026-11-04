@@ -34,12 +34,6 @@ spec:
                 secretKeyRef:
                   name: phpipam-secrets
                   key: IPAM_DATABASE_PASS
-          # The interface pings addresses to tell whether they answer.
-          securityContext:
-            capabilities:
-              add:
-                - NET_ADMIN
-                - NET_RAW
           volumeMounts:
             - name: files
               mountPath: /phpipam/config.docker.php
