@@ -47,6 +47,13 @@ postgres_instances:
     database: homeassistant
     user: homeassistant
     clients: "{{ nfs_clients }}"
+  - name: grafana
+    image: "{{ postgres_image }}"
+    major: 18
+    port: 5434
+    database: grafana
+    user: grafana
+    clients: "{{ nfs_clients }}"
 
 # The databases of the applications that moved to the cluster and need MariaDB, same arrangement as the Postgres ones.
 mariadb_instances:
@@ -67,8 +74,12 @@ podman_units:
   - name: postgres_homeassistant
     service_name: postgres-homeassistant
     scope: user
+  - name: postgres_grafana
+    service_name: postgres-grafana
+    scope: user
 health_check_podman_user: deploy
 health_check_containers:
   - postgres_paperless
   - postgres_homeassistant
+  - postgres_grafana
   - mariadb_phpipam
