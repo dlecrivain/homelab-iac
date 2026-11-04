@@ -1,0 +1,22 @@
+# The settings of Paperless-ngx. The password of the database and the secret key are in the paperless-secrets Secret, made by
+# hand because this repository is public, see the README. The database is the Postgres of nfs101, on its own disk.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paperless
+  namespace: paperless
+data:
+  PAPERLESS_REDIS: redis://paperless-redis:6379
+  PAPERLESS_DBHOST: 192.168.1.130
+  PAPERLESS_DBPORT: "5432"
+  PAPERLESS_DBNAME: paperless
+  PAPERLESS_DBUSER: paperless
+  PAPERLESS_URL: https://paperless.k8s.lecrivaindaniel.fr
+  PAPERLESS_TIME_ZONE: Europe/Paris
+  PAPERLESS_OCR_LANGUAGE: fra+eng
+  PAPERLESS_OCR_LANGUAGES: fra
+  PAPERLESS_TASK_WORKERS: "2"
+  PAPERLESS_THREADS_PER_WORKER: "1"
+  PAPERLESS_USE_X_FORWARD_HOST: "true"
+  PAPERLESS_USE_X_FORWARD_PORT: "true"
+  PAPERLESS_PROXY_SSL_HEADER: '["HTTP_X_FORWARDED_PROTO", "https"]'

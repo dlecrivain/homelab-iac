@@ -1,0 +1,93 @@
+# Paperless-ngx. Its files are on the nfs101 share, the database is outside the cluster. One replica that is replaced as a
+# whole on an update, never two at once: two instances must not write the same files and database. The image is the
+# version the database was dumped from, and the first start of a newer one runs its migrations.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paperless
+  namespace: paperless
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: paperless
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: paperless
+    spec:
+      containers:
+        - name: paperless
+          image: ghcr.io/paperless-ngx/paperless-ngx:3.3.4
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: paperless
+            - secretRef:
+                name: paperless-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /usr/src/paperless/data
+            - name: media
+              mountPath: /usr/src/paperless/media
+            - name: export
+              mountPath: /usr/src/paperless/export
+            - name: consume
+              mountPath: /usr/src/paperless/consume
+          # The first start installs the OCR language pack and runs the migrations: up to 15 minutes before the probes of
+          # a running pod apply.
+          startupProbe:
+            httpGet:
+              path: /accounts/login/
+              port: http
+            periodSeconds: 10
+            failureThreshold: 90
+          readinessProbe:
+            httpGet:
+              path: /accounts/login/
+              port: http
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /accounts/login/
+              port: http
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              memory: 2560Mi
+      volumes:
+        - name: data
+          nfs:
+            server: 192.168.1.130
+            path: /srv/nfs/paperless/data
+        - name: media
+          nfs:
+            server: 192.168.1.130
+            path: /srv/nfs/paperless/media
+        - name: export
+          nfs:
+            server: 192.168.1.130
+            path: /srv/nfs/paperless/export
+        - name: consume
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paperless
+  namespace: paperless
+spec:
+  selector:
+    app.kubernetes.io/name: paperless
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

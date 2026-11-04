@@ -35,6 +35,7 @@ that the backup and the updates have the memory they need.
 | cert-manager, OVH webhook | Obtain and renew Let's Encrypt certificates, proving the name through a DNS record at OVH | `cert-manager` |
 | Argo CD | Compares `k8s/` of this repository with the cluster and corrects the difference | `argocd` |
 | metrics-server, kubelet-serving-cert-approver | Consumption of nodes and pods; approves the certificates of the kubelets so that logs and metrics can be fetched securely | `kube-system`, `kubelet-serving-cert-approver` |
+| Paperless-ngx | The document archive, moved here as a pilot: files on `nfs101`, database in its Postgres, Valkey for the queue | `paperless` |
 | `nfs101` | Files of the applications over NFSv4, and their databases on its own disk | VM outside the cluster |
 
 ## 2. How you operate it
@@ -144,7 +145,8 @@ talosctl get members                           # the nodes of the cluster
   a cascade would take Cilium down too: delete the namespace and the cluster-wide objects by hand.
 - **Secrets**: the Secret `ovh-credentials` of `cert-manager` was made by hand from the BunkerWeb credentials and is not in
   git. If the cluster is rebuilt, make it again with the three keys `applicationKey`, `applicationSecret` and
-  `applicationConsumerKey`.
+  `applicationConsumerKey`. `paperless-secrets` of `paperless` (`PAPERLESS_DBPASS`, `PAPERLESS_SECRET_KEY`) is made the same
+  way, from `/var/lib/postgres/paperless.env` on `nfs101` and the key Paperless already used.
 - **Certificates** renew themselves. Check with `kubectl -n traefik get certificate`.
 
 ## 7. Updates and changing the system
