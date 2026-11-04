@@ -1,9 +1,0 @@
-[
-  {
-    "targets": ["192.168.1.121:9100"],
-    "labels": {
-      "instance": "grafana102",
-      "role": "vm"
-    }
-  }
-]
