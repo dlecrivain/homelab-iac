@@ -11,5 +11,5 @@ paperless_sync_state_dir: /var/lib/paperless-sync
 # Report what would be done and change nothing.
 paperless_sync_dry_run: false
 
-# The address of Paperless-ngx the script talks to: the Podman instance by default.
-paperless_sync_url: "http://{{ hostvars[paperless_host].ansible_host }}:8000"
+# The address of Paperless-ngx the script talks to: the one on the Kubernetes test cluster.
+paperless_sync_url: "https://{{ paperless_domain }}"

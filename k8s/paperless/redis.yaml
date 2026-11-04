@@ -1,5 +1,5 @@
-# The queue and the cache of Paperless-ngx. Nothing in it has to survive a restart, so it has no volume. The image is the one
-# of paperless101, pinned by digest.
+# The queue and the cache of Paperless-ngx. Nothing in it has to survive a restart, so it has no volume. The image is pinned by
+# digest, and Renovate keeps it up to date.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

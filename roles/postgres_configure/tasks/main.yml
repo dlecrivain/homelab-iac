@@ -1,5 +1,5 @@
 ---
-# Runs rootless as the connecting user itself, like paperless_configure: the host's host_vars set podman_units to scope
+# Runs rootless as the connecting user itself, like immich_configure: the host's host_vars set podman_units to scope
 # 'user' with no become_user, so systemctl --user works against this same session's runtime dir.
 
 # Without lingering, the user's systemd instance and its containers stop when the last session ends and do not start at

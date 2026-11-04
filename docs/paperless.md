@@ -1,6 +1,6 @@
 # Paperless-ngx: document archive
 
-Status: deployed, and running on the Kubernetes test cluster since the move from `paperless101`, which is kept powered off as the way back. The cloud storage folder is the master copy and `sync-paperless.yml` keeps Paperless in step with it every night.
+Status: deployed on the Kubernetes test cluster. The cloud storage folder is the master copy and `sync-paperless.yml` keeps Paperless in step with it every night.
 
 ## Goal
 
@@ -55,12 +55,11 @@ Handwriting, such as an approval written on a quote, and poor scans are not read
 - Argo CD applies `k8s/paperless/`; the application is synchronised by hand. A new version is a change of the image tag in `server.yaml`, and its first start runs the migrations of the database.
 - The address the synchronisation talks to is `paperless_sync_url`.
 - **Moving Postgres to a new major version.** It is a dump and a restore, done by `upgrade-postgres.yml` (`-e pg_name=paperless`) once the new `major` and `postgres_image` are pushed (`host_vars/nfs101.yml`, `group_vars/all.yml`). The client of the dump job in `k8s/paperless/presync-dump.yaml` moves first, since a `pg_dump` refuses a server newer than itself. Then, with the application stopped so that nothing is written between the dump and the switch: suspend the automatic synchronisation of `root` and `paperless` (their `syncPolicy.automated` is set back by applying `k8s/bootstrap/root-application.yaml`), scale `deploy/paperless` to 0, run the playbook, check the page, and apply `root-application.yaml`, which also sets the replicas back through the self-heal. The playbook stops when the number of rows of the tables differs after the restore. The password in the Secret `paperless-secrets` stays valid, since the new cluster is created from the same environment file. The files of the previous version stay in `/var/lib/postgres/paperless/data` on `nfs101` as the way back: put the previous `major` and image back, run `configure-postgres.yml`, and the previous data is served again as it was at the dump. Delete that directory (`podman unshare rm -rf`) after a week.
-- **The way back.** `paperless101` is powered off, without start at boot, in the Proxmox pool `standby`, with the state of the day of the move. To go back: stop the pod (`kubectl -n paperless scale deploy/paperless --replicas=0`), start the VM, point the name at BunkerWeb again by deleting the A record `paperless` at OVH (the wildcard takes over) and set `paperless_sync_url` back to its default. What was added to the cluster since is not in the VM, but the cloud storage folder holds the documents, so the next synchronisation fills the difference. Add the VM back to the monitoring with `configure-monitoring.yml -e target_hosts=paperless101`.
-- `configure-paperless.yml` and the `paperless_configure` role are what built the VM, and stay as long as the way back does.
+- **Recovery.** The database is dumped every night on `nfs101` (seven days) and by Argo CD before each synchronisation (two weeks, on the share), and the documents are in the cloud storage folder, so after a restore the next synchronisation fills the difference.
 
 ## Decisions
 
-- The first host was the VM `paperless101`; it was moved to the Kubernetes test cluster once its data had been copied and checked.
+- It started as a VM, `paperless101`, with Podman Quadlet units. It was moved to the Kubernetes test cluster once its data had been copied and checked, kept powered off for a while as the way back, and then decommissioned with `decommission-vm.yml`.
 - No subfolder of the tree is excluded.
 - The cloud storage is the only place to file documents: Paperless never writes to it and nothing is deleted from Paperless, only tagged.
 - OCR languages: French, and English for the rare documents in that language.
