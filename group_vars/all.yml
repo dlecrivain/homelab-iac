@@ -67,7 +67,9 @@ pve_corosync_ring1_priority: 20
 phpipam_api_app_id: "ansible"
 phpipam_api_username: "{{ lookup('env', 'PHPIPAM_API_USERNAME') }}"
 phpipam_api_password: "{{ lookup('env', 'PHPIPAM_API_PASSWORD') }}"
-phpipam_base_url: "https://ipam.lecrivaindaniel.fr/api/{{ phpipam_api_app_id }}"
+# The name of the cluster, which only Traefik has ever answered: ipam.lecrivaindaniel.fr was served by BunkerWeb under the wildcard
+# record, and a resolver can keep that answer for an hour after the move.
+phpipam_base_url: "https://ipam.k8s.lecrivaindaniel.fr/api/{{ phpipam_api_app_id }}"
 phpipam_subnet_cidr: "192.168.1.0/24"
 phpipam_search_start_ip: "192.168.1.111"
 phpipam_max_retries: 5
