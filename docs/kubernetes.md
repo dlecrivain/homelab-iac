@@ -190,7 +190,8 @@ deployment. To go back, revert the merge in git; if the new version migrated the
 **Mail about updates.** Two mails come for a version that is merged by itself. GitHub sends the first when Renovate opens the
 pull request, which is the moment the new version is known (the repository has to be watched for pull requests in the
 notification settings of GitHub). Argo CD sends the second, from the same mailbox as the alerts, once it has synchronised the
-application and the application is healthy: it gives the commit message and the images that now run. It also mails when a
+application and the application is healthy: it says which version replaces which (the title of the Renovate commit for an image,
+the chart versions for a chart). It also mails when a
 synchronisation fails and when an application is degraded. The settings are in `k8s/bootstrap/argocd-values.yaml` and are
 applied with `helm upgrade`. The login of the mailbox is the Secret `argocd-notifications-secret` (`email-username`,
 `email-password`) and the recipient is the annotations `notifications.argoproj.io/subscribe.on-deployed.email`,

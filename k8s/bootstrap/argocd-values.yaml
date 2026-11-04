@@ -24,12 +24,14 @@ notifications:
   templates:
     template.app-deployed: |
       email:
-        subject: "{{.app.metadata.name}} is up to date on the Kubernetes test cluster"
+        subject: "{{.app.metadata.name}} updated on the Kubernetes test cluster"
       message: |
-        Argo CD has put a new version of {{.app.metadata.name}} in place and it is healthy.
-
-        Change: {{(call .repo.GetCommitMetadata .app.status.operationState.syncResult.revision).Message}}
-        Images: {{range $i, $image := .app.status.summary.images}}{{if $i}}, {{end}}{{$image}}{{end}}
+        {{.app.metadata.name}} is up to date and healthy.
+        {{with .app.spec.source}}{{if .path}}
+        Change: {{$lines := compact (splitList "\n" (call $.repo.GetCommitMetadata $.app.status.operationState.syncResult.revision).Message)}}{{if hasPrefix "Merge pull request" (first $lines)}}{{last $lines}}{{else}}{{first $lines}}{{end}}{{end}}{{end}}
+        {{$prev := ""}}{{$cur := ""}}{{range .app.status.history}}{{$prev = $cur}}{{$cur = .}}{{end}}{{if $prev}}{{if $prev.sources}}{{$was := (index $prev.sources 0).targetRevision}}{{$now := (index $cur.sources 0).targetRevision}}{{if ne $was $now}}
+        Chart {{(index $cur.sources 0).chart}}: {{$was}} -> {{$now}}{{end}}{{else}}{{with $prev.source}}{{if .chart}}{{$was := .targetRevision}}{{$now := $cur.source.targetRevision}}{{if ne $was $now}}
+        Chart {{.chart}}: {{$was}} -> {{$now}}{{end}}{{end}}{{end}}{{end}}{{end}}
 
         {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
     template.app-sync-failed: |
@@ -47,10 +49,11 @@ notifications:
 
         {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
   triggers:
-    # Once per synchronisation that ran: the revision of the operation does not change when other applications are updated.
+    # Once per synchronisation that ran. An application with two sources has a list of revisions and no single revision, so
+    # the end of the operation is what tells one synchronisation from the next.
     trigger.on-deployed: |
       - description: The application is synchronised and healthy
-        oncePer: app.status.operationState?.syncResult?.revision
+        oncePer: app.status.operationState?.finishedAt
         send: [app-deployed]
         when: app.status.operationState != nil and app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
     trigger.on-sync-failed: |
