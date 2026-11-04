@@ -115,24 +115,6 @@ bunkerweb_services:
       REVERSE_PROXY_READ_TIMEOUT: 3600s
       MAX_CLIENT_SIZE: 0
 
-  - name: prometheus
-    domain: prometheus.lecrivaindaniel.fr
-    extra:
-      REVERSE_PROXY_URL: "/"
-      REVERSE_PROXY_HOST: "http://192.168.1.116:9090"
-
-  - name: homeassistant
-    domain: homeassistant.lecrivaindaniel.fr
-    extra:
-      REVERSE_PROXY_URL: "/"
-      # Home Assistant runs on the cluster, on the host network of a worker, until its name goes to Traefik.
-      REVERSE_PROXY_HOST: "http://192.168.1.118:8123"
-      # The frontend and the mobile app keep a WebSocket open to Home Assistant
-      REVERSE_PROXY_WS: "yes"
-      REVERSE_PROXY_SEND_TIMEOUT: 3600s
-      REVERSE_PROXY_READ_TIMEOUT: 3600s
-      MAX_CLIENT_SIZE: 0
-
   - name: adguard
     domain: adguard.lecrivaindaniel.fr
     extra:
