@@ -1,0 +1,8 @@
+---
+- name: Configure the Postgres databases of the Kubernetes test cluster
+  hosts: "{{ postgres_host | default('nfs101') }}"
+  gather_facts: false
+  tasks:
+    - name: Run the Postgres containers
+      include_role:
+        name: postgres_configure

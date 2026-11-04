@@ -1,0 +1,9 @@
+[Unit]
+Description=Dump the {{ pg.name }} Postgres database
+Requires=postgres-{{ pg.name }}.service
+After=postgres-{{ pg.name }}.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'podman exec postgres_{{ pg.name }} pg_dump -Fc -U {{ pg.user }} {{ pg.database }} > {{ postgres_backup_dir }}/{{ pg.name }}-$(date +%%F).dump.tmp && mv {{ postgres_backup_dir }}/{{ pg.name }}-$(date +%%F).dump.tmp {{ postgres_backup_dir }}/{{ pg.name }}-$(date +%%F).dump'
+ExecStartPost=/usr/bin/find {{ postgres_backup_dir }} -name '{{ pg.name }}-*.dump' -mtime +{{ postgres_backup_keep_days }} -delete

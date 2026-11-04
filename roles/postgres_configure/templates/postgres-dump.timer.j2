@@ -1,0 +1,9 @@
+[Unit]
+Description=Nightly dump of the {{ pg.name }} Postgres database
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

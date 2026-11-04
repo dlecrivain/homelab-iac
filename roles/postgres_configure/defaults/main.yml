@@ -1,0 +1,9 @@
+---
+# One rootless Postgres container per entry, each with its own port, data directory and password. Only the addresses in
+# clients reach its port. An entry has: name, image, port, database, user and clients. The password is generated on the
+# host the first time and read from there to make the Secret of the application by hand, since this repository is public.
+postgres_instances: []
+
+postgres_root: /var/lib/postgres
+postgres_backup_dir: /var/backups/postgres
+postgres_backup_keep_days: 7

@@ -1,0 +1,86 @@
+---
+# The data directory is created by the connecting user and then handed to the container's postgres user, uid 999 inside,
+# which is a sub-uid of the connecting user on the host. No owner is given to the task, so that a directory already handed
+# over keeps its owner when this runs again.
+- name: Create the data directory of {{ pg.name }}
+  ansible.builtin.file:
+    path: "{{ postgres_root }}/{{ pg.name }}/data"
+    state: directory
+    mode: '0700'
+
+- name: Check whether it already holds a cluster
+  ansible.builtin.stat:
+    path: "{{ postgres_root }}/{{ pg.name }}/data/PG_VERSION"
+  register: postgres_cluster
+  become: true
+
+- name: Hand an empty data directory to the container's postgres user
+  ansible.builtin.command: "podman unshare chown 999:999 {{ postgres_root }}/{{ pg.name }}/data"
+  changed_when: true
+  when: not postgres_cluster.stat.exists
+
+# The password is generated here, on the host, the first time, and is not shown or stored anywhere else.
+- name: Generate the environment file once
+  ansible.builtin.shell: |
+    set -e
+    umask 077
+    printf 'POSTGRES_DB={{ pg.database }}\nPOSTGRES_USER={{ pg.user }}\nPOSTGRES_PASSWORD=%s\n' "$(openssl rand -hex 24)" > {{ postgres_root }}/{{ pg.name }}.env
+  args:
+    executable: /bin/bash
+    creates: "{{ postgres_root }}/{{ pg.name }}.env"
+  no_log: true
+
+- name: Deploy the Quadlet unit of {{ pg.name }}
+  ansible.builtin.template:
+    src: postgres.container.j2
+    dest: "/home/{{ ansible_user }}/.config/containers/systemd/postgres-{{ pg.name }}.container"
+    mode: '0644'
+  register: postgres_quadlet
+
+- name: Deploy the nightly dump of {{ pg.name }}
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/home/{{ ansible_user }}/.config/systemd/user/{{ item | replace('postgres-dump', 'postgres-dump-' ~ pg.name) }}"
+    mode: '0644'
+  loop:
+    - postgres-dump.service
+    - postgres-dump.timer
+  register: postgres_dump_units
+
+- name: Reload the user systemd instance to pick up the regenerated units
+  ansible.builtin.systemd:
+    daemon_reload: true
+    scope: user
+  when: postgres_quadlet is changed or postgres_dump_units is changed
+
+- name: Restart {{ pg.name }} after a change
+  ansible.builtin.systemd:
+    name: "postgres-{{ pg.name }}.service"
+    state: restarted
+    scope: user
+  when: postgres_quadlet is changed
+
+# The restart above only happens when the unit file changed. A unit that is stopped or failed has to be started too.
+- name: Make sure {{ pg.name }} is running
+  ansible.builtin.systemd:
+    name: "postgres-{{ pg.name }}.service"
+    state: started
+    scope: user
+
+- name: Start the nightly dump of {{ pg.name }}
+  ansible.builtin.systemd:
+    name: "postgres-dump-{{ pg.name }}.timer"
+    enabled: true
+    state: started
+    scope: user
+
+# A rootless container's published port goes through the host's INPUT chain, so firewalld has to allow it, and only to the
+# addresses that use the database.
+- name: Open {{ pg.name }} to its clients only
+  ansible.posix.firewalld:
+    rich_rule: 'rule family="ipv4" source address="{{ item }}" port port="{{ pg.port }}" protocol="tcp" accept'
+    permanent: true
+    immediate: true
+    state: enabled
+  become: true
+  loop: "{{ pg.clients }}"

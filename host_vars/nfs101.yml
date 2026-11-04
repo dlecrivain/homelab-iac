@@ -16,3 +16,20 @@ nfs_shares:
     readers:
       - 192.168.1.123 # smb101, which copies the library to the cloud storage
   - name: paperless
+
+# The databases of the applications of the cluster, one container each on the local disk, reached by the nodes alone.
+postgres_instances:
+  - name: paperless
+    image: "{{ postgres_image }}"
+    port: 5432
+    database: paperless
+    user: paperless
+    clients: "{{ nfs_clients }}"
+
+podman_units:
+  - name: postgres_paperless
+    service_name: postgres-paperless
+    scope: user
+health_check_podman_user: deploy
+health_check_containers:
+  - postgres_paperless
