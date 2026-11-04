@@ -11,6 +11,7 @@
 #   semaphore-ctl copy-template <source-id> <name> <playbook> [--dry-run]
 #   semaphore-ctl add-schedule <template-id> '<cron>' <name> [--dry-run]
 #   semaphore-ctl set-schedule <schedule-id> '<cron>' [--dry-run]
+#   semaphore-ctl delete-schedule <schedule-id> [--dry-run]
 #
 # The API token is read from a file that nobody else may read, and is handed to curl through a
 # config descriptor so it never appears on a command line. Starting a task is limited to the
@@ -231,6 +232,20 @@ print("schedule %s created: %s, template %s" % (s["id"], s["cron_format"], s["te
 '
 }
 
+cmd_delete_schedule() {
+  local id=${1:?schedule id required} dry=0
+  [ "${2:-}" = "--dry-run" ] && dry=1
+  [[ $id =~ ^[0-9]+$ ]] || die "schedule id must be a number"
+  api GET "/api/project/$SEMAPHORE_PROJECT/schedules/$id" | python3 -c '
+import json, sys
+s = json.load(sys.stdin)
+print("schedule %s: %s, template %s, %s" % (s["id"], s["cron_format"], s["template_id"], s.get("name", "")))
+'
+  [ $dry -eq 1 ] && return 0
+  api DELETE "/api/project/$SEMAPHORE_PROJECT/schedules/$id" > /dev/null
+  echo "schedule $id deleted"
+}
+
 case "${1:-}" in
   templates) shift; cmd_templates "$@" ;;
   recent)    shift; cmd_recent "$@" ;;
@@ -242,5 +257,6 @@ case "${1:-}" in
   copy-template) shift; cmd_copy_template "$@" ;;
   add-schedule)  shift; cmd_add_schedule "$@" ;;
   set-schedule)  shift; cmd_set_schedule "$@" ;;
-  *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  delete-schedule) shift; cmd_delete_schedule "$@" ;;
+  *) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
