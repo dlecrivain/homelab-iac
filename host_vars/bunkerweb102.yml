@@ -108,7 +108,10 @@ bunkerweb_services:
     domain: grafana.lecrivaindaniel.fr
     extra:
       REVERSE_PROXY_URL: "/"
-      REVERSE_PROXY_HOST: "http://192.168.1.121:3000"
+      # Grafana runs on the cluster, behind Traefik, until every resolver answers its name with the address of Traefik. BunkerWeb
+      # reaches Traefik by the name of the cluster, whose certificate it checks.
+      REVERSE_PROXY_HOST: "https://grafana.k8s.lecrivaindaniel.fr"
+      REVERSE_PROXY_SSL_VERIFY: "yes"
       # Grafana Live (dashboard auto-refresh/streaming) needs WebSockets
       REVERSE_PROXY_WS: "yes"
       REVERSE_PROXY_SEND_TIMEOUT: 3600s
