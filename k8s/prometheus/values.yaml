@@ -10,8 +10,7 @@ nfs:
   path: /srv/nfs/prometheus
 
 prometheus:
-  # 0 while the database of the VM is copied over, then 1.
-  replicas: 0
+  replicas: 1
   retention: 1y
 
 images:
