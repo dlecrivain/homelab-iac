@@ -19,8 +19,8 @@ Nothing here needs a login on a node. Talos has no SSH and no shell; everything 
 Talos v1.14.5, Kubernetes v1.37.1. Pods get addresses in `10.244.0.0/16` (a /24 per node), Services in `10.96.0.0/12`.
 `192.168.1.128` (`talos-lb101`) is the address of Traefik, `192.168.1.129` (`talos-lb102`) is kept spare. All the
 addresses are reserved in phpIPAM. The four Talos VMs form the Proxmox pool `kubernetes`, which the fleet playbooks leave
-out. Semaphore stops them Thursday 05:30 to 11:30 and Friday 04:30 to 09:30 (templates 45 and 46, schedules 17 to 20), so
-that the backup and the updates have the memory they need.
+out. Semaphore stops them Friday from 04:30 to 09:30 (templates 45 and 46, schedules 19 and 20), so that the updates of the
+nodes have the memory they need. The Thursday backup does not need it.
 
 | Component | What it does | Where |
 |---|---|---|

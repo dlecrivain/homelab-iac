@@ -1,6 +1,6 @@
 # Paperless-ngx. Its files are on the nfs101 share, the database is outside the cluster. One replica that is replaced as a
-# whole on an update, never two at once: two instances must not write the same files and database. The image is the
-# version the database was dumped from, and the first start of a newer one runs its migrations.
+# whole on an update, never two at once: two instances must not write the same files and database. The first start of a
+# newer version runs its migrations, which cannot be undone: take a dump of the database before changing the tag.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -23,7 +23,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: paperless
-          image: ghcr.io/paperless-ngx/paperless-ngx:3.3.4
+          image: ghcr.io/paperless-ngx/paperless-ngx:3.4.2
           ports:
             - name: http
               containerPort: 8000

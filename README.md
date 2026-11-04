@@ -360,7 +360,7 @@ The VMs of the Proxmox pool `kubernetes` are the nodes of a test cluster running
 - **Creating a node.** `talos-create-vm.yml` takes `talos_vm_name`, reserves the address of the node in phpIPAM (it reuses the one already reserved for that name), creates the pool and the VM on `pve1` and starts it from the ISO. It reports the address the node got from DHCP, where it waits for its configuration in maintenance mode, and the reserved address to put in that configuration. Nodes are created one at a time: `pve1` already carries the most memory, and the playbook stops when less than 2 GiB would be left there.
 - **Installing it.** `talosctl apply-config` from a workstation writes Talos to the disk and sets the reserved address. The generated configuration holds the secrets of the cluster, so it stays outside this repository.
 - **Moving it.** `talos-place-vm.yml` takes the same variable, ejects the ISO, whose storage exists only on `pve1`, and migrates the node with its disk to the Proxmox node that `talos_nodes` gives it.
-- **Memory windows.** `kubernetes-stop.yml` and `kubernetes-start.yml`, scheduled in Semaphore, shut the nodes down and start them again around the Thursday backup and the Friday update, whose evacuations need the memory the nodes use.
+- **Memory windows.** `kubernetes-stop.yml` and `kubernetes-start.yml`, scheduled in Semaphore, shut the nodes down and start them again around the Friday update, whose evacuations need the memory the nodes use.
 
 ### Kubernetes workloads (Argo CD)
 
