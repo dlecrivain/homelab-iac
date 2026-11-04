@@ -1,0 +1,14 @@
+---
+# Where the data of the instance pg lives and how the container sees it. The images up to Postgres 17 declare
+# /var/lib/postgresql/data as their volume and keep the cluster in it. From 18 the volume is /var/lib/postgresql and the
+# cluster is in a directory named after the major version below it, which lets a later version be upgraded in place. Each major
+# version from 18 gets a host directory of its own, so the one before stays untouched as the way back until it is deleted.
+- name: Read the major version of {{ pg.name }}
+  ansible.builtin.set_fact:
+    pg_major: "{{ pg.major | default(17) | int }}"
+
+- name: Work out the layout of the data of {{ pg.name }}
+  ansible.builtin.set_fact:
+    pg_data_dir: "{{ postgres_root }}/{{ pg.name }}/{{ 'data' if pg_major | int < 18 else 'data' ~ pg_major }}"
+    pg_volume: "{{ '/var/lib/postgresql/data' if pg_major | int < 18 else '/var/lib/postgresql' }}"
+    pg_cluster_file: "{{ 'PG_VERSION' if pg_major | int < 18 else pg_major ~ '/docker/PG_VERSION' }}"

@@ -1,0 +1,139 @@
+---
+# Moves one Postgres database of nfs101 to the major version its entry in postgres_instances now names (major and image), by
+# a dump and a restore: a major version cannot read the files of the previous one. Run it with -e pg_name=<instance> once the
+# new major and image are pushed, and with the application stopped, since what it writes between the dump and the switch is
+# lost. The data of the previous version stays where it is, as the way back: put the old major and image in host_vars,
+# run configure-postgres.yml, and delete the new directory when the new version is given up. Nothing is done when the
+# database is already on the new version.
+- name: Move a Postgres database to another major version
+  hosts: "{{ postgres_host | default('nfs101') }}"
+  gather_facts: false
+  vars:
+    # The exact number of rows of every table: the same before and after proves that nothing was lost in the restore.
+    pg_rows_sql: >-
+      select sum((xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', schemaname, tablename), false, true, '')))[1]::text::bigint)
+      from pg_tables where schemaname = 'public';
+  tasks:
+    - name: Fail clearly without the name of an instance
+      ansible.builtin.fail:
+        msg: "pg_name must be one of: {{ postgres_instances | map(attribute='name') | join(', ') }}"
+      when: pg_name is not defined or pg_name not in (postgres_instances | map(attribute='name') | list)
+
+    - name: Find the instance
+      ansible.builtin.set_fact:
+        pg: "{{ postgres_instances | selectattr('name', 'equalto', pg_name) | first }}"
+
+    - name: Work out where the data of the new version is
+      ansible.builtin.include_role:
+        name: postgres_configure
+        tasks_from: layout.yml
+
+    - name: Check whether the new version already holds a cluster
+      ansible.builtin.stat:
+        path: "{{ pg_data_dir }}/{{ pg_cluster_file }}"
+      become: true
+      register: pg_new_cluster
+
+    - name: Check whether the restore into it was completed
+      ansible.builtin.stat:
+        path: "{{ postgres_root }}/{{ pg.name }}/restored-{{ pg_major }}"
+      register: pg_restored
+
+    - name: Stop when a previous run did not finish
+      ansible.builtin.fail:
+        msg: >-
+          {{ pg_data_dir }} holds a cluster but the restore was not completed. Delete it with
+          'podman unshare rm -rf {{ pg_data_dir }}' as {{ ansible_user }} and run this again.
+      when: pg_new_cluster.stat.exists and not pg_restored.stat.exists
+
+    - name: Say that there is nothing to do
+      ansible.builtin.debug:
+        msg: "{{ pg.name }} is already on Postgres {{ pg_major }}."
+      when: pg_restored.stat.exists
+
+    - name: Move the database
+      when: not pg_restored.stat.exists
+      block:
+        - name: Read the version and the rows of the running server
+          ansible.builtin.command: "podman exec -i postgres_{{ pg.name }} psql -U {{ pg.user }} -d {{ pg.database }} -tA"
+          args:
+            stdin: "{{ item }}"
+          loop:
+            - show server_version;
+            - "{{ pg_rows_sql }}"
+          register: pg_before
+          changed_when: false
+
+        - name: Dump the database with the running server
+          ansible.builtin.shell: |
+            set -o pipefail
+            file={{ postgres_backup_dir }}/{{ pg.name }}-before-{{ pg_major }}.dump
+            podman exec postgres_{{ pg.name }} pg_dump -Fc -U {{ pg.user }} {{ pg.database }} > "$file.tmp"
+            pg_size=$(stat -c %s "$file.tmp")
+            test "$pg_size" -gt 0
+            mv "$file.tmp" "$file"
+          args:
+            executable: /bin/bash
+          changed_when: true
+
+        - name: Stop the running server
+          ansible.builtin.systemd:
+            name: "postgres-{{ pg.name }}.service"
+            state: stopped
+            scope: user
+
+        # The Quadlet unit now names the new image and its data directory, and the new cluster is created empty from the
+        # environment file of the instance, so the password of the application stays valid.
+        - name: Start the new version
+          ansible.builtin.include_role:
+            name: postgres_configure
+
+        - name: Wait until the new server accepts connections
+          ansible.builtin.command: "podman exec postgres_{{ pg.name }} pg_isready -U {{ pg.user }} -d {{ pg.database }}"
+          register: pg_ready
+          until: pg_ready.rc == 0
+          retries: 30
+          delay: 2
+          changed_when: false
+
+        - name: Restore the dump
+          ansible.builtin.shell: >-
+            podman exec -i postgres_{{ pg.name }} pg_restore -U {{ pg.user }} -d {{ pg.database }} --exit-on-error
+            < {{ postgres_backup_dir }}/{{ pg.name }}-before-{{ pg_major }}.dump
+          args:
+            executable: /bin/bash
+          changed_when: true
+
+        # A dump carries no statistics, so the planner knows nothing about the tables until this has run.
+        - name: Collect the statistics of the planner
+          ansible.builtin.command: "podman exec postgres_{{ pg.name }} vacuumdb -U {{ pg.user }} --all --analyze-only -q"
+          changed_when: true
+
+        - name: Read the version and the rows of the new server
+          ansible.builtin.command: "podman exec -i postgres_{{ pg.name }} psql -U {{ pg.user }} -d {{ pg.database }} -tA"
+          args:
+            stdin: "{{ item }}"
+          loop:
+            - show server_version;
+            - "{{ pg_rows_sql }}"
+          register: pg_after
+          changed_when: false
+
+        - name: Stop when rows are missing
+          ansible.builtin.assert:
+            that: pg_after.results[1].stdout == pg_before.results[1].stdout
+            fail_msg: >-
+              {{ pg_before.results[1].stdout }} rows before and {{ pg_after.results[1].stdout }} after: the restore lost data.
+              The dump is {{ postgres_backup_dir }}/{{ pg.name }}-before-{{ pg_major }}.dump and the previous data directory is untouched.
+
+        - name: Remember that the restore was completed
+          ansible.builtin.file:
+            path: "{{ postgres_root }}/{{ pg.name }}/restored-{{ pg_major }}"
+            state: touch
+            mode: '0600'
+
+        - name: Report
+          ansible.builtin.debug:
+            msg:
+              - "{{ pg.name }}: Postgres {{ pg_before.results[0].stdout }} -> {{ pg_after.results[0].stdout }}, {{ pg_after.results[1].stdout }} rows, same as before."
+              - "The files of the previous version are still in {{ postgres_root }}/{{ pg.name }}/data, kept as the way back."

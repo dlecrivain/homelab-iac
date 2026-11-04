@@ -24,6 +24,7 @@ nfs_shares:
 postgres_instances:
   - name: paperless
     image: "{{ postgres_image }}"
+    major: 18
     port: 5432
     database: paperless
     user: paperless

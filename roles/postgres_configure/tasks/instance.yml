@@ -1,21 +1,24 @@
 ---
+- name: Work out where the data of {{ pg.name }} is
+  ansible.builtin.include_tasks: layout.yml
+
 # The data directory is created by the connecting user and then handed to the container's postgres user, uid 999 inside,
 # which is a sub-uid of the connecting user on the host. No owner is given to the task, so that a directory already handed
 # over keeps its owner when this runs again.
 - name: Create the data directory of {{ pg.name }}
   ansible.builtin.file:
-    path: "{{ postgres_root }}/{{ pg.name }}/data"
+    path: "{{ pg_data_dir }}"
     state: directory
     mode: '0700'
 
 - name: Check whether it already holds a cluster
   ansible.builtin.stat:
-    path: "{{ postgres_root }}/{{ pg.name }}/data/PG_VERSION"
+    path: "{{ pg_data_dir }}/{{ pg_cluster_file }}"
   register: postgres_cluster
   become: true
 
 - name: Hand an empty data directory to the container's postgres user
-  ansible.builtin.command: "podman unshare chown 999:999 {{ postgres_root }}/{{ pg.name }}/data"
+  ansible.builtin.command: "podman unshare chown 999:999 {{ pg_data_dir }}"
   changed_when: true
   when: not postgres_cluster.stat.exists
 
