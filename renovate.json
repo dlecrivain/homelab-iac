@@ -1,41 +1,85 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": [
+    "config:recommended"
+  ],
   "timezone": "Europe/Paris",
-  "schedule": ["after 3am and before 4am"],
-  "enabledManagers": ["kubernetes", "argocd"],
+  "schedule": [
+    "after 3am and before 4am"
+  ],
+  "enabledManagers": [
+    "kubernetes",
+    "argocd"
+  ],
   "kubernetes": {
-    "managerFilePatterns": ["/^k8s/.+\\.ya?ml$/"]
+    "managerFilePatterns": [
+      "/^k8s/.+\\.ya?ml$/"
+    ]
   },
   "argocd": {
-    "managerFilePatterns": ["/^k8s/apps/.+\\.ya?ml$/"]
+    "managerFilePatterns": [
+      "/^k8s/apps/.+\\.ya?ml$/"
+    ]
   },
   "minimumReleaseAge": "3 days",
   "prConcurrentLimit": 4,
-  "labels": ["dependencies"],
+  "labels": [
+    "dependencies"
+  ],
   "packageRules": [
     {
-      "description": "Paperless-ngx and its cache: minor and patch versions are merged by themselves, and Argo CD deploys them after a dump of the database",
-      "matchPackageNames": ["/paperless-ngx\\/paperless-ngx$/", "/valkey\\/valkey$/"],
-      "matchUpdateTypes": ["minor", "patch", "digest", "pin"],
+      "description": "Paperless-ngx, its Valkey and the Postgres 17 client of its dump: minor and patch versions and digests are merged by themselves, and Argo CD deploys them after a dump of the database",
+      "matchPackageNames": [
+        "/paperless-ngx\\/paperless-ngx$/",
+        "/valkey\\/valkey$/",
+        "/postgres$/"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest",
+        "pin"
+      ],
       "automerge": true
     },
     {
       "description": "Patch versions of the charts and of the approver of kubelet certificates are merged by themselves",
-      "matchDatasources": ["helm", "git-tags"],
-      "matchUpdateTypes": ["patch"],
+      "matchDatasources": [
+        "helm",
+        "git-tags"
+      ],
+      "matchUpdateTypes": [
+        "patch"
+      ],
       "automerge": true
     },
     {
       "description": "Cilium carries the network of every pod: always reviewed, and synchronised by hand in Argo CD",
-      "matchDepNames": ["cilium"],
+      "matchDepNames": [
+        "cilium"
+      ],
       "automerge": false,
-      "labels": ["dependencies", "manual-sync"]
+      "labels": [
+        "dependencies",
+        "manual-sync"
+      ]
     },
     {
       "description": "A new major version is never merged by itself",
-      "matchUpdateTypes": ["major"],
+      "matchUpdateTypes": [
+        "major"
+      ],
       "automerge": false
+    },
+    {
+      "description": "The dump job has the Postgres major version of the server of nfs101, which is changed by a dump and a restore and not by a bump of a tag",
+      "matchPackageNames": [
+        "/postgres$/"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "enabled": false
     }
   ]
 }
