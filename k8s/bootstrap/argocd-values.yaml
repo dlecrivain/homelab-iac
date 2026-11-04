@@ -51,11 +51,13 @@ notifications:
   triggers:
     # Once per synchronisation that ran. An application with two sources has a list of revisions and no single revision, so
     # the end of the operation is what tells one synchronisation from the next.
+    # root only lists the other applications, which send their own mail: a mail for it would repeat each of theirs. It is still
+    # reported when its synchronisation fails or it is degraded.
     trigger.on-deployed: |
       - description: The application is synchronised and healthy
         oncePer: app.status.operationState?.finishedAt
         send: [app-deployed]
-        when: app.status.operationState != nil and app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
+        when: app.metadata.name != 'root' and app.status.operationState != nil and app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
     trigger.on-sync-failed: |
       - description: The synchronisation failed
         oncePer: app.status.operationState?.finishedAt

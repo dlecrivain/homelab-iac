@@ -192,7 +192,10 @@ pull request, which is the moment the new version is known (the repository has t
 notification settings of GitHub). Argo CD sends the second, from the same mailbox as the alerts, once it has synchronised the
 application and the application is healthy: it says which version replaces which (the title of the Renovate commit for an image,
 the chart versions for a chart). It also mails when a
-synchronisation fails and when an application is degraded. The settings are in `k8s/bootstrap/argocd-values.yaml` and are
+synchronisation fails and when an application is degraded. The `root` application, which only lists the others, sends no
+mail for an update, since each of them sends its own. Changing the condition of a trigger (`when` or `oncePer`) makes every
+application send its mail once more, since Argo CD records what it has sent under a hash of that condition; changing the text
+of a template does not. The settings are in `k8s/bootstrap/argocd-values.yaml` and are
 applied with `helm upgrade`. The login of the mailbox is the Secret `argocd-notifications-secret` (`email-username`,
 `email-password`) and the recipient is the annotations `notifications.argoproj.io/subscribe.on-deployed.email`,
 `...on-sync-failed.email` and `...on-health-degraded.email` of the `default` AppProject, which every application belongs to.
