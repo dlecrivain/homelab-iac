@@ -26,6 +26,13 @@ nfs_shares:
       - 192.168.1.123 # smb101, which archives the configuration every night and copies it to the cloud storage
     # The files of Home Assistant belong to root and its .storage folder is closed to the others: the export is read-only.
     readers_root_squash: false
+  # The database of Prometheus (data), the state of Alertmanager and the copy of the nightly snapshot that smb101 sends to the cloud
+  # storage. They belong to nobody, the user of the images, and smb101 reads them as nobody too.
+  - name: prometheus
+    owner: "65534"
+    group: "65534"
+    readers:
+      - 192.168.1.123 # smb101, which sends the nightly snapshot to the cloud storage
 
 # The databases of the applications of the cluster, one container each on the local disk, reached by the nodes alone.
 postgres_instances:
