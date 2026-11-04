@@ -187,6 +187,16 @@ database (`k8s/paperless/presync-dump.yaml`, kept two weeks in `/srv/nfs/paperle
 deployment. To go back, revert the merge in git; if the new version migrated the database, restore the dump taken before it
 (`pg_restore` into the Postgres of `nfs101`). The Podman services keep `check-image-updates.yml`.
 
+**Mail about updates.** Two mails come for a version that is merged by itself. GitHub sends the first when Renovate opens the
+pull request, which is the moment the new version is known (the repository has to be watched for pull requests in the
+notification settings of GitHub). Argo CD sends the second, from the same mailbox as the alerts, once it has synchronised the
+application and the application is healthy: it gives the commit message and the images that now run. It also mails when a
+synchronisation fails and when an application is degraded. The settings are in `k8s/bootstrap/argocd-values.yaml` and are
+applied with `helm upgrade`. The login of the mailbox is the Secret `argocd-notifications-secret` (`email-username`,
+`email-password`) and the recipient is the annotations `notifications.argoproj.io/subscribe.on-deployed.email`,
+`...on-sync-failed.email` and `...on-health-degraded.email` of the `default` AppProject, which every application belongs to.
+Both are made by hand because the repository is public.
+
 **Updating Kubernetes.** The Kubernetes version is separate from the one of Talos, which an update of Talos does not
 change. The versions a Talos release supports are in its support matrix. One command updates the whole cluster:
 

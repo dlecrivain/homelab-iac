@@ -1,4 +1,5 @@
-# Values of the one-time helm install of Argo CD, see the README.
+# Values of the helm install of Argo CD, see the README. They are applied by hand with helm upgrade, since Argo CD does
+# not manage itself.
 configs:
   params:
     # Plain HTTP: the NodePort is reached on the LAN for now, and Traefik will terminate TLS in front of it.
@@ -6,7 +7,61 @@ configs:
 dex:
   enabled: false
 notifications:
-  enabled: false
+  enabled: true
+  argocdUrl: https://argocd.k8s.lecrivaindaniel.fr
+  # The login of the mailbox is in the Secret argocd-notifications-secret (email-username and email-password), made by
+  # hand since this repository is public. The recipient is the annotation notifications.argoproj.io/subscribe.<trigger>.email
+  # of the default AppProject, which every application belongs to, for the same reason.
+  secret:
+    create: false
+  notifiers:
+    service.email: |
+      host: smtp.gmail.com
+      port: 587
+      username: $email-username
+      password: $email-password
+      from: $email-username
+  templates:
+    template.app-deployed: |
+      email:
+        subject: "{{.app.metadata.name}} is up to date on the Kubernetes test cluster"
+      message: |
+        Argo CD has put a new version of {{.app.metadata.name}} in place and it is healthy.
+
+        Change: {{(call .repo.GetCommitMetadata .app.status.operationState.syncResult.revision).Message}}
+        Images: {{range $i, $image := .app.status.summary.images}}{{if $i}}, {{end}}{{$image}}{{end}}
+
+        {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
+    template.app-sync-failed: |
+      email:
+        subject: "{{.app.metadata.name}} could not be updated on the Kubernetes test cluster"
+      message: |
+        Argo CD failed to synchronise {{.app.metadata.name}}: {{.app.status.operationState.message}}
+
+        {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
+    template.app-health-degraded: |
+      email:
+        subject: "{{.app.metadata.name}} is degraded on the Kubernetes test cluster"
+      message: |
+        {{.app.metadata.name}} is not healthy.
+
+        {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
+  triggers:
+    # Once per synchronisation that ran: the revision of the operation does not change when other applications are updated.
+    trigger.on-deployed: |
+      - description: The application is synchronised and healthy
+        oncePer: app.status.operationState?.syncResult?.revision
+        send: [app-deployed]
+        when: app.status.operationState != nil and app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
+    trigger.on-sync-failed: |
+      - description: The synchronisation failed
+        oncePer: app.status.operationState?.finishedAt
+        send: [app-sync-failed]
+        when: app.status.operationState != nil and app.status.operationState.phase in ['Error', 'Failed']
+    trigger.on-health-degraded: |
+      - description: The application is degraded
+        send: [app-health-degraded]
+        when: app.status.health.status == 'Degraded'
 server:
   service:
     type: NodePort
