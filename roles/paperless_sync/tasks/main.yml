@@ -46,7 +46,7 @@
 - name: Synchronise Paperless with the folder
   ansible.builtin.command: >-
     /usr/local/sbin/paperless-sync
-    --url http://{{ hostvars[paperless_host].ansible_host }}:8000
+    --url {{ paperless_sync_url }}
     --source {{ paperless_sync_source | quote }}
     --rules {{ paperless_sync_rules | quote }}
     --token-file {{ paperless_sync_token_file }}
