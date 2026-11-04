@@ -1,7 +1,7 @@
 ---
 - name: Scan the fleet against the CIS benchmark with OpenSCAP
   # lpkat101 runs Rocky Linux 9, not 10, and is left out like it is from every other fleet-wide run.
-  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!proxmox_pool_kubernetes') }}"
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!proxmox_pool_kubernetes:!proxmox_pool_standby') }}"
   gather_facts: false
   serial: 1
   tasks:

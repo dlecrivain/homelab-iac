@@ -2,7 +2,7 @@
 # Needs configure-claude.yml to have run first: it creates the key of the fleet account on claude101.
 - name: Give the assistant of claude101 a read-only account on every VM
   # The Proxmox nodes have no sudo, so they are left out; claude101 does not read itself.
-  hosts: "{{ target_hosts | default('proxmox_all_qemu:!claude101:!proxmox_pool_kubernetes') }}"
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!claude101:!proxmox_pool_kubernetes:!proxmox_pool_standby') }}"
   gather_facts: false
   tasks:
     - name: Read the public key of the assistant's fleet account

@@ -13,7 +13,7 @@
     # own default now includes it (for standalone/ad-hoc visibility), but update-semaphore-peer.yml
     # (imported below) already runs its own nested container-updates.yml against semaphore104 after
     # its OS patch/reboot - without this override it would get processed (and aligned) twice per run.
-    target_hosts: "proxmox_all_qemu:!lpkat101:!semaphore103:!semaphore104:!proxmox_pool_kubernetes"
+    target_hosts: "proxmox_all_qemu:!lpkat101:!semaphore103:!semaphore104:!proxmox_pool_kubernetes:!proxmox_pool_standby"
 
 # update-semaphore-peer.yml, imported below, runs its own nested container-updates.yml against
 # semaphore104 and would otherwise overwrite these same fact names.
