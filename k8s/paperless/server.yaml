@@ -18,6 +18,9 @@ spec:
       labels:
         app.kubernetes.io/name: paperless
     spec:
+      # Kubernetes would give the pod variables named after its Services, among them PAPERLESS_PORT=tcp://<address>:8000 for
+      # the Service called paperless, which Paperless reads as the port to listen on and refuses to start with.
+      enableServiceLinks: false
       containers:
         - name: paperless
           image: ghcr.io/paperless-ngx/paperless-ngx:3.3.4
