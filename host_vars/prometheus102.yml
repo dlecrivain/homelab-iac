@@ -31,6 +31,8 @@ blackbox_http_targets:
     url: https://argocd.k8s.lecrivaindaniel.fr/
   - name: ipam
     url: https://ipam.lecrivaindaniel.fr/index.php?page=login
+  - name: homeassistant
+    url: https://homeassistant.lecrivaindaniel.fr/manifest.json
 blackbox_tcp_targets:
   - name: postgres-paperless
     address: 192.168.1.130:5432
@@ -38,3 +40,5 @@ blackbox_tcp_targets:
     address: 192.168.1.130:2049
   - name: mariadb-phpipam
     address: 192.168.1.130:3306
+  - name: postgres-homeassistant
+    address: 192.168.1.130:5433
