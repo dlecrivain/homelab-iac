@@ -112,6 +112,7 @@ bunkerweb_services:
       # reaches Traefik by the name of the cluster, whose certificate it checks.
       REVERSE_PROXY_HOST: "https://grafana.k8s.lecrivaindaniel.fr"
       REVERSE_PROXY_SSL_VERIFY: "yes"
+      REVERSE_PROXY_SSL_TRUSTED_CERTIFICATE: /etc/ssl/certs/ca-certificates.crt
       # Grafana Live (dashboard auto-refresh/streaming) needs WebSockets
       REVERSE_PROXY_WS: "yes"
       REVERSE_PROXY_SEND_TIMEOUT: 3600s
