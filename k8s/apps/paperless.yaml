@@ -1,5 +1,5 @@
-# The document archive. It is synchronised by hand for now, while the copy of the data is checked: it must not start by itself
-# on a database that is being restored.
+# The document archive. Argo CD applies a change of its manifests by itself, and puts back what is changed by hand. Its
+# Deployment is replaced as a whole on every change, so an update of the image means a short interruption.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -15,6 +15,9 @@ spec:
     server: https://kubernetes.default.svc
     namespace: paperless
   syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
