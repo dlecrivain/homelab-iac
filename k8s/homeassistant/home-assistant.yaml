@@ -10,7 +10,7 @@ metadata:
   name: homeassistant
   namespace: homeassistant
 spec:
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
