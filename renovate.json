@@ -1,0 +1,41 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "Europe/Paris",
+  "schedule": ["after 3am and before 4am"],
+  "enabledManagers": ["kubernetes", "argocd"],
+  "kubernetes": {
+    "managerFilePatterns": ["/^k8s/.+\\.ya?ml$/"]
+  },
+  "argocd": {
+    "managerFilePatterns": ["/^k8s/apps/.+\\.ya?ml$/"]
+  },
+  "minimumReleaseAge": "3 days",
+  "prConcurrentLimit": 4,
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "description": "Paperless-ngx and its cache: minor and patch versions are merged by themselves, and Argo CD deploys them after a dump of the database",
+      "matchPackageNames": ["/paperless-ngx\\/paperless-ngx$/", "/valkey\\/valkey$/"],
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin"],
+      "automerge": true
+    },
+    {
+      "description": "Patch versions of the charts and of the approver of kubelet certificates are merged by themselves",
+      "matchDatasources": ["helm", "git-tags"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true
+    },
+    {
+      "description": "Cilium carries the network of every pod: always reviewed, and synchronised by hand in Argo CD",
+      "matchDepNames": ["cilium"],
+      "automerge": false,
+      "labels": ["dependencies", "manual-sync"]
+    },
+    {
+      "description": "A new major version is never merged by itself",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    }
+  ]
+}

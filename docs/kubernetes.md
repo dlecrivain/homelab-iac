@@ -138,7 +138,8 @@ talosctl get members                           # the nodes of the cluster
   `talosctl apply-config --insecure -n <dhcp address> -f <file>`, wait until it has installed itself, then run "Talos -
   Place VM" (48). The reserved address is reused when a node is rebuilt. If Kubernetes was updated since the configuration
   files were made, generate them again first (section 7).
-- **Change a version or a setting**: edit the Application in `k8s/apps/` or its file in `k8s/values/`, commit, push.
+- **Change a version or a setting**: edit the Application in `k8s/apps/` or its file in `k8s/values/`, commit, push. Renovate
+  does it for the versions (section 7).
 - **Change Cilium**: after the push, read the difference (`argocd app diff cilium` or the interface) and synchronise by
   hand. Restart the operator and the agents if the ConfigMap changed.
 - **Remove a component**: delete its files from `k8s/`. Argo CD removes the Application but not what it deployed, because
@@ -173,6 +174,14 @@ talosctl upgrade -n <node> --image factory.talos.dev/metal-installer/<schematic 
 - Use a `talosctl` of the same version as the cluster. Update one node, check, then the next. `talosctl dmesg -f` or
   `--wait` shows progress.
 - Nothing updates Talos automatically here yet. `talos_version` and the schematic are in `group_vars/all.yml`.
+
+**Updating what runs on the cluster.** Renovate reads `renovate.json` and proposes the new versions of the images in `k8s/` and
+of the charts and tags of the Applications, between 03:00 and 04:00, three days after a release. Minor and patch versions of
+Paperless-ngx and its Valkey, and patch versions of the charts, are merged by themselves, and Argo CD, which polls git, deploys
+the merge. Cilium and the major versions stay as pull requests. Before Paperless is replaced, a hook of Argo CD dumps its
+database (`k8s/paperless/presync-dump.yaml`, kept two weeks in `/srv/nfs/paperless/backups`), and a failed dump stops the
+deployment. To go back, revert the merge in git; if the new version migrated the database, restore the dump taken before it
+(`pg_restore` into the Postgres of `nfs101`). The Podman services keep `check-image-updates.yml`.
 
 **Updating Kubernetes.** The Kubernetes version is separate from the one of Talos, which an update of Talos does not
 change. The versions a Talos release supports are in its support matrix. One command updates the whole cluster:

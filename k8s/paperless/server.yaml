@@ -1,6 +1,7 @@
 # Paperless-ngx. Its files are on the nfs101 share, the database is outside the cluster. One replica that is replaced as a
 # whole on an update, never two at once: two instances must not write the same files and database. The first start of a
-# newer version runs its migrations, which cannot be undone: take a dump of the database before changing the tag.
+# newer version runs its migrations, which cannot be undone: presync-dump.yaml takes a dump of the database before every
+# synchronisation, so a change of the tag is safe to merge by itself.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -1,0 +1,45 @@
+# A dump of the database before every synchronisation of this application, which Argo CD runs as a hook: the first start
+# of a newer version migrates the database, and a migration cannot be undone. If the dump fails the synchronisation stops
+# and nothing is replaced. The last two weeks are kept next to the files, on the share of nfs101.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: paperless-dump
+  namespace: paperless
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      enableServiceLinks: false
+      containers:
+        - name: dump
+          image: docker.io/library/postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: paperless-secrets
+                  key: PAPERLESS_DBPASS
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              file=/backups/paperless-$(date +%Y%m%d-%H%M%S).dump
+              pg_dump -h 192.168.1.130 -U paperless -Fc paperless > "$file.tmp"
+              mv "$file.tmp" "$file"
+              find /backups -name 'paperless-*.dump' -mtime +14 -delete
+              ls -l "$file"
+          volumeMounts:
+            - name: backups
+              mountPath: /backups
+      volumes:
+        - name: backups
+          nfs:
+            server: 192.168.1.130
+            path: /srv/nfs/paperless/backups
