@@ -9,7 +9,7 @@
 set -euo pipefail
 
 PROMETHEUS_URL={{ prometheus_url }}
-GRAFANA_URL=http://{{ hostvars[grafana_host].ansible_host }}:3000
+GRAFANA_URL={{ grafana_url }}
 
 die() { echo "monitoring-ctl: $*" >&2; exit 1; }
 

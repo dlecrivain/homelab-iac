@@ -101,11 +101,10 @@ bunkerweb_ovh_application_secret: "{{ lookup('env', 'BUNKERWEB_OVH_APPLICATION_S
 bunkerweb_ovh_consumer_key: "{{ lookup('env', 'BUNKERWEB_OVH_CONSUMER_KEY') }}"
 bunkerweb_admin_password: "{{ lookup('env', 'BUNKERWEB_ADMIN_PASSWORD') }}"
 
-# Monitoring (configure-grafana.yml, configure-monitoring.yml and the prometheus_target role). Prometheus itself runs on the
-# Kubernetes test cluster, from k8s/prometheus.
-# What Grafana queries: Prometheus on the Kubernetes test cluster, by the name of the cluster, which only Traefik answers.
+# Monitoring (configure-monitoring.yml and the prometheus_target role). Prometheus and Grafana run on the Kubernetes test cluster,
+# from k8s/prometheus and k8s/grafana, and are reached by the names of the cluster, which only Traefik answers.
 prometheus_url: "https://prometheus.k8s.lecrivaindaniel.fr"
-grafana_host: grafana102
+grafana_url: "https://grafana.k8s.lecrivaindaniel.fr"
 node_exporter_version: "1.12.1"
 smartctl_exporter_version: "0.15.0"
 
@@ -137,13 +136,10 @@ proxmox_token_secret: "{{ lookup('env', 'PROXMOX_TOKEN_SECRET') }}"
 proxmox_api_user: "ansible@pve"
 proxmox_api_token_id: "automation"
 
-# Must be set in Semaphore's Variable Group before the first configure-grafana.yml run.
-grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') }}"
 
 # Pinned image versions. check-image-updates.yml bumps these in place when a same-major-line
 # update is available; the container itself is left alone, so the next container-updates run
 # applies it like any other config change. Semaphore has its own bump playbook instead.
-grafana_version: "13.3.0"
 bunkerweb_version: "1.6.17"
 # The host that runs BunkerWeb (configure-bunkerweb.yml); its reverse-proxied sites are bunkerweb_services in its host_vars.
 bunkerweb_host: bunkerweb102
@@ -195,11 +191,6 @@ talos_nodes:
 # container tells it whether a bump has been applied yet. Semaphore has its own bump playbook,
 # and Immich is compared against its GitHub releases instead (informational only).
 image_update_watch_list:
-  - name: grafana
-    docker_repo: grafana/grafana
-    version_var: grafana_version
-    container_name: grafana
-    host: "{{ grafana_host }}"
   - name: bunkerweb
     docker_repo: bunkerity/bunkerweb-all-in-one
     version_var: bunkerweb_version

@@ -43,6 +43,7 @@ which hold them with room to spare. Nothing is stopped on a schedule any more.
 | phpIPAM | The address manager the playbooks call as an API, and its subnet scan; database in the MariaDB of `nfs101` | `phpipam` |
 | Home Assistant | The home automation, with its Matter server, in one pod on the host network of a worker; configuration on `nfs101`, history in its Postgres | `homeassistant` |
 | Prometheus, Alertmanager | Scrape the exporters and the probes, raise and mail the alerts; the database is on `nfs101`, with a snapshot every night | `monitoring` |
+| Grafana | The dashboards of Prometheus, provisioned from `k8s/grafana`; its state is in a Postgres of `nfs101` | `monitoring` |
 | `nfs101` | Files of the applications over NFSv4, and their Postgres and MariaDB databases on its own disk | VM outside the cluster |
 
 ## 2. How you operate it
