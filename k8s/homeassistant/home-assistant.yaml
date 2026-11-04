@@ -1,0 +1,124 @@
+# Home Assistant with the Matter server beside it, in one pod on the host network of a worker: the two talk over localhost, as
+# they did on the VM. The configuration and the data of the Matter fabric are on the share of nfs101; the history is in its
+# Postgres, never in a SQLite file on NFS. The password of the history is in the Secret homeassistant-secrets, made by hand
+# since this repository is public. One pod, replaced as a whole on a change: two instances must never run together, HomeKit
+# and Matter would clash. It prefers the worker that carries the least, and can start on another one if that one is down,
+# with that worker's address: the apps reach it by its name.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homeassistant
+  namespace: homeassistant
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: homeassistant
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: homeassistant
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      enableServiceLinks: false
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - talos-wk103
+      containers:
+        - name: homeassistant
+          image: docker.io/homeassistant/home-assistant:2026.10.4
+          env:
+            - name: TZ
+              value: Europe/Paris
+            - name: HA_RECORDER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: homeassistant-secrets
+                  key: HA_RECORDER_URL
+          volumeMounts:
+            - name: config
+              mountPath: /config
+          # The first start installs what the integrations need, and a restart reloads them all.
+          startupProbe:
+            httpGet:
+              path: /manifest.json
+              port: 8123
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /manifest.json
+              port: 8123
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /manifest.json
+              port: 8123
+            periodSeconds: 30
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 200m
+              memory: 768Mi
+            limits:
+              memory: 1536Mi
+        - name: matter-server
+          image: ghcr.io/matter-js/matterjs-server:1.5.5
+          env:
+            - name: TZ
+              value: Europe/Paris
+            # Home Assistant reaches the server at ws://localhost:5580/ws.
+            - name: LISTEN_ADDRESS
+              value: 127.0.0.1
+            - name: LOG_LEVEL
+              value: info
+            # The fabric of the Matter server of Home Assistant (vendor 0x134B, fabric 2). The server names its storage directory
+            # after them (server-2-134b), so the devices commissioned under this fabric are only found when both values match.
+            - name: VENDOR_ID
+              value: "4939"
+            - name: FABRIC_ID
+              value: "2"
+            - name: ENABLE_TIME_SYNC
+              value: "true"
+          volumeMounts:
+            - name: matter
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 384Mi
+      volumes:
+        - name: config
+          nfs:
+            server: 192.168.1.130
+            path: /srv/nfs/homeassistant/config
+        - name: matter
+          nfs:
+            server: 192.168.1.130
+            path: /srv/nfs/homeassistant/matter
+---
+# The pod is on the network of its node: this Service sends to the address of the pod, which is the one of the node.
+apiVersion: v1
+kind: Service
+metadata:
+  name: homeassistant
+  namespace: homeassistant
+spec:
+  selector:
+    app.kubernetes.io/name: homeassistant
+  ports:
+    - name: http
+      port: 8123
+      targetPort: 8123

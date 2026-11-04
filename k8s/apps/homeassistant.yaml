@@ -1,0 +1,23 @@
+# Home Assistant and its Matter server. Argo CD applies a change of its manifests by itself, and puts back what is changed by
+# hand, which includes the number of replicas: stop it by changing the manifest.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: homeassistant
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/dlecrivain/homelab-iac.git
+    targetRevision: main
+    path: k8s/homeassistant
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: homeassistant
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

@@ -1,0 +1,35 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: homeassistant
+  namespace: homeassistant
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - homeassistant.lecrivaindaniel.fr
+      secretName: homeassistant-tls
+  rules:
+    - host: homeassistant.k8s.lecrivaindaniel.fr
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: homeassistant
+                port:
+                  number: 8123
+    - host: homeassistant.lecrivaindaniel.fr
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: homeassistant
+                port:
+                  number: 8123

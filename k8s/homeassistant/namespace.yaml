@@ -1,0 +1,9 @@
+# Home Assistant and its Matter server are on the network of the node they run on, since the discovery of the devices (mDNS, SSDP,
+# DHCP), the HomeKit bridge and the Thread and Matter devices need the LAN itself. The PodSecurity baseline refuses that, so this
+# namespace, and only this one, is privileged.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: homeassistant
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
