@@ -2,7 +2,7 @@
 - name: Back up every VM to Stockage_SSD then pCloud, migrating each one back after
   hosts: "{{ target_hosts | default('proxmox_all_qemu:!proxmox_pool_kubernetes') }}"
   gather_facts: false
-  serial: 3
+  serial: 1
   tasks:
     - name: Resolve a reachable Proxmox node for delegate_to (falls back to pve2/pve3 if pve1 is down)
       include_role:
