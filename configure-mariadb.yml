@@ -1,0 +1,8 @@
+---
+- name: Configure the MariaDB databases of the Kubernetes test cluster
+  hosts: "{{ mariadb_host | default('nfs101') }}"
+  gather_facts: false
+  tasks:
+    - name: Run the MariaDB containers
+      include_role:
+        name: mariadb_configure

@@ -1,0 +1,8 @@
+[Unit]
+Description=Dump the {{ db.name }} MariaDB database
+Requires=mariadb-{{ db.name }}.service
+After=mariadb-{{ db.name }}.service
+
+[Service]
+Type=oneshot
+ExecStart={{ mariadb_root }}/dump-{{ db.name }}.sh

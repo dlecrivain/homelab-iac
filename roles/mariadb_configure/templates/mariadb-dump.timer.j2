@@ -1,0 +1,9 @@
+[Unit]
+Description=Nightly dump of the {{ db.name }} MariaDB database
+
+[Timer]
+OnCalendar=*-*-* 03:40:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

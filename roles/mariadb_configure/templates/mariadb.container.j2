@@ -1,0 +1,24 @@
+[Unit]
+Description=MariaDB {{ db.name }}
+
+[Container]
+Image={{ db.image }}
+ContainerName=mariadb_{{ db.name }}
+EnvironmentFile={{ mariadb_root }}/{{ db.name }}.env
+Volume={{ mariadb_root }}/{{ db.name }}/data:/var/lib/mysql:Z
+PublishPort={{ db.port }}:3306
+HealthCmd=healthcheck.sh --connect --innodb_initialized
+HealthInterval=30s
+# A longer stop timeout, and skipping the buffer-pool dump and load, keep the shutdown short enough to complete cleanly.
+StopTimeout=60
+Exec=--innodb-buffer-pool-dump-at-shutdown=0 --innodb-buffer-pool-load-at-startup=0
+
+[Service]
+# tc.log only exists to resolve in-doubt two-phase-commit transactions after a crash. phpIPAM never issues XA transactions, so
+# removing it before each start avoids a recovery from a stale copy. The directory belongs to a sub-uid, hence podman unshare.
+ExecStartPre=-/usr/bin/podman unshare rm -f {{ mariadb_root }}/{{ db.name }}/data/tc.log
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

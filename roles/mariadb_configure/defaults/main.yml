@@ -1,0 +1,9 @@
+---
+# One rootless MariaDB container per entry, each with its own port, data directory and passwords. Only the addresses in clients
+# reach its port. An entry has: name, image, port, database, user and clients. The passwords are generated on the host the
+# first time and read from there to make the Secret of the application by hand, since this repository is public.
+mariadb_instances: []
+
+mariadb_root: /var/lib/mariadb
+mariadb_backup_dir: /var/backups/mariadb
+mariadb_backup_keep_days: 7

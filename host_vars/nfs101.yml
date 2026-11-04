@@ -30,10 +30,23 @@ postgres_instances:
     user: paperless
     clients: "{{ nfs_clients + nfs_probers }}"
 
+# The databases of the applications that moved to the cluster and need MariaDB, same arrangement as the Postgres ones.
+mariadb_instances:
+  - name: phpipam
+    image: "{{ mariadb_image }}"
+    port: 3306
+    database: phpipam
+    user: phpipam
+    clients: "{{ nfs_clients + nfs_probers }}"
+
 podman_units:
+  - name: mariadb_phpipam
+    service_name: mariadb-phpipam
+    scope: user
   - name: postgres_paperless
     service_name: postgres-paperless
     scope: user
 health_check_podman_user: deploy
 health_check_containers:
   - postgres_paperless
+  - mariadb_phpipam

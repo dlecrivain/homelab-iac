@@ -1,0 +1,8 @@
+#!/bin/bash
+# Dumps the {{ db.name }} database with the credentials of its own container, so that none appears here.
+set -euo pipefail
+file={{ mariadb_backup_dir }}/{{ db.name }}-$(date +%F).sql.gz
+podman exec mariadb_{{ db.name }} sh -c 'MYSQL_PWD="$MARIADB_PASSWORD" mariadb-dump -u"$MARIADB_USER" --single-transaction --routines --triggers "$MARIADB_DATABASE"' | gzip > "$file.tmp"
+test -s "$file.tmp"
+mv "$file.tmp" "$file"
+find {{ mariadb_backup_dir }} -name '{{ db.name }}-*.sql.gz' -mtime +{{ mariadb_backup_keep_days }} -delete

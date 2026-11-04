@@ -1,0 +1,39 @@
+---
+# Runs rootless as the connecting user itself, like postgres_configure: the host's host_vars set podman_units to scope
+# 'user' with no become_user, so systemctl --user works against this same session's runtime dir.
+
+# Without lingering, the user's systemd instance and its containers stop when the last session ends and do not start at
+# boot.
+- name: Let the user's services run without a login session
+  ansible.builtin.command: "loginctl enable-linger {{ ansible_user }}"
+  args:
+    creates: "/var/lib/systemd/linger/{{ ansible_user }}"
+  become: true
+
+- name: Create the directories of the databases and of their dumps
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0700'
+  become: true
+  loop:
+    - "{{ mariadb_root }}"
+    - "{{ mariadb_backup_dir }}"
+
+- name: Create the directories of the user's units
+  ansible.builtin.file:
+    path: "/home/{{ ansible_user }}/.config/{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - containers/systemd
+    - systemd/user
+
+- name: Set up each instance
+  ansible.builtin.include_tasks: instance.yml
+  loop: "{{ mariadb_instances }}"
+  loop_control:
+    loop_var: db
+    label: "{{ db.name }}"

@@ -198,6 +198,9 @@ paperless_domain: paperless.lecrivaindaniel.fr
 # The Postgres image of the databases that run next to the NFS server (configure-postgres.yml). Pinned by digest: a major
 # version needs a dump and restore (upgrade-postgres.yml), and the major of each instance is in host_vars/nfs101.yml.
 postgres_image: "docker.io/library/postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81"
+# The MariaDB image of the databases that run next to the NFS server (configure-mariadb.yml), the version phpIPAM already ran on.
+# Pinned by digest, and a major version needs a dump and restore.
+mariadb_image: "docker.io/library/mariadb:12.3.2@sha256:a02fe89cb597d4375812b2eac90cf9d0775d4686daa7f7cc750ebbcad7525bbc"
 
 # The host that shares the files of the Aqara doorbell over SMB (configure-smb.yml), see the README.
 smb_host: smb101
