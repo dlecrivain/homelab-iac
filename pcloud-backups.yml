@@ -28,6 +28,15 @@
       loop_control:
         label: "{{ item.path }}"
 
+    # The configuration of other hosts is packed here first, into archives with a date that the jobs below then copy: a copy of the
+    # live folder alone would keep no earlier state of it.
+    - name: Archive the configuration that config_archives lists
+      ansible.builtin.include_tasks: tasks/config_archive.yml
+      loop: "{{ config_archives | default([]) }}"
+      loop_control:
+        loop_var: archive
+        label: "{{ archive.name }}"
+
     # The remote holds a pCloud token, so it is copied by hand once and never stored in this repository.
     - name: Check that the pCloud remote is configured
       ansible.builtin.command: rclone listremotes

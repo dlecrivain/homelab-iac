@@ -1,0 +1,32 @@
+---
+# Packs the folders an entry of config_archives lists into a dated archive, and removes the ones older than keep_days. The entry has:
+# name, directory (where the paths are), paths, dest, keep_days and optionally exclude. The archive is written next to its final
+# name and renamed, so that a copy to the cloud storage never reads a half-written one.
+- name: "Create the folder of the archives of {{ archive.name }}"
+  ansible.builtin.file:
+    path: "{{ archive.dest }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: "Archive {{ archive.name }}"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    file={{ archive.dest }}/{{ archive.name }}-$(date +%F).tar.gz
+    tar -C {{ archive.directory }} -czf "$file.tmp" {{ archive.exclude | default([]) | map('quote') | map('regex_replace', '^(.*)$', '--exclude=\1') | join(' ') }} {{ archive.paths | join(' ') }}
+    tar -tzf "$file.tmp" > /dev/null
+    mv "$file.tmp" "$file"
+    ls -l "$file" | awk '{print $5}'
+  args:
+    executable: /bin/bash
+  register: config_archive_result
+  changed_when: true
+
+- name: "Remove the archives of {{ archive.name }} older than {{ archive.keep_days }} days"
+  ansible.builtin.command: "find {{ archive.dest }} -name '{{ archive.name }}-*.tar.gz' -mtime +{{ archive.keep_days }} -delete"
+  changed_when: false
+
+- name: "Report the archive of {{ archive.name }}"
+  ansible.builtin.debug:
+    msg: "{{ archive.name }}: {{ (config_archive_result.stdout_lines | last | int / 1048576) | round(1) }} MiB"

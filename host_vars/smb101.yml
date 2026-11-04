@@ -16,6 +16,27 @@ openscap_waived_rules:
 pcloud_backup_mounts:
   - src: "192.168.1.117:/var/lib/immich/photos/library"
     path: /mnt/immich-library
+  - src: "192.168.1.130:/srv/nfs/homeassistant"
+    path: /mnt/homeassistant
+
+# The configuration of Home Assistant and the data of its Matter server, packed every night into a dated archive before the copy
+# below, and kept 14 days here. The history is in a Postgres that nfs101 dumps itself, the internal backups and the caches are
+# left out.
+config_archives:
+  - name: homeassistant
+    directory: /mnt/homeassistant
+    paths:
+      - config
+      - matter
+    exclude:
+      - config/backups
+      - config/deps
+      - config/tts
+      - "config/home-assistant.log*"
+      - "config/home-assistant_v2.db*"
+      - "*/__pycache__"
+    dest: /srv/backups/homeassistant
+    keep_days: 14
 
 pcloud_backup_jobs:
   - name: Immich Daniel
@@ -33,3 +54,8 @@ pcloud_backup_jobs:
     source: /srv/aqara
     dest: "pcloud:Backups/Aqara"
     extra_args: "--min-age 10m"
+  # The archives of the configuration are never deleted from the cloud storage by this copy.
+  - name: Home Assistant configuration
+    mode: copy
+    source: /srv/backups/homeassistant
+    dest: "pcloud:Backups/HomeAssistant"
