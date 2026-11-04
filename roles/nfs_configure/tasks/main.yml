@@ -114,11 +114,11 @@
   changed_when: true
   when: nfs_exports is changed
 
-- name: Open NFS to the nodes, the readers and the probers only
+- name: Open NFS to the nodes and the readers only
   ansible.posix.firewalld:
     rich_rule: 'rule family="ipv4" source address="{{ item }}" port port="2049" protocol="tcp" accept'
     permanent: true
     immediate: true
     state: enabled
   become: true
-  loop: "{{ (nfs_clients + nfs_probers + (nfs_shares | map(attribute='readers', default=[]) | flatten)) | unique | list }}"
+  loop: "{{ (nfs_clients + (nfs_shares | map(attribute='readers', default=[]) | flatten)) | unique | list }}"

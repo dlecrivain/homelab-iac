@@ -13,9 +13,6 @@ nfs_clients:
   - 192.168.1.125
   - 192.168.1.126
   - 192.168.1.118
-# The Prometheus host, which checks every minute that the NFS and Postgres ports answer.
-nfs_probers:
-  - "{{ hostvars[prometheus_host].ansible_host }}"
 nfs_shares:
   - name: immich
     readers:
@@ -42,14 +39,14 @@ postgres_instances:
     port: 5432
     database: paperless
     user: paperless
-    clients: "{{ nfs_clients + nfs_probers }}"
+    clients: "{{ nfs_clients }}"
   - name: homeassistant
     image: "{{ postgres_image }}"
     major: 18
     port: 5433
     database: homeassistant
     user: homeassistant
-    clients: "{{ nfs_clients + nfs_probers }}"
+    clients: "{{ nfs_clients }}"
 
 # The databases of the applications that moved to the cluster and need MariaDB, same arrangement as the Postgres ones.
 mariadb_instances:
@@ -58,7 +55,7 @@ mariadb_instances:
     port: 3306
     database: phpipam
     user: phpipam
-    clients: "{{ nfs_clients + nfs_probers }}"
+    clients: "{{ nfs_clients }}"
 
 podman_units:
   - name: mariadb_phpipam

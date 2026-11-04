@@ -101,9 +101,8 @@ bunkerweb_ovh_application_secret: "{{ lookup('env', 'BUNKERWEB_OVH_APPLICATION_S
 bunkerweb_ovh_consumer_key: "{{ lookup('env', 'BUNKERWEB_OVH_CONSUMER_KEY') }}"
 bunkerweb_admin_password: "{{ lookup('env', 'BUNKERWEB_ADMIN_PASSWORD') }}"
 
-# Monitoring (configure-prometheus.yml, configure-grafana.yml, configure-monitoring.yml and the
-# prometheus_target role).
-prometheus_host: prometheus102
+# Monitoring (configure-grafana.yml, configure-monitoring.yml and the prometheus_target role). Prometheus itself runs on the
+# Kubernetes test cluster, from k8s/prometheus.
 # What Grafana queries: Prometheus on the Kubernetes test cluster, by the name of the cluster, which only Traefik answers.
 prometheus_url: "https://prometheus.k8s.lecrivaindaniel.fr"
 grafana_host: grafana102
@@ -133,15 +132,7 @@ openscap_score_target: 90
 openscap_regression_points: 2
 openscap_report_common_failures: 15
 
-# Manufacturer endurance rating (TBW) of each NVMe model, by the name smartctl reports. The disk wear
-# rules use it to estimate wear from bytes written, because the drive's own percentage_used moves in
-# whole percent and can lag behind the rating.
-disk_rated_endurance_tbw:
-  CT1000P3SSD8: 220    # Crucial P3 1 TB
-  CT1000P5PSSD8: 600   # Crucial P5 Plus 1 TB
-
-# The same API token inventory/proxmox.yml uses, exposed as a normal var so
-# prometheus_pve_exporter_configure can consume it. user and token_id must match that file.
+# The same API token inventory/proxmox.yml uses, exposed as a normal var. user and token_id must match that file.
 proxmox_token_secret: "{{ lookup('env', 'PROXMOX_TOKEN_SECRET') }}"
 proxmox_api_user: "ansible@pve"
 proxmox_api_token_id: "automation"
@@ -152,9 +143,6 @@ grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') }}"
 # Pinned image versions. check-image-updates.yml bumps these in place when a same-major-line
 # update is available; the container itself is left alone, so the next container-updates run
 # applies it like any other config change. Semaphore has its own bump playbook instead.
-prometheus_version: "v3.15.1"
-alertmanager_version: "v0.34.2"
-blackbox_exporter_version: "v0.29.1"
 grafana_version: "13.3.0"
 bunkerweb_version: "1.6.17"
 # The host that runs BunkerWeb (configure-bunkerweb.yml); its reverse-proxied sites are bunkerweb_services in its host_vars.
@@ -162,7 +150,6 @@ bunkerweb_host: bunkerweb102
 # The host that runs AdGuard Home (configure-adguard.yml), rootless as its connecting user.
 adguard_host: adguard102
 adguard_version: "v0.107.80"
-pve_exporter_version: "3.11.0"
 # Immich (configure-immich.yml). Pinned rather than :release so a container restart cannot change
 # version on its own: Immich's upgrades run database migrations, which belong in a run that snapshots
 # the VM first. Server and machine-learning share this version, they always move together.
@@ -208,21 +195,6 @@ talos_nodes:
 # container tells it whether a bump has been applied yet. Semaphore has its own bump playbook,
 # and Immich is compared against its GitHub releases instead (informational only).
 image_update_watch_list:
-  - name: prometheus
-    docker_repo: prom/prometheus
-    version_var: prometheus_version
-    container_name: prometheus
-    host: "{{ prometheus_host }}"
-  - name: alertmanager
-    docker_repo: prom/alertmanager
-    version_var: alertmanager_version
-    container_name: alertmanager
-    host: "{{ prometheus_host }}"
-  - name: blackbox-exporter
-    docker_repo: prom/blackbox-exporter
-    version_var: blackbox_exporter_version
-    container_name: blackbox-exporter
-    host: "{{ prometheus_host }}"
   - name: grafana
     docker_repo: grafana/grafana
     version_var: grafana_version
@@ -238,8 +210,3 @@ image_update_watch_list:
     version_var: adguard_version
     container_name: adguardhome
     host: "{{ adguard_host }}"
-  - name: pve-exporter
-    docker_repo: prompve/prometheus-pve-exporter
-    version_var: pve_exporter_version
-    container_name: pve-exporter
-    host: "{{ prometheus_host }}"

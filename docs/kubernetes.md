@@ -42,6 +42,7 @@ which hold them with room to spare. Nothing is stopped on a schedule any more.
 | Paperless-ngx | The document archive, moved here as a pilot: files on `nfs101`, database in its Postgres, Valkey for the queue | `paperless` |
 | phpIPAM | The address manager the playbooks call as an API, and its subnet scan; database in the MariaDB of `nfs101` | `phpipam` |
 | Home Assistant | The home automation, with its Matter server, in one pod on the host network of a worker; configuration on `nfs101`, history in its Postgres | `homeassistant` |
+| Prometheus, Alertmanager | Scrape the exporters and the probes, raise and mail the alerts; the database is on `nfs101`, with a snapshot every night | `monitoring` |
 | `nfs101` | Files of the applications over NFSv4, and their Postgres and MariaDB databases on its own disk | VM outside the cluster |
 
 ## 2. How you operate it
@@ -113,8 +114,10 @@ containerd and kubelet, and the node registers with the API. Cilium starts on it
 | The OVH zone or Let's Encrypt | Only new certificates fail | Wait, or look at the challenge |
 | The laptop | Nothing stops. You cannot operate the cluster until the files of section 2 are available | Restore them from the backup |
 
-Prometheus on `prometheus102` mails you for the failures that a user would notice: Paperless, phpIPAM or Argo CD not answering
+Prometheus mails you for the failures that a user would notice: Paperless, phpIPAM, Home Assistant or Argo CD not answering
 over HTTPS for five minutes, the Postgres, MariaDB or NFS port of `nfs101` closed, a certificate with less than 14 days left.
+It runs on the cluster itself, so a run of Semaphore outside it (`watch-monitoring.yml`, every 20 minutes) mails when Prometheus or
+Alertmanager does not answer.
 
 ## 5. First reflexes
 
