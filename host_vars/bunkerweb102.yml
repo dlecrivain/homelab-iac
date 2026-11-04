@@ -84,16 +84,6 @@ bunkerweb_services:
       REVERSE_PROXY_READ_TIMEOUT: 3600s
       MAX_CLIENT_SIZE: 0
 
-  - name: ipam
-    domain: ipam.lecrivaindaniel.fr
-    extra:
-      REVERSE_PROXY_URL: "/"
-      REVERSE_PROXY_HOST: "http://192.168.1.113:8080"
-      MAX_CLIENT_SIZE: 10m
-      # sub_filter can't rewrite compressed responses
-      USE_GZIP: "no"
-      USE_BROTLI: "no"
-
   - name: immich
     domain: immich.lecrivaindaniel.fr
     extra:
