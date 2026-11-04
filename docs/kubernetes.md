@@ -177,7 +177,7 @@ talosctl upgrade -n <node> --image factory.talos.dev/metal-installer/<schematic 
 
 **Updating what runs on the cluster.** Renovate reads `renovate.json` and proposes the new versions of the images in `k8s/` and
 of the charts and tags of the Applications, between 03:00 and 04:00, three days after a release. Minor and patch versions of
-Paperless-ngx and its Valkey, and patch versions of the charts, are merged by themselves, and Argo CD, which polls git, deploys
+Paperless-ngx and its Valkey, and of the charts, are merged by themselves, and Argo CD, which polls git, deploys
 the merge. Cilium and the major versions stay as pull requests. Before Paperless is replaced, a hook of Argo CD dumps its
 database (`k8s/paperless/presync-dump.yaml`, kept two weeks in `/srv/nfs/paperless/backups`), and a failed dump stops the
 deployment. To go back, revert the merge in git; if the new version migrated the database, restore the dump taken before it

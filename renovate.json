@@ -46,18 +46,19 @@
       "automerge": true
     },
     {
-      "description": "Patch versions of the charts and of the approver of kubelet certificates are merged by themselves",
+      "description": "Minor and patch versions of the charts and of the approver of kubelet certificates are merged by themselves",
       "matchDatasources": [
         "helm",
         "git-tags"
       ],
       "matchUpdateTypes": [
+        "minor",
         "patch"
       ],
       "automerge": true
     },
     {
-      "description": "Cilium carries the network of every pod: always reviewed, and synchronised by hand in Argo CD",
+      "description": "Cilium carries the network of every pod and is synchronised by hand: its updates are pull requests that are merged by hand",
       "matchDepNames": [
         "cilium"
       ],
@@ -68,7 +69,7 @@
       ]
     },
     {
-      "description": "A new major version is never merged by itself",
+      "description": "A new major version is a pull request that is merged by hand",
       "matchUpdateTypes": [
         "major"
       ],
