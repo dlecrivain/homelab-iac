@@ -83,7 +83,7 @@
           {%- set _ = specs.append(c ~ '(rw,sync,no_subtree_check,no_root_squash)') -%}
         {%- endfor -%}
         {%- for r in share.readers | default([]) -%}
-          {%- set _ = specs.append(r ~ '(ro,sync,no_subtree_check,root_squash)') -%}
+          {%- set _ = specs.append(r ~ '(ro,sync,no_subtree_check,' ~ ('root_squash' if share.readers_root_squash | default(true) else 'no_root_squash') ~ ')') -%}
         {%- endfor -%}
         {%- set _ = out.append(nfs_root ~ '/' ~ share.name ~ ' ' ~ (specs | join(' '))) -%}
       {%- endfor -%}

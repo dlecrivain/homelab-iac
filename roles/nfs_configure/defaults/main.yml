@@ -16,6 +16,7 @@ nfs_clients: []
 # Hosts that may only open the port, to check that the server answers. They are not exported to.
 nfs_probers: []
 
-# The shares. name is the directory; readers are hosts that mount it read-only, with root squashed; owner, group and
-# mode set the directory, root and 0755 when left out.
+# The shares. name is the directory; readers are hosts that mount it read-only, with root squashed unless readers_root_squash
+# is false (for files that only root can read, such as a configuration with its secrets); owner, group and mode set the
+# directory, root and 0755 when left out.
 nfs_shares: []
