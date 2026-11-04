@@ -1,0 +1,154 @@
+# One Grafana, replaced as a whole on a change. Everything it shows is provisioned, and its state is in the Postgres of nfs101.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: grafana
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472
+        runAsGroup: 472
+      containers:
+        - name: grafana
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          env:
+            - name: GF_DATABASE_TYPE
+              value: postgres
+            - name: GF_DATABASE_HOST
+              value: "{{ .Values.database.host }}:{{ .Values.database.port }}"
+            - name: GF_DATABASE_NAME
+              value: {{ .Values.database.name }}
+            - name: GF_DATABASE_USER
+              value: {{ .Values.database.user }}
+            - name: GF_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-database
+                  key: GF_DATABASE_PASSWORD
+            - name: GF_SERVER_ROOT_URL
+              value: {{ .Values.url }}
+          envFrom:
+            - secretRef:
+                name: grafana-env
+          ports:
+            - name: web
+              containerPort: 3000
+          volumeMounts:
+            - name: datasource
+              mountPath: /etc/grafana/provisioning/datasources/prometheus.yml
+              subPath: datasource.yml
+              readOnly: true
+            - name: datasource
+              mountPath: /etc/grafana/provisioning/dashboards/dashboards.yml
+              subPath: dashboards.yml
+              readOnly: true
+            - name: dashboards
+              mountPath: /etc/grafana/dashboards
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/grafana
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: web
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: web
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              memory: 768Mi
+      volumes:
+        - name: datasource
+          configMap:
+            name: grafana-provisioning
+        - name: dashboards
+          configMap:
+            name: grafana-dashboards
+        # The plugins, the images and the files that Grafana makes while it runs: nothing to keep.
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app.kubernetes.io/name: grafana
+  ports:
+    - name: web
+      port: 3000
+      targetPort: web
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana
+  namespace: {{ .Values.namespace }}
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - grafana.lecrivaindaniel.fr
+      secretName: grafana-tls
+  rules:
+    - host: grafana.k8s.lecrivaindaniel.fr
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  number: 3000
+    - host: grafana.lecrivaindaniel.fr
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  number: 3000
+---
+# The certificate of the name Grafana is reached under, which the wildcard of k8s.lecrivaindaniel.fr does not cover. It is issued
+# ahead of the move: the DNS-01 challenge needs a record in the zone, not the address of the service.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: grafana
+  namespace: {{ .Values.namespace }}
+spec:
+  secretName: grafana-tls
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    name: le-prod
+  dnsNames:
+    - grafana.lecrivaindaniel.fr

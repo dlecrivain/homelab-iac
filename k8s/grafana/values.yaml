@@ -1,0 +1,17 @@
+# Grafana shows what Prometheus keeps. Its dashboards (dashboards/) and its data source (files/datasource.yml) are provisioned from
+# this repository, so a restart never loses a hand edit by accident. Its own state (the administrator, the preferences) is in a
+# Postgres on nfs101. The secrets are made by hand, since this repository is public: grafana-env (the administrator and the
+# dashboard of the home page) and grafana-database (the password of the database).
+namespace: monitoring
+
+image:
+  repository: docker.io/grafana/grafana
+  tag: 13.3.0
+
+database:
+  host: 192.168.1.130
+  port: 5434
+  name: grafana
+  user: grafana
+
+url: https://grafana.lecrivaindaniel.fr
