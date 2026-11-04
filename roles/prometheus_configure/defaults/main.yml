@@ -1,5 +1,5 @@
 ---
 # The addresses blackbox-exporter probes, set per host. An http target has a name and a url, a tcp target a name and an
-# address (host:port); window: kubernetes on a target holds its alerts back while the test cluster is stopped on purpose.
+# address (host:port).
 blackbox_http_targets: []
 blackbox_tcp_targets: []

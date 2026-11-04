@@ -53,9 +53,6 @@ scrape_configs:
       - targets: ["{{ t.url }}"]
         labels:
           service: {{ t.name }}
-{% if t.window is defined %}
-          window: {{ t.window }}
-{% endif %}
 {% endfor %}
     relabel_configs:
       - source_labels: [__address__]
@@ -75,9 +72,6 @@ scrape_configs:
       - targets: ["{{ t.address }}"]
         labels:
           service: {{ t.name }}
-{% if t.window is defined %}
-          window: {{ t.window }}
-{% endif %}
 {% endfor %}
     relabel_configs:
       - source_labels: [__address__]

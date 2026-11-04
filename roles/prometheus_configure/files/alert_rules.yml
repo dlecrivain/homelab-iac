@@ -160,8 +160,7 @@ groups:
 
   - name: probes
     rules:
-      # What the VM-level alerts cannot see: the node_exporter of a VM answers while the service on it is broken. Targets
-      # with window: kubernetes are those of the test cluster, which is stopped on Fridays on purpose (alertmanager.yml.j2).
+      # What the VM-level alerts cannot see: the node_exporter of a VM answers while the service on it is broken.
       - alert: EndpointDown
         expr: probe_success == 0
         for: 5m
