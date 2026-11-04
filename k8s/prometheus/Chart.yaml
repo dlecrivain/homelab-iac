@@ -1,0 +1,4 @@
+apiVersion: v2
+name: prometheus
+description: Prometheus, Alertmanager, the exporters they use and the nightly snapshot of the database
+version: 0.1.0

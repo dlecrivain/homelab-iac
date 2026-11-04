@@ -1,0 +1,35 @@
+# Monitoring of the fleet: Prometheus scrapes the exporters of the VMs and of the Proxmox nodes, and the probes of
+# blackbox-exporter; Alertmanager mails what Prometheus raises. The configuration is in files/, the scrape targets of the VMs
+# in targets/ (one file each, written by the prometheus_target role), and the secrets are made by hand since this repository is
+# public: alertmanager-config (alertmanager.yml, with the SMTP login) and pve-exporter-config (pve.yml, with the Proxmox token).
+namespace: monitoring
+
+# The database of Prometheus and the state of Alertmanager, on nfs101. One instance writes, replaced as a whole on a change.
+nfs:
+  server: 192.168.1.130
+  path: /srv/nfs/prometheus
+
+prometheus:
+  # 0 while the database of the VM is copied over, then 1.
+  replicas: 0
+  retention: 1y
+
+images:
+  prometheus:
+    repository: docker.io/prom/prometheus
+    tag: v3.15.1
+  reloader:
+    repository: quay.io/prometheus-operator/prometheus-config-reloader
+    tag: v0.94.2
+  alertmanager:
+    repository: docker.io/prom/alertmanager
+    tag: v0.34.2
+  blackbox:
+    repository: docker.io/prom/blackbox-exporter
+    tag: v0.29.1
+  pveExporter:
+    repository: docker.io/prompve/prometheus-pve-exporter
+    tag: 3.11.0
+  snapshot:
+    repository: docker.io/library/alpine
+    tag: 3.24.3

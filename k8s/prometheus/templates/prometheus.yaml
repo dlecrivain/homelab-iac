@@ -1,0 +1,110 @@
+# One Prometheus, replaced as a whole on a change: two must never write the same database. A sidecar reloads it when its
+# configuration changes, since the files of a ConfigMap reach the pod a minute after the change.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.prometheus.replicas }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: prometheus
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+      containers:
+        - name: prometheus
+          image: {{ .Values.images.prometheus.repository }}:{{ .Values.images.prometheus.tag }}
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time={{ .Values.prometheus.retention }}
+            # Reload on a change of the configuration, and snapshots for the nightly copy.
+            - --web.enable-lifecycle
+            - --web.enable-admin-api
+          ports:
+            - name: web
+              containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+              readOnly: true
+            - name: targets
+              mountPath: /etc/prometheus-targets
+              readOnly: true
+            - name: data
+              mountPath: /prometheus
+          # Replaying the log of a database of a few gigabytes takes a minute or two.
+          startupProbe:
+            httpGet:
+              path: /-/ready
+              port: web
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: web
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: web
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 384Mi
+            limits:
+              memory: 1Gi
+        - name: config-reloader
+          image: {{ .Values.images.reloader.repository }}:{{ .Values.images.reloader.tag }}
+          args:
+            - --listen-address=:8080
+            - --reload-url=http://localhost:9090/-/reload
+            - --watched-dir=/etc/prometheus
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+              readOnly: true
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        - name: targets
+          configMap:
+            name: prometheus-targets
+        - name: data
+          nfs:
+            server: {{ .Values.nfs.server }}
+            path: {{ .Values.nfs.path }}/data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app.kubernetes.io/name: prometheus
+  ports:
+    - name: web
+      port: 9090
+      targetPort: web

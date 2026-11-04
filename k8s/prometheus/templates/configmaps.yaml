@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: {{ .Values.namespace }}
+data:
+{{ (.Files.Glob "files/*.yml").AsConfig | indent 2 }}
+---
+# The hosts to scrape. Prometheus reads these files again by itself when they change, without a reload.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-targets
+  namespace: {{ .Values.namespace }}
+data:
+{{ (.Files.Glob "targets/*.json").AsConfig | indent 2 }}

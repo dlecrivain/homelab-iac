@@ -1,0 +1,94 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus/alert_rules.yml
+  - /etc/prometheus/disk_wear.rules.yml
+
+alerting:
+  alertmanagers:
+    # The Service of Alertmanager, in the same namespace.
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # One exporter for the whole cluster of Proxmox: the API answers whichever node it is asked through.
+  - job_name: pve_exporter
+    metrics_path: /pve
+    params:
+      cluster: ["1"]
+      node: ["1"]
+      target: ["192.168.1.101"]
+    static_configs:
+      - targets: ["pve-exporter:9221"]
+
+  # The hosts that run node_exporter or smartctl_exporter, one file each in k8s/prometheus/targets, written by the
+  # prometheus_target role when a VM is provisioned or decommissioned.
+  - job_name: node_exporter
+    file_sd_configs:
+      - files:
+          - /etc/prometheus-targets/node_exporter-*.json
+
+  - job_name: smartctl_exporter
+    file_sd_configs:
+      - files:
+          - /etc/prometheus-targets/smartctl_exporter-*.json
+
+  # blackbox-exporter makes the request itself and reports whether it worked, the lifetime of the certificate and the
+  # time it took. The target of a probe is the address that is checked, the scrape goes to the exporter.
+  - job_name: blackbox_http
+    metrics_path: /probe
+    scrape_interval: 60s
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets: ["https://paperless.lecrivaindaniel.fr/accounts/login/"]
+        labels:
+          service: paperless
+      - targets: ["https://argocd.k8s.lecrivaindaniel.fr/"]
+        labels:
+          service: argocd
+      - targets: ["https://ipam.lecrivaindaniel.fr/index.php?page=login"]
+        labels:
+          service: ipam
+      - targets: ["https://homeassistant.lecrivaindaniel.fr/manifest.json"]
+        labels:
+          service: homeassistant
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  - job_name: blackbox_tcp
+    metrics_path: /probe
+    scrape_interval: 60s
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets: ["192.168.1.130:5432"]
+        labels:
+          service: postgres-paperless
+      - targets: ["192.168.1.130:2049"]
+        labels:
+          service: nfs
+      - targets: ["192.168.1.130:3306"]
+        labels:
+          service: mariadb-phpipam
+      - targets: ["192.168.1.130:5433"]
+        labels:
+          service: postgres-homeassistant
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

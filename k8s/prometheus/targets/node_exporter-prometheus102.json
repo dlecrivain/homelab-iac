@@ -1,0 +1,9 @@
+[
+  {
+    "targets": ["192.168.1.116:9100"],
+    "labels": {
+      "instance": "prometheus102",
+      "role": "vm"
+    }
+  }
+]

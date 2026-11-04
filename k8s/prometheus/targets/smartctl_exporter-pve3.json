@@ -1,0 +1,9 @@
+[
+  {
+    "targets": ["192.168.1.103:9633"],
+    "labels": {
+      "instance": "pve3",
+      "role": "pve_node"
+    }
+  }
+]

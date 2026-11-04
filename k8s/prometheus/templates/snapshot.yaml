@@ -1,0 +1,51 @@
+# Every night Prometheus is asked for a snapshot of its database, which is mirrored into the backup folder of the share. smb101
+# reads that folder and sends it to the cloud storage after that, so a corruption of the database, which NFS makes more likely
+# than a local disk does, costs the last night at most.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: prometheus-snapshot
+  namespace: {{ .Values.namespace }}
+spec:
+  schedule: "40 1 * * *"
+  timeZone: Europe/Paris
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 86400
+      template:
+        spec:
+          restartPolicy: Never
+          enableServiceLinks: false
+          containers:
+            - name: snapshot
+              image: {{ .Values.images.snapshot.repository }}:{{ .Values.images.snapshot.tag }}
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  apk add --no-cache curl rsync > /dev/null
+                  answer=$(curl -fsS -X POST http://prometheus:9090/api/v1/admin/tsdb/snapshot)
+                  name=$(echo "$answer" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p')
+                  test -n "$name"
+                  rsync -a --delete "/prometheus/snapshots/$name/" /backup/latest/
+                  rm -rf /prometheus/snapshots/*
+                  echo "snapshot $name: $(du -sh /backup/latest | cut -f1), $(ls /backup/latest | wc -l) entries"
+              volumeMounts:
+                - name: data
+                  mountPath: /prometheus
+                - name: backup
+                  mountPath: /backup
+          volumes:
+            - name: data
+              nfs:
+                server: {{ .Values.nfs.server }}
+                path: {{ .Values.nfs.path }}/data
+            - name: backup
+              nfs:
+                server: {{ .Values.nfs.server }}
+                path: {{ .Values.nfs.path }}/backup

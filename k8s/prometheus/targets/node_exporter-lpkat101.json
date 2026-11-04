@@ -1,0 +1,9 @@
+[
+  {
+    "targets": ["192.168.1.112:9100"],
+    "labels": {
+      "instance": "lpkat101",
+      "role": "vm"
+    }
+  }
+]
