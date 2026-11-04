@@ -1,6 +1,7 @@
 # A dump of the database before every synchronisation of this application, which Argo CD runs as a hook: the first start
 # of a newer version migrates the database, and a migration cannot be undone. If the dump fails the synchronisation stops
 # and nothing is replaced. The last two weeks are kept next to the files, on the share of nfs101.
+# The client has to be of the major version of the server or newer: pg_dump refuses to dump a newer server.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -18,7 +19,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: dump
-          image: docker.io/library/postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+          image: docker.io/library/postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
           env:
             - name: PGPASSWORD
               valueFrom:
