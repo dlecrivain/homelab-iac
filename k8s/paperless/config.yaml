@@ -11,7 +11,7 @@ data:
   PAPERLESS_DBPORT: "5432"
   PAPERLESS_DBNAME: paperless
   PAPERLESS_DBUSER: paperless
-  PAPERLESS_URL: https://paperless.k8s.lecrivaindaniel.fr
+  PAPERLESS_URL: https://paperless.lecrivaindaniel.fr
   PAPERLESS_TIME_ZONE: Europe/Paris
   PAPERLESS_OCR_LANGUAGE: fra+eng
   PAPERLESS_OCR_LANGUAGES: fra
