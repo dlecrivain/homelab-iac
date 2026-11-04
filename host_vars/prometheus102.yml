@@ -33,8 +33,13 @@ blackbox_http_targets:
   - name: argocd
     url: https://argocd.k8s.lecrivaindaniel.fr/
     window: kubernetes
+  - name: ipam
+    url: https://ipam.lecrivaindaniel.fr/index.php?page=login
+    window: kubernetes
 blackbox_tcp_targets:
   - name: postgres-paperless
     address: 192.168.1.130:5432
   - name: nfs
     address: 192.168.1.130:2049
+  - name: mariadb-phpipam
+    address: 192.168.1.130:3306
