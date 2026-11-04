@@ -1,0 +1,15 @@
+# The certificate of the name phpIPAM is reached under, which the wildcard of k8s.lecrivaindaniel.fr does not cover. It is issued
+# ahead of the move: the DNS-01 challenge needs a record in the zone, not the address of the service.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: phpipam
+  namespace: phpipam
+spec:
+  secretName: ipam-tls
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    name: le-prod
+  dnsNames:
+    - ipam.lecrivaindaniel.fr

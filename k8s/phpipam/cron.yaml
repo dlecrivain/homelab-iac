@@ -1,0 +1,44 @@
+# The job of phpIPAM that scans the subnets every hour to tell which addresses answer. It needs the raw sockets of ping.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: phpipam-cron
+  namespace: phpipam
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: phpipam-cron
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: phpipam-cron
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: cron
+          image: docker.io/phpipam/phpipam-cron:v1.8.3
+          envFrom:
+            - configMapRef:
+                name: phpipam
+          env:
+            - name: IPAM_DATABASE_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: phpipam-secrets
+                  key: IPAM_DATABASE_PASS
+            - name: SCAN_INTERVAL
+              value: 1h
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+                - NET_RAW
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              memory: 256Mi

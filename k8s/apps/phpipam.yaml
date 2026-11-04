@@ -1,0 +1,23 @@
+# The IP address manager. Argo CD applies a change of its manifests by itself, and puts back what is changed by hand. Its database
+# is the MariaDB of nfs101.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: phpipam
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/dlecrivain/homelab-iac.git
+    targetRevision: main
+    path: k8s/phpipam
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: phpipam
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
