@@ -102,6 +102,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 - `inventory/proxmox.yml`: dynamic Proxmox inventory for the VMs (API token read from the environment).
 - `group_vars/all.yml`: shared variables (Proxmox API host, Katello organization, SMTP, retention and placement tuning, pinned image and binary versions, the mesh and corosync topology).
 - `k8s/`: what runs on the Kubernetes test cluster, applied by Argo CD rather than by a playbook, see [Kubernetes workloads](#kubernetes-workloads-argo-cd).
+- `docs/kubernetes.md`: the operations guide of the Kubernetes test cluster: what runs, how it works together, how to operate and update it, and exercises.
 - `host_vars/`: per-VM variables (health checks, `podman_units`, backup and placement flags) and per-node connection and network details (`pve1`, `pve2`, `pve3`).
 - `scripts/semaphore-ctl`: small client for the Semaphore API, see [Operating Semaphore from a terminal](#operating-semaphore-from-a-terminal).
 - `scripts/katello-host-delete`: deletes the Katello record of a host whose VM no longer exists, for the leftover of a provisioning run that failed after the registration. It refuses while a Proxmox VM of that name exists.
@@ -350,6 +351,8 @@ The chime of the Aqara Video Doorbell G4 (the indoor unit, "Doorbell Repeater", 
 - **Reverse proxy**: BunkerWeb publishes it as `homeassistant.lecrivaindaniel.fr` (`bunkerweb_services` in `host_vars/bunkerweb102.yml`). Home Assistant answers HTTP 400 to every proxied request until `use_x_forwarded_for` and `trusted_proxies` (BunkerWeb's address) are set. Since 2026.10 it keeps its HTTP settings in `.storage/http` and ignores `http:` in `configuration.yaml`, so these two settings belong to the instance's own state rather than to this repository and travel with the VM backup.
 
 ### Kubernetes test cluster (Talos)
+
+How to operate the cluster, what to do when a part is down and how Talos is updated is in [docs/kubernetes.md](docs/kubernetes.md).
 
 The VMs of the Proxmox pool `kubernetes` are the nodes of a test cluster running [Talos Linux](https://www.talos.dev), which has no SSH and no package manager, so the playbooks that reach the fleet over SSH leave the pool out (see [Dynamic inventory and node resolution](#dynamic-inventory-and-node-resolution)). `talos_nodes` in `group_vars/all.yml` lists the nodes: name, VM id, role, Proxmox node, memory and disk.
 
