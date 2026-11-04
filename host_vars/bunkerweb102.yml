@@ -113,6 +113,8 @@ bunkerweb_services:
       REVERSE_PROXY_HOST: "https://grafana.k8s.lecrivaindaniel.fr"
       REVERSE_PROXY_SSL_VERIFY: "yes"
       REVERSE_PROXY_SSL_TRUSTED_CERTIFICATE: /etc/ssl/certs/ca-certificates.crt
+      # The chain of Let's Encrypt has two intermediate certificates, and the default depth is one.
+      REVERSE_PROXY_SSL_VERIFY_DEPTH: 3
       # Grafana Live (dashboard auto-refresh/streaming) needs WebSockets
       REVERSE_PROXY_WS: "yes"
       REVERSE_PROXY_SEND_TIMEOUT: 3600s
