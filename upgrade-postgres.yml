@@ -23,10 +23,12 @@
       ansible.builtin.set_fact:
         pg: "{{ postgres_instances | selectattr('name', 'equalto', pg_name) | first }}"
 
+    # public makes the defaults of the role (postgres_root, postgres_backup_dir) visible to the tasks below.
     - name: Work out where the data of the new version is
       ansible.builtin.include_role:
         name: postgres_configure
         tasks_from: layout.yml
+        public: true
 
     - name: Check whether the new version already holds a cluster
       ansible.builtin.stat:
