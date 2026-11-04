@@ -59,6 +59,9 @@ scrape_configs:
       - targets: ["https://homeassistant.lecrivaindaniel.fr/manifest.json"]
         labels:
           service: homeassistant
+      - targets: ["https://grafana.lecrivaindaniel.fr/api/health"]
+        labels:
+          service: grafana
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
