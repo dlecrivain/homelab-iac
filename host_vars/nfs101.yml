@@ -4,7 +4,8 @@ ansible_user: deploy
 # The data disk is large, so a move copies a lot: the optional rebalance leaves the VM where it is.
 pve_rebalance_pinned: true
 
-nfs_data_size_gb: 400
+# The photos and videos of Immich (about 305 GB, still growing) and the other shares.
+nfs_data_size_gb: 650
 # The nodes of the Kubernetes test cluster: talos-cp101, talos-cp102, talos-cp103, talos-wk101, talos-wk102 and talos-wk103.
 nfs_clients:
   - 192.168.1.124
@@ -54,6 +55,16 @@ postgres_instances:
     database: grafana
     user: grafana
     clients: "{{ nfs_clients }}"
+  # Immich needs the vector extensions of its own image, which is still on Postgres 14.
+  - name: immich
+    image: "{{ immich_postgres_image }}"
+    major: 14
+    port: 5435
+    database: immich
+    user: immich
+    initdb_args: --data-checksums
+    shm_size: 128m
+    clients: "{{ nfs_clients }}"
 
 # The databases of the applications that moved to the cluster and need MariaDB, same arrangement as the Postgres ones.
 mariadb_instances:
@@ -77,9 +88,13 @@ podman_units:
   - name: postgres_grafana
     service_name: postgres-grafana
     scope: user
+  - name: postgres_immich
+    service_name: postgres-immich
+    scope: user
 health_check_podman_user: deploy
 health_check_containers:
   - postgres_paperless
   - postgres_homeassistant
   - postgres_grafana
+  - postgres_immich
   - mariadb_phpipam
