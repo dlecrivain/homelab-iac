@@ -157,3 +157,37 @@ groups:
         annotations:
           summary: "{{ $labels.instance }} device {{ $labels.device }} has recorded media errors"
           description: "smartctl reports a non-zero media_errors count for {{ $labels.device }} on {{ $labels.instance }} - indicates unrecoverable NAND errors have occurred."
+
+  - name: probes
+    rules:
+      # What the VM-level alerts cannot see: the node_exporter of a VM answers while the service on it is broken. Targets
+      # with window: kubernetes are those of the test cluster, which is stopped on Fridays on purpose (alertmanager.yml.j2).
+      - alert: EndpointDown
+        expr: probe_success == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} does not answer"
+          description: "The probe of {{ $labels.instance }} ({{ $labels.service }}) has failed for 5 minutes: the address does not answer, or its certificate or its status code is wrong."
+
+      # Let's Encrypt certificates are renewed 30 days before they end, so a lifetime under 14 days means the renewal
+      # has been failing for about two weeks.
+      - alert: CertificateExpiresSoon
+        expr: probe_ssl_earliest_cert_expiry - time() < 14 * 24 * 3600
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "The certificate of {{ $labels.service }} ends in under 14 days"
+          description: "The certificate served at {{ $labels.instance }} ends in under 14 days and has not been renewed."
+
+      # Without this, EndpointDown fails silently: a probe that is not scraped has no probe_success to be 0.
+      - alert: ProbeExporterDown
+        expr: up{job=~"blackbox_.*"} == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "blackbox-exporter is not being scraped"
+          description: "Prometheus has been unable to reach blackbox-exporter for 10 minutes, so the probes of the cluster of tests, its database and its storage are blind."

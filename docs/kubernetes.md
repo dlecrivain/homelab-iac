@@ -105,6 +105,10 @@ containerd and kubelet, and the node registers with the API. Cilium starts on it
 | The OVH zone or Let's Encrypt | Only new certificates fail | Wait, or look at the challenge |
 | The laptop | Nothing stops. You cannot operate the cluster until the files of section 2 are available | Restore them from the backup |
 
+Prometheus on `prometheus102` mails you for the failures that a user would notice: Paperless or Argo CD not answering over
+HTTPS for five minutes, the Postgres port or the NFS port of `nfs101` closed, a certificate with less than 14 days left. The
+Friday stop (04:30 to 09:30) is expected, so the alerts of the cluster are held back until 10:00 on that day.
+
 ## 5. First reflexes
 
 Both clients are used from a terminal of the laptop after `. ~/.config/talos/maquette/env.sh`.

@@ -13,6 +13,9 @@ nfs_data_size_gb: 400
 # set up by root on the node, and the addresses are the only thing that decides who may mount.
 nfs_clients: []
 
+# Hosts that may only open the port, to check that the server answers. They are not exported to.
+nfs_probers: []
+
 # The shares. name is the directory; readers are hosts that mount it read-only, with root squashed; owner, group and
 # mode set the directory, root and 0755 when left out.
 nfs_shares: []

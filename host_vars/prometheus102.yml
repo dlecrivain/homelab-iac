@@ -7,6 +7,7 @@ health_check_containers:
   - prometheus
   - alertmanager
   - pve-exporter
+  - blackbox-exporter
 
 podman_units:
   - name: prometheus
@@ -15,7 +16,25 @@ podman_units:
     scope: root
   - name: pve-exporter
     scope: root
+  - name: blackbox-exporter
+    scope: root
 
 # A year of metrics (retention is 1y) is about 37 GB of blocks at today's 85 MB a day, plus the images
 # and the write-ahead log, so /var is grown from the template's 20 GB (roles/lvm_grow).
 prometheus_var_size_gb: 60
+
+# What blackbox-exporter probes every minute. An address that stops answering for five minutes raises EndpointDown. The
+# cluster of tests is stopped on Fridays from 04:30 to 09:30 (Semaphore schedules Kubernetes-Stop and Kubernetes-Start), and
+# the alerts of the targets with window kubernetes are held back while it is (alertmanager.yml.j2).
+blackbox_http_targets:
+  - name: paperless
+    url: https://paperless.lecrivaindaniel.fr/accounts/login/
+    window: kubernetes
+  - name: argocd
+    url: https://argocd.k8s.lecrivaindaniel.fr/
+    window: kubernetes
+blackbox_tcp_targets:
+  - name: postgres-paperless
+    address: 192.168.1.130:5432
+  - name: nfs
+    address: 192.168.1.130:2049

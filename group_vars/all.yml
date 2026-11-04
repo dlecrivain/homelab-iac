@@ -163,6 +163,7 @@ grafana_admin_password: "{{ lookup('env', 'GRAFANA_ADMIN_PASSWORD') }}"
 # applies it like any other config change. Semaphore has its own bump playbook instead.
 prometheus_version: "v3.15.1"
 alertmanager_version: "v0.34.2"
+blackbox_exporter_version: "v0.29.1"
 grafana_version: "13.3.0"
 bunkerweb_version: "1.6.17"
 # The host that runs BunkerWeb (configure-bunkerweb.yml); its reverse-proxied sites are bunkerweb_services in its host_vars.
@@ -247,6 +248,11 @@ image_update_watch_list:
     version_var: matter_server_version
     container_name: matter-server
     host: "{{ homeassistant_host }}"
+  - name: blackbox-exporter
+    docker_repo: prom/blackbox-exporter
+    version_var: blackbox_exporter_version
+    container_name: blackbox-exporter
+    host: "{{ prometheus_host }}"
   - name: grafana
     docker_repo: grafana/grafana
     version_var: grafana_version

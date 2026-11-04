@@ -37,6 +37,26 @@
     mode: '0750'
   become: true
 
+- name: Ensure /etc/blackbox exists
+  ansible.builtin.file:
+    path: /etc/blackbox
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+# Holds no secret, so it is readable by the container's non-root user without a group.
+- name: Deploy the blackbox-exporter modules
+  ansible.builtin.copy:
+    src: blackbox.yml
+    dest: /etc/blackbox/config.yml
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  register: prometheus_blackbox_result
+
 - name: Deploy the static alert rules
   ansible.builtin.copy:
     src: alert_rules.yml
@@ -115,7 +135,7 @@
   register: prometheus_network_result
 
 # Templated, not static files, so check-image-updates.yml's version bump has something to change.
-- name: Deploy the Prometheus and Alertmanager Quadlet units
+- name: Deploy the Prometheus, Alertmanager and blackbox-exporter Quadlet units
   ansible.builtin.template:
     src: "{{ item }}.j2"
     dest: "/etc/containers/systemd/{{ item }}"
@@ -126,6 +146,7 @@
   loop:
     - prometheus.container
     - alertmanager.container
+    - blackbox-exporter.container
   register: prometheus_quadlet_result
 
 - name: Determine whether anything actually changed
@@ -133,6 +154,7 @@
     prometheus_config_changed: >-
       {{
         prometheus_alert_rules_result is changed
+        or prometheus_blackbox_result is changed
         or prometheus_disk_wear_rules_result is changed
         or prometheus_config_result is changed
         or alertmanager_config_result is changed
@@ -146,7 +168,7 @@
   become: true
   when: prometheus_config_changed
 
-- name: Restart Prometheus and Alertmanager to pick up any config/unit change
+- name: Restart Prometheus, Alertmanager and blackbox-exporter to pick up any config/unit change
   ansible.builtin.systemd:
     name: "{{ item }}"
     state: restarted
@@ -154,4 +176,5 @@
   loop:
     - prometheus.service
     - alertmanager.service
+    - blackbox-exporter.service
   when: prometheus_config_changed

@@ -1,0 +1,17 @@
+# The two ways blackbox-exporter checks an address. IPv4 only: the LAN has no IPv6 service, and a name that also has an
+# AAAA record must not be reported down because of it.
+modules:
+  # A page that answers 2xx with a certificate that is valid for its name. Redirects are followed.
+  http_2xx:
+    prober: http
+    timeout: 10s
+    http:
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+  # A port that accepts a connection.
+  tcp_connect:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false

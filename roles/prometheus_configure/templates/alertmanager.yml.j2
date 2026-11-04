@@ -4,6 +4,23 @@ route:
   group_interval: 5m
   repeat_interval: 4h
   receiver: email
+  routes:
+    # The cluster of tests is stopped by the Semaphore schedules Kubernetes-Stop (Friday 04:30) and Kubernetes-Start
+    # (Friday 09:30): its alerts wait until the end of that window and are sent after it if the target still does not answer.
+    - matchers:
+        - window="kubernetes"
+      receiver: email
+      mute_time_intervals:
+        - kubernetes-stopped
+
+time_intervals:
+  - name: kubernetes-stopped
+    time_intervals:
+      - weekdays: ['friday']
+        times:
+          - start_time: '04:25'
+            end_time: '10:00'
+        location: Europe/Paris
 
 receivers:
   - name: email
