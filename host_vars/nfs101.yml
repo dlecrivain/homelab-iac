@@ -5,12 +5,14 @@ ansible_user: deploy
 pve_rebalance_pinned: true
 
 nfs_data_size_gb: 400
-# The nodes of the Kubernetes test cluster: talos-cp101, talos-cp102, talos-wk101 and talos-wk102.
+# The nodes of the Kubernetes test cluster: talos-cp101, talos-cp102, talos-cp103, talos-wk101, talos-wk102 and talos-wk103.
 nfs_clients:
   - 192.168.1.124
   - 192.168.1.127
+  - 192.168.1.113
   - 192.168.1.125
   - 192.168.1.126
+  - 192.168.1.118
 # The Prometheus host, which checks every minute that the NFS and Postgres ports answer.
 nfs_probers:
   - "{{ hostvars[prometheus_host].ansible_host }}"
