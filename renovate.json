@@ -12,7 +12,8 @@
   ],
   "enabledManagers": [
     "kubernetes",
-    "argocd"
+    "argocd",
+    "helm-values"
   ],
   "kubernetes": {
     "managerFilePatterns": [
@@ -101,5 +102,10 @@
       ],
       "enabled": false
     }
-  ]
+  ],
+  "helm-values": {
+    "managerFilePatterns": [
+      "/^k8s/.+/values\\.ya?ml$/"
+    ]
+  }
 }
