@@ -104,23 +104,6 @@ bunkerweb_services:
       LIMIT_REQ_BURST: 100
       LIMIT_CONN_MAX_HTTP2: 200
 
-  - name: grafana
-    domain: grafana.lecrivaindaniel.fr
-    extra:
-      REVERSE_PROXY_URL: "/"
-      # Grafana runs on the cluster, behind Traefik, until every resolver answers its name with the address of Traefik. BunkerWeb
-      # reaches Traefik by the name of the cluster, whose certificate it checks.
-      REVERSE_PROXY_HOST: "https://grafana.k8s.lecrivaindaniel.fr"
-      REVERSE_PROXY_SSL_VERIFY: "yes"
-      REVERSE_PROXY_SSL_TRUSTED_CERTIFICATE: /etc/ssl/certs/ca-certificates.crt
-      # The chain of Let's Encrypt has two intermediate certificates, and the default depth is one.
-      REVERSE_PROXY_SSL_VERIFY_DEPTH: 3
-      # Grafana Live (dashboard auto-refresh/streaming) needs WebSockets
-      REVERSE_PROXY_WS: "yes"
-      REVERSE_PROXY_SEND_TIMEOUT: 3600s
-      REVERSE_PROXY_READ_TIMEOUT: 3600s
-      MAX_CLIENT_SIZE: 0
-
   - name: adguard
     domain: adguard.lecrivaindaniel.fr
     extra:
