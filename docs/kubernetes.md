@@ -36,7 +36,8 @@ nodes have the memory they need. The Thursday backup does not need it.
 | Argo CD | Compares `k8s/` of this repository with the cluster and corrects the difference | `argocd` |
 | metrics-server, kubelet-serving-cert-approver | Consumption of nodes and pods; approves the certificates of the kubelets so that logs and metrics can be fetched securely | `kube-system`, `kubelet-serving-cert-approver` |
 | Paperless-ngx | The document archive, moved here as a pilot: files on `nfs101`, database in its Postgres, Valkey for the queue | `paperless` |
-| `nfs101` | Files of the applications over NFSv4, and their databases on its own disk | VM outside the cluster |
+| phpIPAM | The address manager the playbooks call as an API, and its subnet scan; database in the MariaDB of `nfs101` | `phpipam` |
+| `nfs101` | Files of the applications over NFSv4, and their Postgres and MariaDB databases on its own disk | VM outside the cluster |
 
 ## 2. How you operate it
 
@@ -102,6 +103,7 @@ containerd and kubelet, and the node registers with the API. Cilium starts on it
 | Traefik | The pages are not served. Argo CD stays reachable on port 30081 | Look at the pods and the service |
 | cert-manager or the OVH webhook | Existing certificates keep working until they end | Look at the pods and the Certificate |
 | `nfs101` | Pods that use it wait for it (hard NFS mount) | Start the VM, check `exportfs -v` |
+| phpIPAM or its MariaDB | The playbooks that reserve, look up or free an address fail (`provision-vm.yml`, `decommission-vm.yml`, `talos-create-vm.yml`, `phpipam-reserve-address.yml`); nothing else depends on it. It is also down during the Friday stop | Start the pods or the VM; a dump of its database is in `/var/backups/mariadb` on `nfs101` |
 | The OVH zone or Let's Encrypt | Only new certificates fail | Wait, or look at the challenge |
 | The laptop | Nothing stops. You cannot operate the cluster until the files of section 2 are available | Restore them from the backup |
 

@@ -72,19 +72,6 @@ phpipam_subnet_cidr: "192.168.1.0/24"
 phpipam_search_start_ip: "192.168.1.111"
 phpipam_max_retries: 5
 
-# phpIPAM container stack (configure-phpipam.yml). Both database passwords must be set in
-# Semaphore's Variable Group before the first run, otherwise the role would reset them to empty.
-phpipam_host: phpipam102
-phpipam_db_password: "{{ lookup('env', 'PHPIPAM_DB_PASSWORD') }}"
-phpipam_db_root_password: "{{ lookup('env', 'PHPIPAM_DB_ROOT_PASSWORD') }}"
-# Pinned instead of :latest so updates are a reviewable version bump (check-image-updates.yml
-# checks Docker Hub and self-heals this value) rather than a silent, unannounced image swap.
-phpipam_version: "v1.9.0"
-# Pinned rather than :latest so container-updates.yml can't pull a major version that fails to
-# start against the existing datadir. Deliberately not in image_update_watch_list: a database
-# engine bump is reviewed and applied by hand here.
-mariadb_version: "12.3.2"
-
 # Proxmox VM provisioning (provision-vm.yml). 9001 is the hardened Rocky 10 template built from
 # kickstart/rocky10-cis.ks.j2; 9000 is the previous template.
 pve_template_vmid: 9001
@@ -171,7 +158,6 @@ bunkerweb_host: bunkerweb102
 # The host that runs AdGuard Home (configure-adguard.yml), rootless as its connecting user.
 adguard_host: adguard102
 adguard_version: "v0.107.80"
-# phpipam_version is declared above, with the phpIPAM container stack.
 pve_exporter_version: "3.11.0"
 # Home Assistant Container (configure-homeassistant.yml). Home Assistant releases monthly under the
 # year as its major line, so check-image-updates.yml bumps within the year and only reports a new year.
@@ -218,8 +204,7 @@ talos_nodes:
   - { name: talos-wk102, vmid: 123, role: worker, node: pve3, memory_mb: 4096, cores: 2, disk_gb: 40 }
 
 # Docker Hub (docker_repo) and ghcr.io (ghcr_repo) repos check-image-updates.yml watches: the var to bump, and the host whose live
-# container tells it whether a bump has been applied yet. phpipam-web and phpipam-cron share
-# phpipam_version - same release, they always move together. Semaphore has its own bump playbook,
+# container tells it whether a bump has been applied yet. Semaphore has its own bump playbook,
 # and Immich is compared against its GitHub releases instead (informational only).
 image_update_watch_list:
   - name: prometheus
@@ -252,16 +237,6 @@ image_update_watch_list:
     version_var: grafana_version
     container_name: grafana
     host: "{{ grafana_host }}"
-  - name: phpipam-web
-    docker_repo: phpipam/phpipam-www
-    version_var: phpipam_version
-    container_name: phpipam-web
-    host: "{{ phpipam_host }}"
-  - name: phpipam-cron
-    docker_repo: phpipam/phpipam-cron
-    version_var: phpipam_version
-    container_name: phpipam-cron
-    host: "{{ phpipam_host }}"
   - name: bunkerweb
     docker_repo: bunkerity/bunkerweb-all-in-one
     version_var: bunkerweb_version
