@@ -61,3 +61,22 @@
         prometheus_target_job: smartctl_exporter
         prometheus_target_role_label: pve_node
         prometheus_target_state: present
+
+# The targets above are staged in the working copy of this repository: Argo CD gives the committed ones to Prometheus.
+- name: Commit the scrape targets of Prometheus
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Check whether a target changed
+      ansible.builtin.command:
+        argv: [git, diff, --cached, --quiet]
+        chdir: "{{ playbook_dir }}"
+      register: monitoring_staged
+      failed_when: monitoring_staged.rc not in [0, 1]
+      changed_when: false
+
+    - name: Commit and push the targets
+      ansible.builtin.include_tasks: tasks/commit_and_push.yml
+      vars:
+        commit_message: "Update the scrape targets of Prometheus, through configure-monitoring.yml"
+      when: monitoring_staged.rc == 1

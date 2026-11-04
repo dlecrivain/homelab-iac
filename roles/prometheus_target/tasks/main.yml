@@ -1,4 +1,8 @@
 ---
+# The scrape targets of Prometheus are files of this repository, k8s/prometheus/targets, one for each job and host: Argo CD gives
+# them to Prometheus, which reads them again by itself. This role writes or removes the file and stages the change in the working
+# copy; the caller commits it with the rest of what it changes (the host_vars of a provisioned or decommissioned VM), or
+# configure-monitoring.yml does at its end.
 - name: Fail clearly if prometheus_target_state isn't present or absent
   ansible.builtin.fail:
     msg: "prometheus_target_state must be 'present' or 'absent', got '{{ prometheus_target_state | default('(undefined)') }}'"
@@ -12,18 +16,26 @@
 - name: Register this host as a Prometheus scrape target
   ansible.builtin.template:
     src: target.json.j2
-    dest: "/etc/prometheus/file_sd/{{ prometheus_target_job }}_targets.d/{{ prometheus_target_name }}.json"
-    owner: root
-    group: root
+    dest: "{{ playbook_dir }}/k8s/prometheus/targets/{{ prometheus_target_job }}-{{ prometheus_target_name }}.json"
     mode: '0644'
-  become: true
-  delegate_to: "{{ prometheus_host }}"
+  delegate_to: localhost
+  when: prometheus_target_state == 'present'
+
+# throttle: several hosts stage their file at the same time and git allows one change of its index at a time.
+- name: Stage the file
+  ansible.builtin.command:
+    argv: [git, add, "k8s/prometheus/targets/{{ prometheus_target_job }}-{{ prometheus_target_name }}.json"]
+    chdir: "{{ playbook_dir }}"
+  delegate_to: localhost
+  throttle: 1
+  changed_when: false
   when: prometheus_target_state == 'present'
 
 - name: Remove this host as a Prometheus scrape target (no-op if already absent)
-  ansible.builtin.file:
-    path: "/etc/prometheus/file_sd/{{ prometheus_target_job }}_targets.d/{{ prometheus_target_name }}.json"
-    state: absent
-  become: true
-  delegate_to: "{{ prometheus_host }}"
+  ansible.builtin.command:
+    argv: [git, rm, -f, -q, --ignore-unmatch, "k8s/prometheus/targets/{{ prometheus_target_job }}-{{ prometheus_target_name }}.json"]
+    chdir: "{{ playbook_dir }}"
+  delegate_to: localhost
+  throttle: 1
+  changed_when: false
   when: prometheus_target_state == 'absent'

@@ -130,8 +130,7 @@
       delegate_to: localhost
       no_log: true
 
-    # A no-op on the Prometheus host's own provisioning run, before it exists in inventory -
-    # configure-prometheus.yml handles that bootstrap case itself.
+    # Staged here and committed with the host_vars of the VM below.
     - name: Register this VM as a Prometheus scrape target
       include_role:
         name: prometheus_target
@@ -141,7 +140,6 @@
         prometheus_target_job: node_exporter
         prometheus_target_role_label: vm
         prometheus_target_state: present
-      when: prometheus_host in hostvars
 
 - name: Record the new VM's static ansible_host in this repo
   hosts: localhost
