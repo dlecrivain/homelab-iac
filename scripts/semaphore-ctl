@@ -13,6 +13,8 @@
 #   semaphore-ctl set-schedule <schedule-id> '<cron>' [--dry-run]
 #   semaphore-ctl delete-schedule <schedule-id> [--dry-run]
 #   semaphore-ctl delete-template <template-id> [--dry-run]
+#   semaphore-ctl environments
+#   semaphore-ctl delete-env-secret <environment-id> <name> [--dry-run]
 #
 # The API token is read from a file that nobody else may read, and is handed to curl through a
 # config descriptor so it never appears on a command line. Starting a task is limited to the
@@ -261,6 +263,49 @@ print("template %s: %s, playbook %s" % (t["id"], t["name"], t["playbook"]))
   echo "template $id deleted"
 }
 
+# environments - the variable groups of the project, with the NAMES of their variables and secrets, never a value. The list
+# endpoint leaves the secrets out, so each group is read on its own.
+cmd_environments() {
+  local id
+  for id in $(api GET "/api/project/$SEMAPHORE_PROJECT/environment" | python3 -c 'import json, sys; print(" ".join(str(e["id"]) for e in sorted(json.load(sys.stdin), key=lambda e: e["id"])))'); do
+    api GET "/api/project/$SEMAPHORE_PROJECT/environment/$id" | python3 -c '
+import json, sys
+e = json.load(sys.stdin)
+env = json.loads(e.get("env") or "{}")
+extra = json.loads(e.get("json") or "{}")
+secrets = ["%s (%s)" % (x["name"], x["type"]) for x in e.get("secrets") or []]
+print("environment %s: %s" % (e["id"], e["name"]))
+print("  environment variables: %s" % (", ".join(sorted(env)) or "-"))
+print("  extra variables:       %s" % (", ".join(sorted(extra)) or "-"))
+print("  secrets:               %s" % (", ".join(sorted(secrets)) or "-"))
+'
+  done
+}
+
+# delete-env-secret <environment-id> <name> [--dry-run] - removes one secret of a variable group by its name, nothing else of the
+# group changes. It shows what it is about to remove first, and --dry-run stops there. The value of a secret is never read.
+cmd_delete_env_secret() {
+  local id=${1:?environment id required} name=${2:?secret name required} dry=0
+  [ "${3:-}" = "--dry-run" ] && dry=1
+  [[ $id =~ ^[0-9]+$ ]] || die "environment id must be a number"
+  [[ $name =~ ^[A-Za-z0-9_]+$ ]] || die "secret name must be letters, digits and underscores"
+  local body
+  body=$(api GET "/api/project/$SEMAPHORE_PROJECT/environment/$id" | ENV_ID=$id SECRET=$name python3 -c '
+import json, os, sys
+e = json.load(sys.stdin)
+match = [x for x in e.get("secrets") or [] if x["name"] == os.environ["SECRET"]]
+if len(match) != 1:
+    sys.exit("semaphore-ctl: no single secret named %s in environment %s" % (os.environ["SECRET"], os.environ["ENV_ID"]))
+x = match[0]
+print(json.dumps({"id": e["id"], "name": e["name"], "project_id": e["project_id"], "json": e.get("json") or "{}", "env": e.get("env") or "{}",
+                  "secrets": [{"id": x["id"], "name": x["name"], "type": x["type"], "operation": "delete"}]}))
+') || exit 1
+  echo "environment $id: will remove the secret $name ($(printf '%s' "$body" | python3 -c 'import json, sys; print(json.load(sys.stdin)["secrets"][0]["type"])'))"
+  [ $dry -eq 1 ] && return 0
+  api PUT "/api/project/$SEMAPHORE_PROJECT/environment/$id" "$body" > /dev/null
+  echo "secret $name removed from environment $id"
+}
+
 case "${1:-}" in
   templates) shift; cmd_templates "$@" ;;
   recent)    shift; cmd_recent "$@" ;;
@@ -274,5 +319,7 @@ case "${1:-}" in
   set-schedule)  shift; cmd_set_schedule "$@" ;;
   delete-schedule) shift; cmd_delete_schedule "$@" ;;
   delete-template) shift; cmd_delete_template "$@" ;;
-  *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  environments) shift; cmd_environments "$@" ;;
+  delete-env-secret) shift; cmd_delete_env_secret "$@" ;;
+  *) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
