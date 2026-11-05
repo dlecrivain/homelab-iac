@@ -12,7 +12,7 @@ The request itself is the authorization. Because no step is confirmed, the limit
 
 Phase 0 uses Remote Control: `claude remote-control` runs as a systemd service and the Claude app on the phone attaches to it. The VM only makes outbound HTTPS connections and opens no inbound port. Transcripts of Remote Control sessions are stored by Anthropic.
 
-A self-hosted chat (Mattermost behind BunkerWeb, with a custom Claude Code channel) can replace the app later if it turns out to be needed. Channels are a research preview and a custom channel needs a development flag, so it is not part of phase 0.
+A self-hosted chat (Mattermost behind Traefik, with a custom Claude Code channel) can replace the app later if it turns out to be needed. Channels are a research preview and a custom channel needs a development flag, so it is not part of phase 0.
 
 ## Authentication
 

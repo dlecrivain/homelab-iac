@@ -25,7 +25,7 @@ data:
   config.docker.php: |
     <?php
 
-    // Behind BunkerWeb: TLS is terminated upstream and the backend listens on 80.
+    // Behind Traefik: TLS is terminated upstream and the backend listens on 80.
     // phpIPAM builds absolute URLs from these two values, so fix them here rather
     // than fighting Apache, which ignores SetEnvIf for SERVER_PORT.
     if (($_SERVER["HTTP_X_FORWARDED_PROTO"] ?? "") === "https") {
@@ -144,7 +144,7 @@ data:
     $config['footer_message'] = file_env('IPAM_FOOTER_MESSAGE', $config['footer_message']);
     $api_allow_unsafe = true;
   zzz-proxy-tls.conf: |
-    # BunkerWeb terminates TLS upstream; phpIPAM reads $_SERVER['HTTPS'] to
+    # Traefik terminates TLS upstream; phpIPAM reads $_SERVER['HTTPS'] to
     # build absolute URLs. Do NOT set ServerName here: it lands in the *:80
     # vhost and breaks direct-IP access.
     SetEnvIf X-Forwarded-Proto "https" HTTPS=on

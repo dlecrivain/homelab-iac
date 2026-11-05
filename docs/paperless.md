@@ -28,7 +28,7 @@ The database password and the application secret key are in the Secret `paperles
 
 ## Network and access
 
-Traefik publishes `paperless.<domain>` with its own Let's Encrypt certificate, which cert-manager obtains through the OVH DNS-01 challenge, and an A record at OVH that leads to Traefik. Nothing is exposed to the Internet. BunkerWeb no longer serves the name. The files and the database are on `nfs101`, which the VM backups cover for its system disk (the database dump) and the cloud copies for the rest, since the document folder is the master copy anyway.
+Traefik publishes `paperless.<domain>` under the wildcard certificate of the zone, which cert-manager obtains through the OVH DNS-01 challenge, and the wildcard record at OVH leads to Traefik. Nothing is exposed to the Internet. The files and the database are on `nfs101`, which the VM backups cover for its system disk (the database dump) and the cloud copies for the rest, since the document folder is the master copy anyway.
 
 ## Synchronisation
 

@@ -1,4 +1,4 @@
-# The ingress controller that replaces BunkerWeb. Its values are in k8s/values.
+# The ingress controller. Its values are in k8s/values.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

@@ -67,8 +67,7 @@ pve_corosync_ring1_priority: 20
 phpipam_api_app_id: "ansible"
 phpipam_api_username: "{{ lookup('env', 'PHPIPAM_API_USERNAME') }}"
 phpipam_api_password: "{{ lookup('env', 'PHPIPAM_API_PASSWORD') }}"
-# The name of the cluster, which only Traefik has ever answered: ipam.lecrivaindaniel.fr was served by BunkerWeb under the wildcard
-# record, and a resolver can keep that answer for an hour after the move.
+# phpIPAM is reached under the name of the cluster.
 phpipam_base_url: "https://ipam.k8s.lecrivaindaniel.fr/api/{{ phpipam_api_app_id }}"
 phpipam_subnet_cidr: "192.168.1.0/24"
 phpipam_search_start_ip: "192.168.1.111"
@@ -93,13 +92,6 @@ katello_server_fqdn: "lpkat101.mondomaine.lab"
 katello_organization_id: 4
 katello_location_id: 2
 katello_operatingsystem_id: 7
-
-# BunkerWeb (configure-bunkerweb.yml): OVH DNS-01 credentials for Let's Encrypt, and the admin UI
-# password. Set these in Semaphore's Variable Group before the first run.
-bunkerweb_ovh_application_key: "{{ lookup('env', 'BUNKERWEB_OVH_APPLICATION_KEY') }}"
-bunkerweb_ovh_application_secret: "{{ lookup('env', 'BUNKERWEB_OVH_APPLICATION_SECRET') }}"
-bunkerweb_ovh_consumer_key: "{{ lookup('env', 'BUNKERWEB_OVH_CONSUMER_KEY') }}"
-bunkerweb_admin_password: "{{ lookup('env', 'BUNKERWEB_ADMIN_PASSWORD') }}"
 
 # Monitoring (configure-monitoring.yml and the prometheus_target role). Prometheus and Grafana run on the Kubernetes test cluster,
 # from k8s/prometheus and k8s/grafana, and are reached by the names of the cluster, which only Traefik answers.
@@ -141,9 +133,6 @@ proxmox_api_token_id: "automation"
 # Pinned image versions. check-image-updates.yml bumps these in place when a same-major-line
 # update is available; the container itself is left alone, so the next container-updates run
 # applies it like any other config change. Semaphore has its own bump playbook instead.
-bunkerweb_version: "1.6.17"
-# The host that runs BunkerWeb (configure-bunkerweb.yml); its reverse-proxied sites are bunkerweb_services in its host_vars.
-bunkerweb_host: bunkerweb102
 # The host that runs AdGuard Home (configure-adguard.yml), rootless as its connecting user.
 adguard_host: adguard102
 adguard_version: "v0.107.80"
@@ -184,11 +173,6 @@ talos_nodes:
 # Docker Hub (docker_repo) and ghcr.io (ghcr_repo) repos check-image-updates.yml watches: the var to bump, and the host whose live
 # container tells it whether a bump has been applied yet. Semaphore has its own bump playbook.
 image_update_watch_list:
-  - name: bunkerweb
-    docker_repo: bunkerity/bunkerweb-all-in-one
-    version_var: bunkerweb_version
-    container_name: bunkerweb-aio
-    host: "{{ bunkerweb_host }}"
   - name: adguard
     docker_repo: adguard/adguardhome
     version_var: adguard_version

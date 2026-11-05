@@ -77,7 +77,7 @@ state of the services, recent logs); it is not a shell. A node can be restarted 
 
 **A page is requested** (`https://argocd.k8s.lecrivaindaniel.fr`):
 
-1. The browser resolves the name. A wildcard record `*.k8s` at OVH answers 192.168.1.128. AdGuard only filters, it holds no
+1. The browser resolves the name. The wildcard record `*` at OVH answers 192.168.1.128. AdGuard only filters, it holds no
    record, but it caches answers.
 2. Cilium makes one worker answer ARP for 192.168.1.128. If that worker goes, another takes over within seconds.
 3. The request reaches a Traefik pod, which presents the wildcard certificate and reads the name (`Ingress` objects).
@@ -162,7 +162,7 @@ talosctl get members                           # the nodes of the cluster
   hand. Restart the operator and the agents if the ConfigMap changed.
 - **Remove a component**: delete its files from `k8s/`. Argo CD removes the Application but not what it deployed, because
   a cascade would take Cilium down too: delete the namespace and the cluster-wide objects by hand.
-- **Secrets**: the Secret `ovh-credentials` of `cert-manager` was made by hand from the BunkerWeb credentials and is not in
+- **Secrets**: the Secret `ovh-credentials` of `cert-manager` was made by hand from OVH API credentials and is not in
   git. If the cluster is rebuilt, make it again with the three keys `applicationKey`, `applicationSecret` and
   `applicationConsumerKey`. `paperless-secrets` of `paperless` (`PAPERLESS_DBPASS`, `PAPERLESS_SECRET_KEY`) is made the same
   way, from `/var/lib/postgres/paperless.env` on `nfs101` and the key Paperless already used.

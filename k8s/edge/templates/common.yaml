@@ -1,4 +1,4 @@
-# The headers that BunkerWeb added to every site, so that publishing through Traefik keeps them.
+# The security headers of the web interfaces of the VMs.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
