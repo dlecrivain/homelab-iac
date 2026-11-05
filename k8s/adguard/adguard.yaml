@@ -89,7 +89,7 @@ metadata:
   name: adguard-dns
   namespace: adguard
   annotations:
-    lbipam.cilium.io/ips: 192.168.1.129
+    lbipam.cilium.io/ips: 192.168.1.114
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local
