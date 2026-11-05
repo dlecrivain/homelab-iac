@@ -13,7 +13,8 @@
   "enabledManagers": [
     "kubernetes",
     "argocd",
-    "helm-values"
+    "helm-values",
+    "custom.regex"
   ],
   "kubernetes": {
     "managerFilePatterns": [
@@ -86,6 +87,18 @@
       ]
     },
     {
+      "description": "Talos Linux and Kubernetes carry every node of the cluster: their updates are pull requests that are merged by hand, and the next run of full-updates.yml applies the merged version",
+      "matchDepNames": [
+        "siderolabs/talos",
+        "kubernetes/kubernetes"
+      ],
+      "automerge": false,
+      "labels": [
+        "dependencies",
+        "platform"
+      ]
+    },
+    {
       "description": "A new major version is a pull request that is merged by hand",
       "matchUpdateTypes": [
         "major"
@@ -107,5 +120,32 @@
     "managerFilePatterns": [
       "/^k8s/.+/values\\.ya?ml$/"
     ]
-  }
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The version of Talos Linux that talos-updates.yml installs on the nodes",
+      "managerFilePatterns": [
+        "/^group_vars\\/all\\.yml$/"
+      ],
+      "matchStrings": [
+        "talos_version: (?<currentValue>v\\d+\\.\\d+\\.\\d+)"
+      ],
+      "depNameTemplate": "siderolabs/talos",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "description": "The version of Kubernetes that kubernetes-updates.yml brings the cluster to",
+      "managerFilePatterns": [
+        "/^group_vars\\/all\\.yml$/"
+      ],
+      "matchStrings": [
+        "kubernetes_version: \"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
+      ],
+      "depNameTemplate": "kubernetes/kubernetes",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    }
+  ]
 }
