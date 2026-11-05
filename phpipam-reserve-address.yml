@@ -1,6 +1,6 @@
 ---
-# Reserves one address in phpIPAM under the name reserve_name, and reports it. Running it again for the same name reports
-# the address already reserved. reserve_description is optional.
+# Reserves one address in phpIPAM under the name reserve_name, and reports it: the next free one, or reserve_ip when it is given.
+# Running it again for the same name reports the address already reserved. reserve_description is optional.
 - name: Reserve an address in phpIPAM
   hosts: localhost
   gather_facts: false

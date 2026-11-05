@@ -1,7 +1,8 @@
 ---
 # Reserves an address in phpIPAM for reserve_name, or finds the one already reserved under that name, and leaves it in
-# reserved_ip. reserve_description is optional, 64 characters at most because that is the size of the phpIPAM column. Run
-# this on localhost, once per name: the address search keeps its result in resolved_new_ip.
+# reserved_ip. The address is the next free one, or reserve_ip when that is given (an address that has to stay the one that
+# devices already use). reserve_description is optional, 64 characters at most because that is the size of the phpIPAM column.
+# Run this on localhost, once per name: the address search keeps its result in resolved_new_ip.
 - name: Log in to phpIPAM
   include_role:
     name: phpipam_login
@@ -20,10 +21,19 @@
     reserved_ip: "{{ phpipam_reserved.json.data[0].ip }}"
   when: phpipam_reserved.status == 200
 
+- name: Take the address that was asked for
+  ansible.builtin.set_fact:
+    resolved_new_ip: "{{ reserve_ip }}"
+  when:
+    - reserved_ip is not defined
+    - reserve_ip is defined
+
 - name: Resolve the next free address
   include_role:
     name: phpipam_next_ip
-  when: reserved_ip is not defined
+  when:
+    - reserved_ip is not defined
+    - reserve_ip is not defined
 
 - name: Reserve it
   ansible.builtin.uri:
