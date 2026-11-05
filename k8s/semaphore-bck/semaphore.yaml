@@ -8,7 +8,7 @@ metadata:
   name: semaphore-bck
   namespace: semaphore-bck
 spec:
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
