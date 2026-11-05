@@ -9,6 +9,16 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
+    - host: adguard.lecrivaindaniel.fr
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: adguard
+                port:
+                  number: 80
     - host: adguard.k8s.lecrivaindaniel.fr
       http:
         paths:
