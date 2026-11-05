@@ -7,13 +7,21 @@ kind: Service
 metadata:
   name: {{ .name }}
   namespace: {{ $.Values.namespace }}
+  {{- if or (eq (.scheme | default "http") "https") .transport }}
+  # Traefik reads the settings of the connection to the upstream on the Service, not on the Ingress.
+  annotations:
+    {{- if eq (.scheme | default "http") "https" }}
+    traefik.ingress.kubernetes.io/service.serversscheme: https
+    {{- end }}
+    {{- if .transport }}
+    traefik.ingress.kubernetes.io/service.serverstransport: {{ $.Values.namespace }}-{{ .transport }}@kubernetescrd
+    {{- end }}
+  {{- end }}
 spec:
   type: ExternalName
   externalName: {{ .address | quote }}
   ports:
-    # Traefik connects with TLS to a port whose name starts with https, which it does not do for an ExternalName Service from the
-    # annotation of the route alone.
-    - name: {{ if eq (.scheme | default "http") "https" }}https{{ else }}web{{ end }}
+    - name: web
       port: {{ .port }}
       targetPort: {{ .port }}
 ---
@@ -26,12 +34,6 @@ metadata:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
     traefik.ingress.kubernetes.io/router.middlewares: {{ $.Values.namespace }}-security-headers@kubernetescrd
-    {{- if eq (.scheme | default "http") "https" }}
-    traefik.ingress.kubernetes.io/service.serversscheme: https
-    {{- end }}
-    {{- if .transport }}
-    traefik.ingress.kubernetes.io/service.serverstransport: {{ $.Values.namespace }}-{{ .transport }}@kubernetescrd
-    {{- end }}
 spec:
   ingressClassName: traefik
   rules:
