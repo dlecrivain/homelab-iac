@@ -1,5 +1,6 @@
-# One certificate for everything under k8s.lecrivaindaniel.fr, served by default by Traefik. The le-staging issuer stays
-# available to try a change without using the production limits of Let's Encrypt.
+# One certificate for every name under lecrivaindaniel.fr and under k8s.lecrivaindaniel.fr, served by default by Traefik, so
+# that an application needs no certificate of its own and no name is published in the logs of the certificate authorities. The
+# le-staging issuer stays available to try a change without using the production limits of Let's Encrypt.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -12,6 +13,7 @@ spec:
     kind: ClusterIssuer
     name: le-prod
   dnsNames:
+    - "*.lecrivaindaniel.fr"
     - "*.k8s.lecrivaindaniel.fr"
 ---
 apiVersion: traefik.io/v1alpha1
