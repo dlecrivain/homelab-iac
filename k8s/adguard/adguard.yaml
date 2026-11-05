@@ -1,0 +1,120 @@
+# AdGuard Home. Its configuration and its data (the query log, the statistics, the downloaded filters) are on the adguard share of
+# nfs101. One replica that is replaced as a whole on an update, never two at once: two instances must not write the same files.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adguard
+  namespace: adguard
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adguard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adguard
+    spec:
+      enableServiceLinks: false
+      # The filter lists take about 1 GiB, which a worker that also carries the machine learning of Immich, up to 2 GiB when it
+      # runs, cannot give: wk102 comes last.
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values:
+                      - talos-wk102
+      containers:
+        - name: adguardhome
+          image: docker.io/adguard/adguardhome:v0.107.79
+          ports:
+            - name: dns-udp
+              containerPort: 53
+              protocol: UDP
+            - name: dns-tcp
+              containerPort: 53
+              protocol: TCP
+            - name: web
+              containerPort: 80
+          volumeMounts:
+            - name: conf
+              mountPath: /opt/adguardhome/conf
+            - name: work
+              mountPath: /opt/adguardhome/work
+          # The start loads the filter lists, which takes a minute.
+          startupProbe:
+            httpGet:
+              path: /
+              port: web
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /
+              port: web
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: dns-tcp
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 1Gi
+            limits:
+              memory: 1536Mi
+      volumes:
+        - name: conf
+          nfs:
+            server: 192.168.1.130
+            path: /srv/nfs/adguard/conf
+        - name: work
+          nfs:
+            server: 192.168.1.130
+            path: /srv/nfs/adguard/work
+---
+# The DNS of the LAN. The address is taken from the pool of Cilium and announced on the LAN by a worker, like the one of Traefik. The
+# traffic is not rewritten on its way (Local), so that AdGuard sees the address of each device: its log, its statistics and its limit
+# of requests per client depend on it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: adguard-dns
+  namespace: adguard
+  annotations:
+    lbipam.cilium.io/ips: 192.168.1.129
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: adguard
+  ports:
+    - name: dns-udp
+      port: 53
+      protocol: UDP
+      targetPort: dns-udp
+    - name: dns-tcp
+      port: 53
+      protocol: TCP
+      targetPort: dns-tcp
+---
+# The web interface, published by Traefik.
+apiVersion: v1
+kind: Service
+metadata:
+  name: adguard
+  namespace: adguard
+spec:
+  selector:
+    app.kubernetes.io/name: adguard
+  ports:
+    - name: web
+      port: 80
+      targetPort: web
