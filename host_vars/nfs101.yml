@@ -111,6 +111,8 @@ smb_allowed_hosts:
   - 192.168.1.30  # Doorbell Repeater, the chime that holds the storage
   - 192.168.1.31  # Doorbell
 smb_data_size_gb: 30
+# The address the doorbell has always used, which this host answers to as a second address now that the share is here. Samba listens on it only.
+smb_listen_address: 192.168.1.123
 # The names the doorbell was given when the share was on its own host.
 smb_netbios_name: SMB101
 smb_service_name: smb101
