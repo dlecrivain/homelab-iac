@@ -40,6 +40,7 @@ which hold them with room to spare. Nothing is stopped on a schedule any more.
 | Argo CD | Compares `k8s/` of this repository with the cluster and corrects the difference | `argocd` |
 | metrics-server, kubelet-serving-cert-approver | Consumption of nodes and pods; approves the certificates of the kubelets so that logs and metrics can be fetched securely | `kube-system`, `kubelet-serving-cert-approver` |
 | Paperless-ngx | The document archive, moved here as a pilot: files on `nfs101`, database in its Postgres, Valkey for the queue | `paperless` |
+| Immich | The photo and video library: server, machine learning and Valkey as pods, photos on `nfs101` and database in its Postgres | `immich` |
 | phpIPAM | The address manager the playbooks call as an API, and its subnet scan; database in the MariaDB of `nfs101` | `phpipam` |
 | Home Assistant | The home automation, with its Matter server, in one pod on the host network of a worker; configuration on `nfs101`, history in its Postgres | `homeassistant` |
 | Prometheus, Alertmanager | Scrape the exporters and the probes, raise and mail the alerts; the database is on `nfs101`, with a snapshot every night | `monitoring` |

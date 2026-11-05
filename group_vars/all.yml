@@ -147,16 +147,9 @@ bunkerweb_host: bunkerweb102
 # The host that runs AdGuard Home (configure-adguard.yml), rootless as its connecting user.
 adguard_host: adguard102
 adguard_version: "v0.107.80"
-# Immich (configure-immich.yml). Pinned rather than :release so a container restart cannot change
-# version on its own: Immich's upgrades run database migrations, which belong in a run that snapshots
-# the VM first. Server and machine-learning share this version, they always move together.
-immich_version: "v3.3.6"
-# The host that runs Immich (configure-immich.yml), rootless as its connecting user.
-immich_host: immich102
-# Pinned by digest - neither follows Immich's release cycle, and the Postgres image carries the
-# vector extensions the database depends on.
+# The database image of Immich on nfs101, pinned by digest: it carries the vector extensions the database depends on and
+# follows no release cycle of Immich's. The tags of Immich itself are in k8s/immich.
 immich_postgres_image: "ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23"
-immich_redis_image: "docker.io/valkey/valkey:9@sha256:4963247afc4cd33c7d3b2d2816b9f7f8eeebab148d29056c2ca4d7cbc966f2d9"
 
 # Paperless-ngx runs on the Kubernetes test cluster (k8s/paperless/, see docs/paperless.md). This is the name it is published
 # under, and the address the synchronisation (sync-paperless.yml) talks to, behind Traefik.
@@ -189,8 +182,7 @@ talos_nodes:
   - { name: talos-wk103, vmid: 125, role: worker, node: pve3, memory_mb: 4096, cores: 2, disk_gb: 40 }
 
 # Docker Hub (docker_repo) and ghcr.io (ghcr_repo) repos check-image-updates.yml watches: the var to bump, and the host whose live
-# container tells it whether a bump has been applied yet. Semaphore has its own bump playbook,
-# and Immich is compared against its GitHub releases instead (informational only).
+# container tells it whether a bump has been applied yet. Semaphore has its own bump playbook.
 image_update_watch_list:
   - name: bunkerweb
     docker_repo: bunkerity/bunkerweb-all-in-one

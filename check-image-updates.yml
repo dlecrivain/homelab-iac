@@ -214,77 +214,6 @@
         commit_all_tracked: true
       when: binary_update_bump_result.changed | default(false)
 
-# A patch release is written into group_vars/all.yml and pushed, so container-updates.yml applies it
-# like any other pinned image. A minor or major release is only reported: Immich's minor releases
-# have carried breaking changes and its database migrations do not roll back, so crossing one stays a
-# reviewed decision. Deliberately stricter than the same-major rule image_update_watch_list uses.
-- name: Compare Immich's reported version against its latest GitHub release
-  hosts: localhost
-  gather_facts: false
-  tasks:
-    - name: Get Immich's own reported running version
-      ansible.builtin.uri:
-        url: "{{ hostvars[immich_host | default('immich102')].health_check_url }}/api/server/version"
-        return_content: true
-      register: immich_running_version_response
-      failed_when: false
-
-    - name: Get the latest published Immich release from GitHub
-      ansible.builtin.uri:
-        url: "https://api.github.com/repos/immich-app/immich/releases/latest"
-        return_content: true
-      register: immich_latest_release_response
-      failed_when: false
-
-    - name: Compute Immich's running/latest version strings and whether an update is available
-      when:
-        - immich_running_version_response.status | default(0) == 200
-        - immich_latest_release_response.status | default(0) == 200
-      block:
-        - name: Set Immich version facts
-          ansible.builtin.set_fact:
-            immich_running_version: "v{{ immich_running_version_response.json.major }}.{{ immich_running_version_response.json.minor }}.{{ immich_running_version_response.json.patch }}"
-            immich_latest_version: "{{ immich_latest_release_response.json.tag_name }}"
-            immich_latest_published_at: "{{ immich_latest_release_response.json.published_at }}"
-
-        - name: Determine whether Immich has an update available
-          ansible.builtin.set_fact:
-            immich_update_available: "{{ immich_running_version != immich_latest_version }}"
-
-        - name: Split the pinned and the latest Immich version
-          ansible.builtin.set_fact:
-            immich_pinned_parts: "{{ (immich_version | regex_replace('^v', '')).split('.') }}"
-            immich_latest_parts: "{{ (immich_latest_version | regex_replace('^v', '')).split('.') }}"
-
-        # Compared against the pinned version rather than the running one, since the pin is what
-        # gets rewritten and is the repo's own statement of which version should be deployed.
-        - name: Determine whether the update is a patch release this can apply on its own
-          ansible.builtin.set_fact:
-            immich_patch_bump_target: >-
-              {{ immich_latest_version
-                 if (immich_pinned_parts | length == 3 and immich_latest_parts | length == 3
-                     and immich_latest_parts[0] == immich_pinned_parts[0]
-                     and immich_latest_parts[1] == immich_pinned_parts[1]
-                     and (immich_latest_parts[2] | int) > (immich_pinned_parts[2] | int))
-                 else '' }}
-
-        - name: Apply, commit and push a patch-level Immich bump
-          when: immich_patch_bump_target | length > 0
-          block:
-            - name: Bump immich_version in group_vars/all.yml
-              ansible.builtin.replace:
-                path: "{{ playbook_dir }}/group_vars/all.yml"
-                regexp: '^immich_version: ".*"$'
-                replace: 'immich_version: "{{ immich_patch_bump_target }}"'
-              register: immich_bump_result
-
-            - name: Commit and push the Immich patch bump
-              include_tasks: tasks/commit_and_push.yml
-              vars:
-                commit_message: "Bump pinned Immich version to {{ immich_patch_bump_target }} (patch release detected by check-image-updates.yml)"
-                commit_all_tracked: true
-              when: immich_bump_result is changed
-
 # Never restarts, redeploys or writes to git. It does pull, though, which refreshes the local image
 # cache and so repoints any floating tag - harmless where the deployed tag is pinned, but it would
 # move semaphore104's tags off the digests update-semaphore-peer.yml aligned them to, so both
@@ -415,32 +344,12 @@
           </table>
           <p>Review manually - a major version jump can include breaking changes.</p>
           {% endif %}
-          {% if immich_update_available | default(false) %}
-          {% if (immich_patch_bump_target | default('')) | length > 0 %}
-          <h3>Immich - patch release, pin bumped automatically</h3>
-          <p>immich_version is now {{ immich_patch_bump_target }} and pushed - the next container-updates run deploys it.</p>
-          {% elif immich_version == immich_latest_version %}
-          <h3>Immich - already pinned, awaiting deployment</h3>
-          <p>immich_version is {{ immich_version }} - the next container-updates run deploys it.</p>
-          {% else %}
-          <h3>Immich - minor or major release, needs a decision</h3>
-          <p>Not applied automatically. Read the release notes, then bump immich_version - the next container-updates run deploys it.</p>
-          {% endif %}
-          <table>
-            <tr><th>Running</th><th>Latest</th><th>Published</th></tr>
-            <tr class="status-warning">
-              <td>{{ immich_running_version }}</td>
-              <td>{{ immich_latest_version }}</td>
-              <td>{{ (immich_latest_published_at | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%d/%m/%Y') if immich_latest_published_at else 'N/A' }}</td>
-            </tr>
-          </table>
-          {% endif %}
 
     - name: Send the email (only if there's actually something to report)
       include_role:
         name: send_report
       vars:
-        report_subject: "[check-image-updates] {{ (unified_update_items | default([]) | length) + (1 if immich_update_available | default(false) else 0) }} image update(s) available, {{ major_available_images | length }} major available, {{ binary_bumped | length }} binaries bumped"
+        report_subject: "[check-image-updates] {{ unified_update_items | default([]) | length }} image update(s) available, {{ major_available_images | length }} major available, {{ binary_bumped | length }} binaries bumped"
         report_body: "{{ image_update_report_body }}"
-      when: (unified_update_items | default([]) | length > 0) or (major_available_images | length > 0) or (immich_update_available | default(false)) or (binary_bumped | length > 0) or (binary_major_available | length > 0)
+      when: (unified_update_items | default([]) | length > 0) or (major_available_images | length > 0) or (binary_bumped | length > 0) or (binary_major_available | length > 0)
 
