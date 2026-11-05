@@ -31,7 +31,7 @@ spec:
                       - talos-wk102
       containers:
         - name: machine-learning
-          image: ghcr.io/immich-app/immich-machine-learning:v3.3.5
+          image: ghcr.io/immich-app/immich-machine-learning:v3.3.6
           ports:
             - name: http
               containerPort: 3003
