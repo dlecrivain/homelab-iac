@@ -61,7 +61,8 @@ postgres_instances:
     database: grafana
     user: grafana
     clients: "{{ nfs_clients }}"
-  - name: semaphore
+  # The database of the Semaphore of the cluster (semaphore-bck), not the one of semaphore103.
+  - name: semaphore-bck
     image: "{{ postgres_image }}"
     major: 18
     port: 5436
@@ -104,8 +105,8 @@ podman_units:
   - name: postgres_immich
     service_name: postgres-immich
     scope: user
-  - name: postgres_semaphore
-    service_name: postgres-semaphore
+  - name: postgres_semaphore-bck
+    service_name: postgres-semaphore-bck
     scope: user
 health_check_podman_user: deploy
 health_check_containers:
@@ -113,5 +114,5 @@ health_check_containers:
   - postgres_homeassistant
   - postgres_grafana
   - postgres_immich
-  - postgres_semaphore
+  - postgres_semaphore-bck
   - mariadb_phpipam
