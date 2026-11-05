@@ -9,8 +9,7 @@
       include_role:
         name: semaphore_provision
 
-    # This playbook never ran the check before, which is how semaphore104 ended up with the raw
-    # Rocky appstream/baseos/extras repos alongside the Katello-managed ones.
+    # The raw Rocky appstream/baseos/extras repos must not stay enabled next to the Katello-managed ones.
     - name: Disable any enabled repo that isn't managed by Katello
       include_role:
         name: katello_repo_cleanup

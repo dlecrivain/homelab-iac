@@ -30,8 +30,7 @@ pve_rebalance_margin: 0.05
 # VMs that must not share a Proxmox node, so one failing node cannot take both. Each entry is a
 # group of VM names. Honoured by the evacuation placement and by the cluster rebalance; Proxmox's
 # own HA affinity rules would need HA-managed VMs on shared or replicated storage.
-pve_anti_affinity_groups:
-  - [semaphore103, semaphore104]
+pve_anti_affinity_groups: []
 vm_backup_node: pve1
 vm_backup_storage: Stockage_SSD
 vm_backup_local_retention: 2

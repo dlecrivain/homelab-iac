@@ -218,10 +218,9 @@
 
 # Never restarts, redeploys or writes to git. It does pull, though, which refreshes the local image
 # cache and so repoints any floating tag - harmless where the deployed tag is pinned, but it would
-# move semaphore104's tags off the digests update-semaphore-peer.yml aligned them to, so both
-# Semaphore instances are excluded: the peer must match the reference, not whatever is newest.
+# move the tags of semaphore103 off the version that update-semaphore-peer.yml chose, so it is excluded.
 - name: Read-only scan of every other podman-managed container for a newer image
-  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore103:!semaphore104:!proxmox_pool_kubernetes:!proxmox_pool_standby') }}"
+  hosts: "{{ target_hosts | default('proxmox_all_qemu:!lpkat101:!semaphore103:!proxmox_pool_kubernetes:!proxmox_pool_standby') }}"
   gather_facts: false
   vars:
     watched_container_names: "{{ hostvars['localhost'].image_update_watch_list | map(attribute='container_name') | list }}"

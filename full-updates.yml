@@ -9,9 +9,8 @@
 
 - import_playbook: container-updates.yml
   vars:
-    # semaphore103 is patched by the Semaphore of the cluster (update-semaphore-peer.yml, every Wednesday) and semaphore104 is the VM
-    # that Semaphore replaced, so neither is part of this run.
-    target_hosts: "proxmox_all_qemu:!lpkat101:!semaphore103:!semaphore104:!proxmox_pool_kubernetes:!proxmox_pool_standby"
+    # semaphore103 is patched by the Semaphore of the cluster (update-semaphore-peer.yml, every Wednesday), not by this run.
+    target_hosts: "proxmox_all_qemu:!lpkat101:!semaphore103:!proxmox_pool_kubernetes:!proxmox_pool_standby"
 
 - import_playbook: vm-updates.yml
 - import_playbook: pve-updates.yml
