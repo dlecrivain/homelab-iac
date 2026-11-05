@@ -148,7 +148,7 @@ postgres_image: "docker.io/library/postgres:18@sha256:3a4264520e121176619f54ff86
 mariadb_image: "docker.io/library/mariadb:12.3.2@sha256:a02fe89cb597d4375812b2eac90cf9d0775d4686daa7f7cc750ebbcad7525bbc"
 
 # The host that shares the files of the Aqara doorbell over SMB (configure-smb.yml), see the README.
-smb_host: smb101
+smb_host: nfs101
 
 # Talos Linux, the operating system of the Kubernetes test cluster. The nodes are installed from this ISO, built by
 # Image Factory with the qemu-guest-agent extension and stored on pve1, the only node with an ISO storage, see the README.
