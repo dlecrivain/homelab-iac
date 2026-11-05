@@ -1,32 +1,19 @@
 {{- range .Values.sites }}
 ---
-# {{ .host }}, served by {{ .address }}:{{ .port }}. The Service has no selector: its only endpoint is the VM.
+# {{ .host }}, served by {{ .address }}:{{ .port }}. The Service has no pods: its name is the address of the VM, which Traefik
+# connects to. It is not an EndpointSlice, which Argo CD leaves out.
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ .name }}
   namespace: {{ $.Values.namespace }}
 spec:
+  type: ExternalName
+  externalName: {{ .address | quote }}
   ports:
     - name: web
       port: {{ .port }}
       targetPort: {{ .port }}
----
-apiVersion: discovery.k8s.io/v1
-kind: EndpointSlice
-metadata:
-  name: {{ .name }}
-  namespace: {{ $.Values.namespace }}
-  labels:
-    kubernetes.io/service-name: {{ .name }}
-addressType: IPv4
-ports:
-  - name: web
-    port: {{ .port }}
-    protocol: TCP
-endpoints:
-  - addresses:
-      - {{ .address }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
