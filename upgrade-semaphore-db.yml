@@ -1,0 +1,273 @@
+---
+# Moves the database of semaphore103 to the major version of Postgres that roles/semaphore_provision/files/semaphore-db.container
+# names, by a dump and a restore: a major version cannot read the files of the previous one. Run it from the Semaphore of the
+# cluster (semaphore-bck) with -e peer_host=semaphore103, never from semaphore103 itself, since Semaphore and its database are
+# stopped while it runs.
+#
+# The VM is snapshotted first (snapshot before_postgres_upgrade, left in place for the owner to delete) and the volume of the
+# previous version is not touched. When a step fails after the switch, the previous Quadlet is put back and the previous
+# version starts again on its own volume. Nothing is done when the running server is already on the new major version.
+- name: Refuse to run without an explicit peer
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Require peer_host to name the Semaphore that runs on a VM
+      ansible.builtin.assert:
+        that:
+          - peer_host is defined
+          - peer_host == 'semaphore103'
+        fail_msg: >-
+          Pass -e peer_host=semaphore103 and run this from semaphore-bck: the Semaphore whose database is moved must not be the
+          one running this playbook.
+
+    - name: Resolve a reachable Proxmox node for delegate_to
+      ansible.builtin.include_role:
+        name: resolve_proxmox_api_host
+
+- name: Move the database of Semaphore to another major version of Postgres
+  hosts: "{{ peer_host | default('none') }}"
+  gather_facts: false
+  become: true
+  vars:
+    semaphore_db_quadlet_dir: /etc/containers/systemd
+    semaphore_db_dump_dir: /var/lib/semaphore-db-upgrade
+    semaphore_db_files: "{{ playbook_dir }}/roles/semaphore_provision/files"
+    semaphore_db_psql: podman exec -i semaphore_db psql -U semaphore -d semaphore -tA
+    # The exact number of rows of every table: the same before and after proves that nothing was lost in the restore.
+    semaphore_db_rows_sql: >-
+      select sum((xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', schemaname, tablename), false, true, '')))[1]::text::bigint)
+      from pg_tables where schemaname = 'public';
+  tasks:
+    - name: Read the major version the Quadlet of this repository names
+      ansible.builtin.set_fact:
+        semaphore_db_target_major: >-
+          {{ lookup('ansible.builtin.file', semaphore_db_files ~ '/semaphore-db.container')
+             | regex_search('(?m)^Image=docker\.io/library/postgres:([0-9]+)', '\1') | first | int }}
+        semaphore_db_new_volume: >-
+          {{ lookup('ansible.builtin.file', semaphore_db_files ~ '/semaphore-db.container')
+             | regex_search('(?m)^Volume=([^:]+\.volume):', '\1') | first }}
+
+    - name: Read the major version of the running server
+      ansible.builtin.command: "{{ semaphore_db_psql }}"
+      args:
+        stdin: show server_version_num;
+      register: semaphore_db_running_version
+      changed_when: false
+
+    - name: Work out whether the database has to move
+      ansible.builtin.set_fact:
+        semaphore_db_running_major: "{{ (semaphore_db_running_version.stdout | trim | int) // 10000 }}"
+
+    - name: Say that there is nothing to do
+      ansible.builtin.debug:
+        msg: "The database of {{ inventory_hostname }} is already on Postgres {{ semaphore_db_running_major }}."
+      when: semaphore_db_running_major | int >= semaphore_db_target_major | int
+
+    - name: Move the database
+      when: semaphore_db_running_major | int < semaphore_db_target_major | int
+      block:
+        # The inventory-cached proxmox_node can be stale after a migration or a rebalance.
+        - name: Look up the current Proxmox node of this VM
+          ansible.builtin.command: pvesh get /cluster/resources --type vm --output-format json
+          register: semaphore_db_vm_resources
+          changed_when: false
+          become: false
+          delegate_to: "{{ proxmox_api_host }}"
+          remote_user: "{{ proxmox_ssh_user }}"
+          vars:
+            ansible_python_interpreter: "{{ proxmox_python_interpreter }}"
+
+        - name: Use the current Proxmox node
+          ansible.builtin.set_fact:
+            proxmox_node: >-
+              {{ (semaphore_db_vm_resources.stdout | from_json) | selectattr('vmid', 'equalto', proxmox_vmid | int)
+                 | map(attribute='node') | first }}
+
+        - name: Snapshot the VM
+          ansible.builtin.include_role:
+            name: proxmox_snapshot
+            apply:
+              become: false
+          vars:
+            snapshot_label: before_postgres_upgrade
+
+        - name: Create the directory of the dump
+          ansible.builtin.file:
+            path: "{{ semaphore_db_dump_dir }}"
+            state: directory
+            owner: root
+            group: root
+            mode: '0700'
+
+        - name: Keep the Quadlet of the running version, to put it back on a failure
+          ansible.builtin.copy:
+            src: "{{ semaphore_db_quadlet_dir }}/semaphore-db.container"
+            dest: "{{ semaphore_db_dump_dir }}/semaphore-db.container.{{ semaphore_db_running_major }}"
+            remote_src: true
+            mode: '0600'
+
+        # Nothing writes to the database once Semaphore is stopped, so the dump and the count of rows describe the same data.
+        - name: Stop Semaphore
+          ansible.builtin.systemd:
+            name: semaphore.service
+            state: stopped
+
+        - name: Read the version and the rows of the running server
+          ansible.builtin.command: "{{ semaphore_db_psql }}"
+          args:
+            stdin: "{{ item }}"
+          loop:
+            - show server_version;
+            - "{{ semaphore_db_rows_sql }}"
+          register: semaphore_db_before
+          changed_when: false
+
+        - name: Dump the database with the running server
+          ansible.builtin.shell: |
+            set -o pipefail
+            file={{ semaphore_db_dump_dir }}/semaphore-before-{{ semaphore_db_target_major }}.dump
+            podman exec semaphore_db pg_dump -Fc -U semaphore semaphore > "$file.tmp"
+            test "$(stat -c %s "$file.tmp")" -gt 0
+            mv "$file.tmp" "$file"
+          args:
+            executable: /bin/bash
+          changed_when: true
+
+        - name: Stop the running server
+          ansible.builtin.systemd:
+            name: semaphore-db.service
+            state: stopped
+
+        - name: Switch to the new version
+          block:
+            # Only a run that failed after the switch leaves this volume behind, half restored; the dump is the source.
+            - name: Check whether a previous run left the volume of the new version
+              ansible.builtin.command: "podman volume exists {{ semaphore_db_new_volume | regex_replace('\\.volume$', '') }}"
+              register: semaphore_db_volume_left
+              changed_when: false
+              failed_when: semaphore_db_volume_left.rc not in [0, 1]
+
+            - name: Remove what a previous run left in the volume of the new version
+              ansible.builtin.command: "podman volume rm {{ semaphore_db_new_volume | regex_replace('\\.volume$', '') }}"
+              when: semaphore_db_volume_left.rc == 0
+              changed_when: true
+
+            - name: Deploy the Quadlet of the new version and its volume
+              ansible.builtin.copy:
+                src: "{{ semaphore_db_files }}/{{ item }}"
+                dest: "{{ semaphore_db_quadlet_dir }}/{{ item }}"
+                owner: root
+                group: root
+                mode: '0644'
+              loop:
+                - "{{ semaphore_db_new_volume }}"
+                - semaphore-db.container
+
+            # The new cluster is created empty from /etc/semaphore/db.env, so the password of Semaphore stays valid.
+            - name: Start the new version
+              ansible.builtin.systemd:
+                name: semaphore-db.service
+                state: started
+                daemon_reload: true
+
+            - name: Wait until the new server accepts connections
+              ansible.builtin.command: podman exec semaphore_db pg_isready -U semaphore -d semaphore
+              register: semaphore_db_ready
+              until: semaphore_db_ready.rc == 0
+              retries: 30
+              delay: 2
+              changed_when: false
+
+            - name: Restore the dump
+              ansible.builtin.shell: >-
+                podman exec -i semaphore_db pg_restore -U semaphore -d semaphore --exit-on-error
+                < {{ semaphore_db_dump_dir }}/semaphore-before-{{ semaphore_db_target_major }}.dump
+              args:
+                executable: /bin/bash
+              changed_when: true
+
+            # A dump carries no statistics, so the planner knows nothing about the tables until this has run.
+            - name: Collect the statistics of the planner
+              ansible.builtin.command: podman exec semaphore_db vacuumdb -U semaphore --all --analyze-only -q
+              changed_when: true
+
+            - name: Read the version and the rows of the new server
+              ansible.builtin.command: "{{ semaphore_db_psql }}"
+              args:
+                stdin: "{{ item }}"
+              loop:
+                - show server_version;
+                - "{{ semaphore_db_rows_sql }}"
+              register: semaphore_db_after
+              changed_when: false
+
+            - name: Stop when rows are missing
+              ansible.builtin.assert:
+                that: semaphore_db_after.results[1].stdout == semaphore_db_before.results[1].stdout
+                fail_msg: >-
+                  {{ semaphore_db_before.results[1].stdout }} rows before and {{ semaphore_db_after.results[1].stdout }} after:
+                  the restore lost data.
+
+          rescue:
+            - name: Stop the new version
+              ansible.builtin.systemd:
+                name: semaphore-db.service
+                state: stopped
+
+            - name: Put the Quadlet of the previous version back
+              ansible.builtin.copy:
+                src: "{{ semaphore_db_dump_dir }}/semaphore-db.container.{{ semaphore_db_running_major }}"
+                dest: "{{ semaphore_db_quadlet_dir }}/semaphore-db.container"
+                remote_src: true
+                owner: root
+                group: root
+                mode: '0644'
+
+            - name: Hand the failure on
+              ansible.builtin.fail:
+                msg: >-
+                  The move to Postgres {{ semaphore_db_target_major }} failed at '{{ ansible_failed_task.name }}':
+                  {{ ansible_failed_result.msg | default('see the output above') }}. The Quadlet of Postgres
+                  {{ semaphore_db_running_major }} is back, and its volume was not touched.
+
+        - name: Start Semaphore
+          ansible.builtin.systemd:
+            name: semaphore.service
+            state: started
+
+        - name: Wait for Semaphore to answer
+          ansible.builtin.uri:
+            url: "http://{{ ansible_host }}:3000/api/ping"
+            status_code: 200
+            timeout: 10
+          register: semaphore_db_ping
+          retries: 30
+          delay: 10
+          until: (semaphore_db_ping.status | default(0)) == 200
+          become: false
+          delegate_to: localhost
+
+        - name: Report
+          ansible.builtin.debug:
+            msg:
+              - >-
+                Postgres {{ semaphore_db_before.results[0].stdout }} -> {{ semaphore_db_after.results[0].stdout }},
+                {{ semaphore_db_after.results[1].stdout }} rows, same as before.
+              - >-
+                Kept as the way back: the previous volume, the dump and the previous Quadlet in {{ semaphore_db_dump_dir }},
+                and the snapshot before_postgres_upgrade. Delete them once the new version is trusted.
+
+      # Whatever failed, Semaphore must not stay down: the Quadlet in place at this point names a database that holds the data.
+      rescue:
+        - name: Start the database and Semaphore again
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            state: started
+            daemon_reload: true
+          loop:
+            - semaphore-db.service
+            - semaphore.service
+
+        - name: Stop with the reason
+          ansible.builtin.fail:
+            msg: "{{ ansible_failed_result.msg | default('The move failed, see the output above.') }}"
