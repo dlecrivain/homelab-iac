@@ -1,0 +1,65 @@
+---
+# Updates one Talos node (the item node of the loop of talos-updates.yml), and records what happened in talos_updates_results.
+# At the first thing that goes wrong the node is marked failed and talos_updates_halted stops the nodes after it.
+# The include of the loop is decided once for all the nodes, before the first one is done, so the stop after a failure is a condition
+# of the block itself, which is looked at when this node comes.
+- name: "Update {{ node.name }}"
+  when: not talos_updates_halted
+  vars:
+    # The health of the cluster is asked of a control plane other than the node itself, which is down for part of the update.
+    talos_updates_health_ip: "{{ talos_control_plane_ips | reject('equalto', node.ip) | first }}"
+    talos_updates_health: >-
+      {{ talosctl_cmd }} -n {{ talos_updates_health_ip }} health --server=false
+      --control-plane-nodes {{ talos_control_plane_ips | join(',') }} --worker-nodes {{ talos_worker_ips | join(',') }}
+  block:
+    - name: Check that the cluster is healthy before touching the node
+      ansible.builtin.command: "{{ talos_updates_health }} --wait-timeout 5m"
+      changed_when: false
+
+    - name: Remember when this node was started
+      ansible.builtin.set_fact:
+        talos_updates_node_start: "{{ now(fmt='%s') | int }}"
+
+    # The node cordons itself, drains its pods (up to 5 minutes), installs the image, reboots into it and uncordons itself.
+    - name: Install the new image on the node, and wait for it to be done
+      ansible.builtin.command: "{{ talosctl_cmd }} -n {{ node.ip }} upgrade --image {{ talos_installer_image }} --wait --timeout 25m"
+      changed_when: true
+      timeout: 1800
+
+    - name: Wait until the node runs the new version
+      ansible.builtin.command: "{{ talosctl_cmd }} -n {{ node.ip }} version"
+      register: talos_updates_after
+      changed_when: false
+      retries: 30
+      delay: 10
+      until: >-
+        (talos_updates_after.stdout | regex_findall('(?s)Server:.*?Tag: +(v[0-9][0-9.]*)') | first | default('unknown')) == talos_version
+
+    - name: Wait until the node is ready and open to pods again
+      ansible.builtin.command: "{{ talosctl_cmd }} -n {{ node.ip }} get nodestatus -o json"
+      register: talos_updates_node_status
+      changed_when: false
+      retries: 30
+      delay: 10
+      until: >-
+        talos_updates_node_status.rc == 0 and
+        (talos_updates_node_status.stdout | from_json).spec.nodeReady and
+        not (talos_updates_node_status.stdout | from_json).spec.unschedulable
+
+    - name: Check that the cluster is healthy again
+      ansible.builtin.command: "{{ talos_updates_health }} --wait-timeout 10m"
+      changed_when: false
+
+    - name: Record that the node is updated
+      ansible.builtin.set_fact:
+        talos_updates_results: >-
+          {{ talos_updates_results | combine({node.name: node | combine({'after': talos_version, 'status': 'updated',
+          'detail': (((now(fmt='%s') | int) - (talos_updates_node_start | int)) // 60) ~ ' min'})}) }}
+
+  rescue:
+    - name: Record the failure and stop before the next node
+      ansible.builtin.set_fact:
+        talos_updates_halted: true
+        talos_updates_results: >-
+          {{ talos_updates_results | combine({node.name: talos_updates_results[node.name] | combine({'status': 'failed',
+          'detail': (((ansible_failed_result.stderr | default('') | trim) or (ansible_failed_result.msg | default('see the log of the task'))) | string | truncate(300))})}) }}

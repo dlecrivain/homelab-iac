@@ -1,0 +1,194 @@
+---
+# Brings the operating system of the Talos nodes to talos_version, one node at a time, the control planes first. Before each node
+# and after it the whole cluster is checked, and at the first thing that is wrong nothing more is touched: the report says where the
+# run stopped. Talos does the delicate part itself (talosctl upgrade): it cordons the node, drains its pods, writes the new image
+# next to the running one, reboots into it, checks it, and uncordons it. A control plane is refused if its update would break the
+# quorum of etcd. The pods of a node come back on the others, so an application with one replica is cut for a minute or two.
+#
+# It runs on semaphore103, which is outside the cluster: a task that drains a node must not run in a pod of that cluster, nor depend
+# on it. talosctl is the one of its official image, run by podman, with the client configuration in talosctl_config, a file that is
+# only on that VM. Without it the stage is skipped, and the report says so.
+#
+#   -e talos_updates_check_only=true      read the version of each node and report, change nothing
+#   -e talos_updates_nodes=talos-wk103    only these nodes (names separated by commas)
+- name: Update the Talos nodes
+  hosts: semaphore103
+  gather_facts: false
+  become: true
+  vars:
+    talos_updates_ordered: "{{ talos_nodes | sort(attribute='role,name') }}"
+    talos_updates_only: "{{ (talos_updates_nodes | default('')).split(',') | select | list }}"
+  tasks:
+    - name: Capture the run start time
+      include_role:
+        name: capture_start_time
+
+    - name: Capture this stage's own start time
+      include_role:
+        name: capture_start_time
+      vars:
+        capture_start_time_fact_name: talos_updates_start_epoch
+
+    - name: Start with nothing done and nothing wrong
+      ansible.builtin.set_fact:
+        talos_updates_results: {}
+        talos_updates_halted: false
+        talos_updates_skip_reason: ''
+
+    - name: Read and update the nodes (skipped if an earlier stage of an orchestrated run had a problem)
+      when: hostvars['localhost'].orchestration_should_run | default(true)
+      block:
+        - name: Look for the client configuration of talosctl
+          ansible.builtin.stat:
+            path: "{{ talosctl_config }}"
+          register: talos_updates_config
+
+        - name: Skip the stage when talosctl has no client configuration
+          ansible.builtin.set_fact:
+            talos_updates_skip_reason: "{{ talosctl_config }} is not on {{ inventory_hostname }}, so talosctl cannot reach the cluster."
+          when: not talos_updates_config.stat.exists
+
+        - name: Read and update the nodes
+          when: talos_updates_skip_reason == ''
+          block:
+            - name: Pull the image of talosctl
+              ansible.builtin.command: "podman pull {{ talosctl_image }}"
+              register: talos_updates_pull
+              retries: 3
+              delay: 10
+              until: talos_updates_pull.rc == 0
+              changed_when: false
+
+            - name: Read the version that each node runs
+              ansible.builtin.command: "{{ talosctl_cmd }} -n {{ item.ip }} version"
+              loop: "{{ talos_updates_ordered }}"
+              loop_control:
+                label: "{{ item.name }}"
+              register: talos_updates_versions
+              changed_when: false
+              failed_when: false
+
+            - name: Work out what each node needs
+              ansible.builtin.set_fact:
+                talos_updates_results: >-
+                  {%- set out = {} -%}
+                  {%- for r in talos_updates_versions.results -%}
+                  {%- set m = (r.stdout | default('')) | regex_findall('(?s)Server:.*?Tag: +(v[0-9][0-9.]*)') -%}
+                  {%- set current = m[0] if m else 'unknown' -%}
+                  {%- if current == 'unknown' -%}
+                  {%- set st = 'unreachable' -%}
+                  {%- elif talos_updates_only and r.item.name not in talos_updates_only -%}
+                  {%- set st = 'not selected' -%}
+                  {%- elif current == talos_version -%}
+                  {%- set st = 'current' -%}
+                  {%- elif current[1:] is version(talos_version[1:], '>') -%}
+                  {%- set st = 'ahead of the target' -%}
+                  {%- else -%}
+                  {%- set st = 'pending' -%}
+                  {%- endif -%}
+                  {%- set _ = out.update({r.item.name: {'name': r.item.name, 'role': r.item.role, 'ip': r.item.ip, 'before': current, 'after': current, 'status': st, 'detail': ''}}) -%}
+                  {%- endfor -%}
+                  {{ out }}
+
+            # A node that does not answer is not a reason to start: the cluster is not in the state an update assumes.
+            - name: Stop before touching anything when a node does not answer
+              ansible.builtin.set_fact:
+                talos_updates_halted: true
+              when: talos_updates_results.values() | selectattr('status', 'equalto', 'unreachable') | list | length > 0
+
+            - name: Update the nodes one after the other
+              ansible.builtin.include_tasks: tasks/talos_update_node.yml
+              loop: "{{ talos_updates_results.values() | selectattr('status', 'equalto', 'pending') | sort(attribute='role,name') | list }}"
+              loop_control:
+                loop_var: node
+                label: "{{ node.name }}"
+              when:
+                - not talos_updates_halted
+                - not (talos_updates_check_only | default(false) | bool)
+
+- name: Report the Talos updates
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Record whether this stage was allowed to run, and what happened on semaphore103
+      ansible.builtin.set_fact:
+        stage_was_allowed_to_run: "{{ hostvars['localhost'].orchestration_should_run | default(true) }}"
+        talos_results: "{{ hostvars['semaphore103'].talos_updates_results | default({}) }}"
+        talos_halted: "{{ hostvars['semaphore103'].talos_updates_halted | default(false) }}"
+        talos_skip_reason: "{{ hostvars['semaphore103'].talos_updates_skip_reason | default('') }}"
+
+    - name: Work out the status of this stage and the gate of the next ones
+      ansible.builtin.set_fact:
+        talos_updates_stage_status: >-
+          {{ 'SKIPPED' if (not stage_was_allowed_to_run or talos_skip_reason != '')
+             else ('PROBLEM' if (talos_halted or (talos_results.values() | selectattr('status', 'in', ['failed', 'unreachable']) | list | length > 0))
+             else 'OK') }}
+        orchestration_should_run: "{{ stage_was_allowed_to_run and not talos_halted }}"
+        talos_updated_count: "{{ talos_results.values() | selectattr('status', 'equalto', 'updated') | list | length }}"
+        talos_pending_count: "{{ talos_results.values() | selectattr('status', 'equalto', 'pending') | list | length }}"
+        talos_check_only: "{{ talos_updates_check_only | default(false) | bool }}"
+
+    - name: Compute this stage's own duration
+      ansible.builtin.set_fact:
+        talos_updates_duration_seconds: "{{ (now(fmt='%s') | int) - (hostvars['localhost'].talos_updates_start_epoch | int) }}"
+      when: hostvars['localhost'].talos_updates_start_epoch is defined
+
+    - name: Format this stage's duration for display
+      ansible.builtin.set_fact:
+        talos_updates_duration_display: "{{ (talos_updates_duration_seconds | int // 3600) }}h {{ ((talos_updates_duration_seconds | int % 3600) // 60) }}m {{ (talos_updates_duration_seconds | int % 60) }}s"
+      when: talos_updates_duration_seconds is defined
+
+    - name: Capture this stage's report body
+      ansible.builtin.set_fact:
+        talos_updates_report_body: |
+          <h2>Talos update report</h2>
+          {% if not stage_was_allowed_to_run %}
+          <p class="alert-warning">
+            <strong>Skipped.</strong> An earlier stage in this orchestrated run reported a problem, so the Talos nodes were not updated.
+          </p>
+          {% elif talos_skip_reason != '' %}
+          <p class="alert-warning"><strong>Skipped.</strong> {{ talos_skip_reason }}</p>
+          {% else %}
+          <p>
+            {% if talos_updated_count | int > 0 %}
+            Talos <strong>{{ talos_results.values() | selectattr('status', 'equalto', 'updated') | map(attribute='before') | unique | join(', ') }} &rarr; {{ talos_version }}</strong> on {{ talos_updated_count }} node(s).
+            {% elif talos_pending_count | int > 0 %}
+            Talos target <strong>{{ talos_version }}</strong>: {{ talos_pending_count }} node(s) to update{% if talos_check_only %} (check only, nothing was changed){% endif %}.
+            {% else %}
+            Talos <strong>{{ talos_version }}</strong>: nothing to update, every node that was looked at already runs it.
+            {% endif %}
+          </p>
+          {% if talos_halted %}
+          <p class="alert-danger"><strong>Stopped.</strong> Nothing was touched after the first problem.</p>
+          {% endif %}
+          <table>
+            <tr><th>Node</th><th>Role</th><th>Before</th><th>After</th><th>Status</th></tr>
+            {% for n in talos_results.values() | sort(attribute='role,name') %}
+            <tr class="{{ 'status-problem' if n.status in ['failed', 'unreachable'] else ('status-info' if n.status == 'updated' else ('status-warning' if n.status == 'pending' else 'status-ok')) }}">
+              <td>{{ n.name }}</td>
+              <td>{{ n.role }}</td>
+              <td>{{ n.before }}</td>
+              <td>{{ n.after }}</td>
+              <td>{{ n.status }}{% if n.detail %} - {{ n.detail }}{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </table>
+          {% endif %}
+
+    # Skipped in an orchestrated run - the combined email covers it instead.
+    - name: Build and send the HTML report email
+      include_role:
+        name: send_report
+      when: not (hostvars['localhost'].is_orchestrated_run | default(false))
+      vars:
+        report_subject: "[talos-updates] {{ talos_updates_stage_status }}{% if talos_updated_count | int > 0 %} - {{ talos_updated_count }} node(s) now on {{ talos_version }}{% endif %}"
+        report_body: "{{ talos_updates_report_body }}"
+
+    # Standalone runs only: an orchestrated run must keep going so the combined report still gets sent, and full-updates.yml does its
+    # own final fail. Without this, ansible-playbook exits 0 even when the run stopped.
+    - name: Fail this run if it stopped on a problem
+      ansible.builtin.fail:
+        msg: "talos-updates stopped on a problem - see the report email for details."
+      when:
+        - not (hostvars['localhost'].is_orchestrated_run | default(false))
+        - talos_updates_stage_status == 'PROBLEM'
