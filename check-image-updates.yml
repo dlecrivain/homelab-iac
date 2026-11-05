@@ -96,7 +96,7 @@
         path: "{{ playbook_dir }}/group_vars/all.yml"
         regexp: '^{{ item.version_var }}: ".*"$'
         replace: '{{ item.version_var }}: "{{ item.same_major_target }}"'
-      loop: "{{ image_update_checks | selectattr('bump_needed') | list }}"
+      loop: "{{ image_update_checks | default([]) | selectattr('bump_needed') | list }}"
       loop_control:
         label: "{{ item.name }}"
       register: image_update_bump_result
@@ -109,7 +109,7 @@
       when: image_update_bump_result.changed | default(false)
 
 - name: Check whether each watched image's live container has caught up to its target version yet
-  hosts: "{{ adguard_host | default('adguard102') }}"
+  hosts: "{{ (image_update_watch_list | map(attribute='host') | list + ['localhost']) | unique | join(',') }}"
   gather_facts: false
   tasks:
     - name: Capture the full list of targeted hosts (for the aggregation play below)
@@ -122,7 +122,7 @@
     # root's podman can't see them.
     - name: Get the live image tag for each watched container on this host
       vars:
-        my_checks: "{{ hostvars['localhost'].image_update_checks | selectattr('host', 'equalto', inventory_hostname) | list }}"
+        my_checks: "{{ hostvars['localhost'].image_update_checks | default([]) | selectattr('host', 'equalto', inventory_hostname) | list }}"
       ansible.builtin.command: "podman inspect {{ item.container_name }} --format '{{ '{{' }}.ImageName{{ '}}' }}'"
       become: "{{ (health_check_podman_user | default('root')) == 'root' }}"
       register: image_update_live_tags
@@ -251,7 +251,7 @@
   hosts: localhost
   gather_facts: false
   vars:
-    major_available_images: "{{ image_update_checks | selectattr('major_available') | list }}"
+    major_available_images: "{{ image_update_checks | default([]) | selectattr('major_available') | list }}"
     fleet_update_available_images: "{{ fleet_image_checks | default([]) | selectattr('update_available') | list }}"
     binary_bumped: "{{ binary_update_checks | default([]) | selectattr('bump_needed') | list }}"
     binary_major_available: "{{ binary_update_checks | default([]) | selectattr('major_available') | list }}"
@@ -261,7 +261,7 @@
     - name: Build the list of containers with a target version not yet deployed
       ansible.builtin.set_fact:
         pending_deployment_images: "{{ (pending_deployment_images | default([])) + ([item] if (image_update_live_versions.get(item.name, '') != item.same_major_target) else []) }}"
-      loop: "{{ image_update_checks }}"
+      loop: "{{ image_update_checks | default([]) }}"
       loop_control:
         label: "{{ item.name }}"
 
@@ -270,7 +270,7 @@
     - name: Merge watch-list bumps not yet deployed with the fleet-wide scan into one list
       ansible.builtin.set_fact:
         unified_update_items: "{{ (unified_update_items | default([])) + [{'host': item.host, 'name': item.name, 'current': image_update_live_versions.get(item.name, 'unknown'), 'target': item.same_major_target, 'reviewed': true}] }}"
-      loop: "{{ pending_deployment_images }}"
+      loop: "{{ pending_deployment_images | default([]) }}"
       loop_control:
         label: "{{ item.name }}"
 
