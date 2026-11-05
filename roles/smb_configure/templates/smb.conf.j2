@@ -11,7 +11,7 @@
     # The NetBIOS name service is how some devices find the server.
     disable netbios = no
     hosts allow = 127.0.0.1 {{ smb_allowed_hosts | join(' ') }}
-{% if smb_listen_address %}
+{% if smb_listen_address and smb_bind_only %}
     interfaces = lo {{ smb_listen_address }}/{{ smb_listen_prefix }}
     bind interfaces only = yes
 {% endif %}

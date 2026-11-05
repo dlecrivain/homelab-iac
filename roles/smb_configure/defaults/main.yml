@@ -19,11 +19,13 @@ smb_vg: vg_system
 smb_data_lv: lv_aqara
 smb_data_size_gb: 30
 
-# When the share has to be reached at an address of its own, which the host is given as a second address of its interface and which
-# is the only one Samba listens on (the prefix length is smb_listen_prefix). Empty means every address of the host. The name that
-# mDNS announces is smb_service_name, the name of the host unless it is changed.
+# When the share has to be reached at an address that another host had, which the host is given as a second address of its interface
+# (the prefix length is smb_listen_prefix). Samba still listens on every address of the host, since a device that finds the server by
+# its name may be given either; smb_bind_only: true restricts it to that address. The name that mDNS announces is smb_service_name,
+# the name of the host unless it is changed.
 smb_listen_address: ""
 smb_listen_prefix: 24
+smb_bind_only: false
 smb_service_name: "%h"
 
 # The writer's password is read from <smb_password_dir>/<account>-password, mode 0600, placed by hand since it is
