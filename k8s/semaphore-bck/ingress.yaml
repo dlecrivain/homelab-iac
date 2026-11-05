@@ -9,6 +9,16 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
+    - host: semaphore-bck.lecrivaindaniel.fr
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: semaphore-bck
+                port:
+                  number: 3000
     - host: semaphore-bck.k8s.lecrivaindaniel.fr
       http:
         paths:
