@@ -19,7 +19,7 @@ Nothing here needs a login on a node. Talos has no SSH and no shell; everything 
 | `nfs101` | NFS server, Postgres next to it | 192.168.1.130 | 113 | pve2 |
 
 Talos v1.14.5, Kubernetes v1.37.2. Pods get addresses in `10.244.0.0/16` (a /24 per node), Services in `10.96.0.0/12`.
-`192.168.1.128` (`talos-lb101`) is the address of Traefik, `192.168.1.129` (`talos-lb102`) is kept spare. All the
+`192.168.1.128` (`talos-lb101`) is the address of Traefik, `192.168.1.129` (`talos-lb102`) is kept spare and `192.168.1.114` (`talos-lb103`) is the DNS server of the LAN. All the
 addresses are reserved in phpIPAM. The six Talos VMs form the Proxmox pool `kubernetes`, which the fleet playbooks leave
 out. There is one control plane and one worker on each Proxmox node, numbered after it (101 on pve1, 102 on pve2, 103 on
 pve3). When a Proxmox node is updated or lost, its two Talos VMs are stopped with it, not migrated: etcd keeps its quorum
@@ -38,8 +38,9 @@ which hold them with room to spare. Nothing is stopped on a schedule any more.
 | Traefik | Receives the HTTPS requests on 192.168.1.128 and sends each to the right service by name | `traefik`, 2 pods |
 | cert-manager, OVH webhook | Obtain and renew Let's Encrypt certificates, proving the name through a DNS record at OVH | `cert-manager` |
 | Argo CD | Compares `k8s/` of this repository with the cluster and corrects the difference | `argocd` |
-| `edge` | Routes of Traefik to the web interfaces of the VMs (Proxmox, Semaphore, AdGuard): a Service without pods points at each VM | `edge` |
+| `edge` | Routes of Traefik to the web interfaces of the VMs (Proxmox, Semaphore): a Service without pods points at each VM | `edge` |
 | metrics-server, kubelet-serving-cert-approver | Consumption of nodes and pods; approves the certificates of the kubelets so that logs and metrics can be fetched securely | `kube-system`, `kubelet-serving-cert-approver` |
+| AdGuard Home | The DNS server and filter of the devices of the LAN, at 192.168.1.114 through a LoadBalancer Service of Cilium; its files are on `nfs101` | `adguard` |
 | Paperless-ngx | The document archive, moved here as a pilot: files on `nfs101`, database in its Postgres, Valkey for the queue | `paperless` |
 | Immich | The photo and video library: server, machine learning and Valkey as pods, photos on `nfs101` and database in its Postgres | `immich` |
 | phpIPAM | The address manager the playbooks call as an API, and its subnet scan; database in the MariaDB of `nfs101` | `phpipam` |
@@ -77,8 +78,8 @@ state of the services, recent logs); it is not a shell. A node can be restarted 
 
 **A page is requested** (`https://argocd.k8s.lecrivaindaniel.fr`):
 
-1. The browser resolves the name. The wildcard record `*` at OVH answers 192.168.1.128. AdGuard only filters, it holds no
-   record, but it caches answers.
+1. The browser resolves the name. The wildcard record `*` at OVH answers 192.168.1.128. AdGuard, which runs on the cluster, only filters,
+   it holds no record, but it caches answers.
 2. Cilium makes one worker answer ARP for 192.168.1.128. If that worker goes, another takes over within seconds.
 3. The request reaches a Traefik pod, which presents the wildcard certificate and reads the name (`Ingress` objects).
 4. Traefik sends it to the Service of the application, Cilium picks a pod and carries the packets, through the tunnel when
