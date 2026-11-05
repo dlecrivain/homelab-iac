@@ -192,7 +192,8 @@ talosctl upgrade -n <node> --image factory.talos.dev/metal-installer/<schematic 
   control planes, taking one down keeps the quorum, so one at a time is allowed.
 - Use a `talosctl` of the same version as the cluster. Update one node, check, then the next. `talosctl dmesg -f` or
   `--wait` shows progress.
-- Nothing updates Talos automatically here yet. `talos_version` and the schematic are in `group_vars/all.yml`.
+- `talos-updates.yml` does this for all the nodes, see **Updates from Semaphore** below. `talos_version` and the schematic are in
+  `group_vars/all.yml`.
 
 **Updating what runs on the cluster.** Renovate reads `renovate.json` and proposes the new versions of the images in `k8s/` and
 of the charts and tags of the Applications, between 03:00 and 04:00, three days after a release. Minor and patch versions of
@@ -248,6 +249,31 @@ talosctl --nodes <a control plane> upgrade-k8s --to <version>
   configuration (`name: <module>`); **sysctls** with a `SysctlConfig` document (`params:`). Both are sent with
   `talosctl apply-config` or `talosctl patch machineconfig`.
 - **Anything else** (an agent, a service) runs as a pod, usually a DaemonSet when it must be on every node.
+
+
+**Updates from Semaphore.** `full-updates.yml` ends with two stages, `talos-updates.yml` then `kubernetes-updates.yml`, each of
+which is also a template of `semaphore103` to run alone. They bring the nodes to `talos_version` and the cluster to
+`kubernetes_version`, two variables of `group_vars/all.yml` that Renovate proposes as pull requests, never merged by itself:
+the run of the Friday after the merge applies the new version, and the mail of the run says, for each node and each component of
+Kubernetes, the version it had and the one it has now (or that there was nothing to do).
+
+- **Where and with what.** They run on `semaphore103`, which is outside the cluster: a task that drains a node must not run in a
+  pod of the cluster, and the Semaphore that starts the cluster again cannot depend on it. `talosctl` is the one of its official
+  image, run by podman, with a client configuration that is only on that VM, in `/etc/talos/talosconfig` (owner root, mode 0600),
+  never in the repository. It is made once, from a machine that holds the admin configuration, and lasts a year:
+  `talosctl config new semaphore.talosconfig --roles os:admin --crt-ttl 8760h`, then copied to the VM. Without that file both
+  stages are skipped and say so in the report.
+- **What they do.** `talos-updates.yml` reads the version of each node and updates the ones that differ, the control planes first
+  and one node at a time, with `talosctl upgrade`: the node cordons itself, drains its pods, reboots into the new image and
+  uncordons itself. The health of the cluster is checked before each node and after it, and at the first problem nothing more is
+  touched. A node that is already on the target, or newer, is left alone. `kubernetes-updates.yml` reads the version of the
+  components of the control planes and of the kubelets, asks Talos for its plan (`--dry-run`) and then runs `upgrade-k8s`.
+  A stage that finds nothing to do changes nothing and says so.
+- **Applications with one replica** are cut for a minute or two while their pod starts on another node, once per node.
+- **By hand.** `-e talos_updates_check_only=true` (and `kubernetes_updates_check_only=true`) only reads and reports.
+  `-e talos_updates_nodes=talos-wk103` restricts the update to some nodes: use it for the first real update, on one worker, and
+  look at the mail before letting the whole run do the others.
+- **Only `semaphore103`.** The Semaphore of the cluster must never run them, since its own pod would be drained with the node.
 
 ## 8. Backups and recovery
 
