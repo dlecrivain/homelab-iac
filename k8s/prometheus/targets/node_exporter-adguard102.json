@@ -1,9 +1,0 @@
-[
-  {
-    "targets": ["192.168.1.114:9100"],
-    "labels": {
-      "instance": "adguard102",
-      "role": "vm"
-    }
-  }
-]
