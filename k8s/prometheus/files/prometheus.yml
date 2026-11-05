@@ -62,6 +62,12 @@ scrape_configs:
       - targets: ["https://grafana.lecrivaindaniel.fr/api/health"]
         labels:
           service: grafana
+      - targets: ["https://semaphore.lecrivaindaniel.fr/api/ping"]
+        labels:
+          service: semaphore
+      - targets: ["https://semaphore-bck.lecrivaindaniel.fr/api/ping"]
+        labels:
+          service: semaphore-bck
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
