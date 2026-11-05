@@ -1,5 +1,5 @@
-# The addresses LoadBalancer services can take, reserved in phpIPAM as talos-lb101 and talos-lb102, and the nodes that
-# announce them on the LAN. The control planes stay out: they are not meant to carry traffic.
+# The addresses LoadBalancer services can take, reserved in phpIPAM as talos-lb101 (Traefik), talos-lb102 and the one of the DNS
+# server, and the nodes that announce them on the LAN. The control planes stay out: they are not meant to carry traffic.
 apiVersion: cilium.io/v2
 kind: CiliumLoadBalancerIPPool
 metadata:
@@ -8,6 +8,9 @@ spec:
   blocks:
     - start: 192.168.1.128
       stop: 192.168.1.129
+    # The address that the DHCP of the Freebox gives to the devices as their DNS server.
+    - start: 192.168.1.114
+      stop: 192.168.1.114
 ---
 apiVersion: cilium.io/v2alpha1
 kind: CiliumL2AnnouncementPolicy
