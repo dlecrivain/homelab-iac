@@ -11,7 +11,9 @@ spec:
   type: ExternalName
   externalName: {{ .address | quote }}
   ports:
-    - name: web
+    # Traefik connects with TLS to a port whose name starts with https, which it does not do for an ExternalName Service from the
+    # annotation of the route alone.
+    - name: {{ if eq (.scheme | default "http") "https" }}https{{ else }}web{{ end }}
       port: {{ .port }}
       targetPort: {{ .port }}
 ---
