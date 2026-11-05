@@ -152,19 +152,35 @@ smb_host: smb101
 
 # Talos Linux, the operating system of the Kubernetes test cluster. The nodes are installed from this ISO, built by
 # Image Factory with the qemu-guest-agent extension and stored on pve1, the only node with an ISO storage, see the README.
+# The version of Talos Linux that talos-updates.yml brings every node to, and the version of Kubernetes that kubernetes-updates.yml brings
+# the cluster to. Renovate proposes the new ones as pull requests, and the next run of full-updates.yml applies the merged one. The
+# images of the Image Factory are of the schematic of the nodes (the extension qemu-guest-agent), so an update keeps what is installed.
 talos_version: v1.14.5
+talos_schematic_id: ce4c980550dd2ab1b17bbf2b08801c7eb59418eafe8f279833297925d67c7515
+talos_installer_image: "factory.talos.dev/metal-installer/{{ talos_schematic_id }}:{{ talos_version }}"
+kubernetes_version: "1.37.2"
 talos_iso_volume: "Stockage_SSD:iso/talos-{{ talos_version }}-qemu-guest-agent.iso"
 # The nodes of the cluster, one control plane and one worker on each Proxmox node, numbered after it: 101 on pve1, 102 on pve2,
 # 103 on pve3. Each is created on pve1 by talos-create-vm.yml, installed with talosctl, then moved to its own node by
 # talos-place-vm.yml. Three control planes leave etcd its quorum when one Proxmox node is down, and three workers the room for
 # its pods; a node that is down is stopped with its host, not migrated.
 talos_nodes:
-  - { name: talos-cp101, vmid: 120, role: controlplane, node: pve1, memory_mb: 3072, cores: 2, disk_gb: 30 }
-  - { name: talos-wk101, vmid: 121, role: worker, node: pve1, memory_mb: 4096, cores: 2, disk_gb: 40 }
-  - { name: talos-cp102, vmid: 122, role: controlplane, node: pve2, memory_mb: 3072, cores: 2, disk_gb: 30 }
-  - { name: talos-wk102, vmid: 123, role: worker, node: pve2, memory_mb: 4096, cores: 2, disk_gb: 40 }
-  - { name: talos-cp103, vmid: 124, role: controlplane, node: pve3, memory_mb: 3072, cores: 2, disk_gb: 30 }
-  - { name: talos-wk103, vmid: 125, role: worker, node: pve3, memory_mb: 4096, cores: 2, disk_gb: 40 }
+  - { name: talos-cp101, ip: 192.168.1.124, vmid: 120, role: controlplane, node: pve1, memory_mb: 3072, cores: 2, disk_gb: 30 }
+  - { name: talos-wk101, ip: 192.168.1.125, vmid: 121, role: worker, node: pve1, memory_mb: 4096, cores: 2, disk_gb: 40 }
+  - { name: talos-cp102, ip: 192.168.1.127, vmid: 122, role: controlplane, node: pve2, memory_mb: 3072, cores: 2, disk_gb: 30 }
+  - { name: talos-wk102, ip: 192.168.1.126, vmid: 123, role: worker, node: pve2, memory_mb: 4096, cores: 2, disk_gb: 40 }
+  - { name: talos-cp103, ip: 192.168.1.113, vmid: 124, role: controlplane, node: pve3, memory_mb: 3072, cores: 2, disk_gb: 30 }
+  - { name: talos-wk103, ip: 192.168.1.118, vmid: 125, role: worker, node: pve3, memory_mb: 4096, cores: 2, disk_gb: 40 }
+
+# How the playbooks reach the cluster: the talosctl of the official image, run by podman on semaphore103, which is outside the cluster,
+# with a client configuration that is only on that VM (talosctl_config, owned by root, never in this repository).
+talosctl_image: "ghcr.io/siderolabs/talosctl:{{ talos_version }}"
+talosctl_config: /etc/talos/talosconfig
+talos_control_plane_ips: "{{ talos_nodes | selectattr('role', 'equalto', 'controlplane') | map(attribute='ip') | list }}"
+talos_worker_ips: "{{ talos_nodes | selectattr('role', 'equalto', 'worker') | map(attribute='ip') | list }}"
+talosctl_cmd: >-
+  podman run --rm --security-opt label=disable -v {{ talosctl_config }}:/talosconfig:ro {{ talosctl_image }}
+  --talosconfig /talosconfig --endpoints {{ talos_control_plane_ips | join(',') }}
 
 # The Docker Hub (docker_repo) or ghcr.io (ghcr_repo) images that check-image-updates.yml watches on a VM. An entry has name,
 # docker_repo or ghcr_repo, version_var (the variable it bumps), container_name, and host (whose live container tells it whether a
