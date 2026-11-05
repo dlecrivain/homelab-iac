@@ -260,8 +260,8 @@ Kubernetes, the version it had and the one it has now (or that there was nothing
 - **Where and with what.** They run on `semaphore103`, which is outside the cluster: a task that drains a node must not run in a
   pod of the cluster, and the Semaphore that starts the cluster again cannot depend on it. `talosctl` is the one of its official
   image, run by podman, with a client configuration that is only on that VM, in `/etc/talos/talosconfig` (owner root, mode 0600),
-  never in the repository. It is made once, from a machine that holds the admin configuration, and lasts a year:
-  `talosctl config new semaphore.talosconfig --roles os:admin --crt-ttl 8760h`, then copied to the VM. Without that file both
+  never in the repository. It is made once, from a machine that holds the admin configuration, and lasts five years:
+  `talosctl config new semaphore.talosconfig --roles os:admin --crt-ttl 43800h`, then copied to the VM. Without that file both
   stages are skipped and say so in the report.
 - **What they do.** `talos-updates.yml` reads the version of each node and updates the ones that differ, the control planes first
   and one node at a time, with `talosctl upgrade`: the node cordons itself, drains its pods, reboots into the new image and
