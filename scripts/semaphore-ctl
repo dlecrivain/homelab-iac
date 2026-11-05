@@ -13,6 +13,8 @@
 #   semaphore-ctl set-schedule <schedule-id> '<cron>' [--dry-run]
 #   semaphore-ctl delete-schedule <schedule-id> [--dry-run]
 #   semaphore-ctl delete-template <template-id> [--dry-run]
+#   semaphore-ctl rename-template <template-id> <name> [--dry-run]
+#   semaphore-ctl rename-schedule <schedule-id> <name> [--dry-run]
 #   semaphore-ctl environments
 #   semaphore-ctl delete-env-secret <environment-id> <name> [--dry-run]
 #
@@ -249,6 +251,39 @@ print("schedule %s: %s, template %s, %s" % (s["id"], s["cron_format"], s["templa
   echo "schedule $id deleted"
 }
 
+cmd_rename_template() {
+  local id=${1:?template id required} name=${2:?new name required} dry=0
+  [ "${3:-}" = "--dry-run" ] && dry=1
+  [[ $id =~ ^[0-9]+$ ]] || die "template id must be a number"
+  local body
+  body=$(NAME="$name" TEMPLATES="$(api GET "/api/project/$SEMAPHORE_PROJECT/templates")" \
+    CURRENT="$(api GET "/api/project/$SEMAPHORE_PROJECT/templates/$id")" python3 -c '
+import json, os, sys
+t = json.loads(os.environ["CURRENT"])
+if any(o["name"].lower() == os.environ["NAME"].lower() and o["id"] != t["id"] for o in json.loads(os.environ["TEMPLATES"])):
+    sys.exit("a template named %r already exists" % os.environ["NAME"])
+t["name"] = os.environ["NAME"]
+print(json.dumps(t))
+') || exit 1
+  if [ $dry -eq 1 ]; then echo "$body" | python3 -m json.tool; return 0; fi
+  api PUT "/api/project/$SEMAPHORE_PROJECT/templates/$id" "$body" > /dev/null
+  echo "template $id renamed to: $name"
+}
+cmd_rename_schedule() {
+  local id=${1:?schedule id required} name=${2:?new name required} dry=0
+  [ "${3:-}" = "--dry-run" ] && dry=1
+  [[ $id =~ ^[0-9]+$ ]] || die "schedule id must be a number"
+  local body
+  body=$(NAME="$name" CURRENT="$(api GET "/api/project/$SEMAPHORE_PROJECT/schedules/$id")" python3 -c '
+import json, os
+s = json.loads(os.environ["CURRENT"])
+s["name"] = os.environ["NAME"]
+print(json.dumps(s))
+')
+  if [ $dry -eq 1 ]; then echo "$body" | python3 -m json.tool; return 0; fi
+  api PUT "/api/project/$SEMAPHORE_PROJECT/schedules/$id" "$body" > /dev/null
+  echo "schedule $id renamed to: $name"
+}
 cmd_delete_template() {
   local id=${1:?template id required} dry=0
   [ "${2:-}" = "--dry-run" ] && dry=1
@@ -319,7 +354,9 @@ case "${1:-}" in
   set-schedule)  shift; cmd_set_schedule "$@" ;;
   delete-schedule) shift; cmd_delete_schedule "$@" ;;
   delete-template) shift; cmd_delete_template "$@" ;;
+  rename-template) shift; cmd_rename_template "$@" ;;
+  rename-schedule) shift; cmd_rename_schedule "$@" ;;
   environments) shift; cmd_environments "$@" ;;
   delete-env-secret) shift; cmd_delete_env_secret "$@" ;;
-  *) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  *) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
