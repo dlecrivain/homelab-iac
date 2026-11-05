@@ -1,0 +1,23 @@
+# The photo and video library. Argo CD applies a change of its manifests by itself, and puts back what is changed by hand. Its
+# Deployments are replaced as a whole on every change, so an update of an image means a short interruption.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: immich
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/dlecrivain/homelab-iac.git
+    targetRevision: main
+    path: k8s/immich
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: immich
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
