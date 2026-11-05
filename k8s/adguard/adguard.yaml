@@ -6,7 +6,7 @@ metadata:
   name: adguard
   namespace: adguard
 spec:
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
