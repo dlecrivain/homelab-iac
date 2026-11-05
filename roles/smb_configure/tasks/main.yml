@@ -145,6 +145,34 @@
   no_log: true
   become: true
 
+# The address of the share is given to the host as a second address of its interface, which NetworkManager keeps across a restart.
+# The connection is applied again without being taken down, so the session of this run keeps its address.
+- name: Give the host the address of the share
+  when: smb_listen_address | length > 0
+  block:
+    - name: Find the connection and the device that carry the host's address
+      ansible.builtin.shell: nmcli -t -f NAME,DEVICE connection show --active | grep -v ':lo$' | head -n 1
+      register: smb_connection
+      changed_when: false
+
+    - name: Look for the address among those of the host
+      ansible.builtin.command: ip -4 -o addr show
+      register: smb_addresses
+      changed_when: false
+
+    - name: Add the address to the connection
+      ansible.builtin.command: >-
+        nmcli connection modify {{ smb_connection.stdout.split(':')[0] | quote }}
+        +ipv4.addresses {{ smb_listen_address }}/{{ smb_listen_prefix }}
+      when: (' ' ~ smb_listen_address ~ '/') not in smb_addresses.stdout
+      changed_when: true
+
+    - name: Apply it without taking the connection down
+      ansible.builtin.command: nmcli device reapply {{ smb_connection.stdout.split(':')[1] | quote }}
+      when: (' ' ~ smb_listen_address ~ '/') not in smb_addresses.stdout
+      changed_when: true
+  become: true
+
 - name: Start the services
   ansible.builtin.systemd:
     name: "{{ item }}"

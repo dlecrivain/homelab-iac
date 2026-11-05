@@ -2,7 +2,7 @@
 <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
 <!-- Managed by the smb_configure role: announces the share on the local network. -->
 <service-group>
-  <name replace-wildcards="yes">%h</name>
+  <name replace-wildcards="yes">{{ smb_service_name }}</name>
   <service>
     <type>_smb._tcp</type>
     <port>445</port>
