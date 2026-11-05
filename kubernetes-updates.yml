@@ -1,0 +1,261 @@
+---
+# Brings Kubernetes to kubernetes_version: the API server, the controller manager and the scheduler of the control planes, and the
+# kubelet of every node (talosctl upgrade-k8s). Talos does it one component and one node at a time and checks each step; the
+# pods keep running while a kubelet restarts. The whole cluster is checked before and after, and the plan Talos computes is asked
+# for first (--dry-run): if it is refused nothing is changed. It comes after talos-updates.yml in full-updates.yml, since the
+# version of Kubernetes that a version of Talos supports is the one to look at first.
+#
+# It runs on semaphore103, outside the cluster, with the talosctl of the official image and the client configuration in
+# talosctl_config, like talos-updates.yml. Without that file the stage is skipped, and the report says so.
+#
+#   -e kubernetes_updates_check_only=true      read the versions and report, change nothing
+- name: Update Kubernetes
+  hosts: semaphore103
+  gather_facts: false
+  become: true
+  vars:
+    kubernetes_updates_first_cp: "{{ talos_control_plane_ips | first }}"
+    kubernetes_updates_target: "v{{ kubernetes_version }}"
+    kubernetes_updates_health: >-
+      {{ talosctl_cmd }} -n {{ kubernetes_updates_first_cp }} health --server=false
+      --control-plane-nodes {{ talos_control_plane_ips | join(',') }} --worker-nodes {{ talos_worker_ips | join(',') }}
+  tasks:
+    - name: Capture the run start time
+      include_role:
+        name: capture_start_time
+
+    - name: Capture this stage's own start time
+      include_role:
+        name: capture_start_time
+      vars:
+        capture_start_time_fact_name: kubernetes_updates_start_epoch
+
+    - name: Start with nothing done and nothing wrong
+      ansible.builtin.set_fact:
+        kubernetes_updates_results: {}
+        kubernetes_updates_halted: false
+        kubernetes_updates_skip_reason: ''
+
+    - name: Read and update Kubernetes (skipped if an earlier stage of an orchestrated run had a problem)
+      when: hostvars['localhost'].orchestration_should_run | default(true)
+      block:
+        - name: Look for the client configuration of talosctl
+          ansible.builtin.stat:
+            path: "{{ talosctl_config }}"
+          register: kubernetes_updates_config
+
+        - name: Skip the stage when talosctl has no client configuration
+          ansible.builtin.set_fact:
+            kubernetes_updates_skip_reason: "{{ talosctl_config }} is not on {{ inventory_hostname }}, so talosctl cannot reach the cluster."
+          when: not kubernetes_updates_config.stat.exists
+
+        - name: Read and update Kubernetes
+          when: kubernetes_updates_skip_reason == ''
+          block:
+            - name: Pull the image of talosctl
+              ansible.builtin.command: "podman pull {{ talosctl_image }}"
+              register: kubernetes_updates_pull
+              retries: 3
+              delay: 10
+              until: kubernetes_updates_pull.rc == 0
+              changed_when: false
+
+            - name: Read the versions of the components of the control planes
+              ansible.builtin.command: "{{ talosctl_cmd }} -n {{ item }} get staticpods -o yaml"
+              loop: "{{ talos_control_plane_ips }}"
+              register: kubernetes_updates_static
+              changed_when: false
+              failed_when: false
+
+            - name: Read the version of the kubelet of each node
+              ansible.builtin.command: "{{ talosctl_cmd }} -n {{ item.ip }} get kubeletspecs -o yaml"
+              loop: "{{ talos_nodes | sort(attribute='role,name') }}"
+              loop_control:
+                label: "{{ item.name }}"
+              register: kubernetes_updates_kubelets
+              changed_when: false
+              failed_when: false
+
+            # One entry per component of a control plane and per kubelet, with the version it runs now.
+            - name: Work out what runs where
+              ansible.builtin.set_fact:
+                kubernetes_updates_results: >-
+                  {%- set out = {} -%}
+                  {%- for r in kubernetes_updates_static.results -%}
+                  {%- for c in r.stdout | default('') | regex_findall('registry.k8s.io/kube-(apiserver|controller-manager|scheduler):(v[0-9][0-9.]*)') -%}
+                  {%- set key = c[0] ~ ' (' ~ talos_nodes | selectattr('ip', 'equalto', r.item) | map(attribute='name') | first ~ ')' -%}
+                  {%- set _ = out.update({key: {'name': key, 'before': c[1], 'after': c[1], 'status': 'pending'}}) -%}
+                  {%- endfor -%}
+                  {%- endfor -%}
+                  {%- for r in kubernetes_updates_kubelets.results -%}
+                  {%- set v = r.stdout | default('') | regex_findall('kubelet:(v[0-9][0-9.]*)') | first | default('unknown') -%}
+                  {%- set key = 'kubelet (' ~ r.item.name ~ ')' -%}
+                  {%- set _ = out.update({key: {'name': key, 'before': v, 'after': v, 'status': 'pending'}}) -%}
+                  {%- endfor -%}
+                  {{ out }}
+
+            - name: Say for each component whether it needs the update
+              ansible.builtin.set_fact:
+                kubernetes_updates_results: >-
+                  {%- set out = {} -%}
+                  {%- for k, c in kubernetes_updates_results.items() -%}
+                  {%- if c.before == 'unknown' -%}
+                  {%- set st = 'unreachable' -%}
+                  {%- elif c.before == kubernetes_updates_target -%}
+                  {%- set st = 'current' -%}
+                  {%- elif c.before[1:] is version(kubernetes_updates_target[1:], '>') -%}
+                  {%- set st = 'ahead of the target' -%}
+                  {%- else -%}
+                  {%- set st = 'pending' -%}
+                  {%- endif -%}
+                  {%- set _ = out.update({k: c | combine({'status': st})}) -%}
+                  {%- endfor -%}
+                  {{ out }}
+
+            # A component that cannot be read means the cluster is not in the state an update assumes.
+            - name: Stop before touching anything when something does not answer
+              ansible.builtin.set_fact:
+                kubernetes_updates_halted: true
+              when: (kubernetes_updates_results.values() | selectattr('status', 'equalto', 'unreachable') | list | length > 0) or (kubernetes_updates_results | length < (talos_control_plane_ips | length) * 3 + (talos_nodes | length))
+
+            - name: Update Kubernetes
+              when:
+                - not kubernetes_updates_halted
+                - kubernetes_updates_results.values() | selectattr('status', 'equalto', 'pending') | list | length > 0
+                - not (kubernetes_updates_check_only | default(false) | bool)
+              block:
+                - name: Check that the cluster is healthy before touching it
+                  ansible.builtin.command: "{{ kubernetes_updates_health }} --wait-timeout 5m"
+                  changed_when: false
+
+                - name: Remember when the update was started
+                  ansible.builtin.set_fact:
+                    kubernetes_updates_start: "{{ now(fmt='%s') | int }}"
+
+                # Talos computes the plan and checks that this version can be reached from the one that runs, without changing anything.
+                - name: Ask Talos for the plan
+                  ansible.builtin.command: "{{ talosctl_cmd }} -n {{ kubernetes_updates_first_cp }} upgrade-k8s --to {{ kubernetes_version }} --dry-run"
+                  register: kubernetes_updates_plan
+                  changed_when: false
+
+                - name: Update the control planes and the kubelets
+                  ansible.builtin.command: "{{ talosctl_cmd }} -n {{ kubernetes_updates_first_cp }} upgrade-k8s --to {{ kubernetes_version }}"
+                  changed_when: true
+                  timeout: 3000
+
+                - name: Read the versions again
+                  ansible.builtin.command: "{{ talosctl_cmd }} -n {{ item }} get staticpods -o yaml"
+                  loop: "{{ talos_control_plane_ips }}"
+                  register: kubernetes_updates_static_after
+                  changed_when: false
+                  retries: 30
+                  delay: 10
+                  until: (kubernetes_updates_static_after.stdout | default('') | regex_findall('registry.k8s.io/kube-[a-z-]+:(v[0-9][0-9.]*)') | unique | list) == [kubernetes_updates_target]
+
+                - name: Check that the cluster is healthy again
+                  ansible.builtin.command: "{{ kubernetes_updates_health }} --wait-timeout 10m"
+                  changed_when: false
+
+                - name: Record that the components are updated
+                  ansible.builtin.set_fact:
+                    kubernetes_updates_results: >-
+                      {%- set out = {} -%}
+                      {%- for k, c in kubernetes_updates_results.items() -%}
+                      {%- set _ = out.update({k: c | combine({'after': kubernetes_updates_target, 'status': 'updated' if c.status == 'pending' else c.status})}) -%}
+                      {%- endfor -%}
+                      {{ out }}
+                    kubernetes_updates_minutes: "{{ ((now(fmt='%s') | int) - (kubernetes_updates_start | int)) // 60 }}"
+              rescue:
+                - name: Record the failure
+                  ansible.builtin.set_fact:
+                    kubernetes_updates_halted: true
+                    kubernetes_updates_failure: "{{ ((ansible_failed_result.stderr | default('') | trim) or (ansible_failed_result.msg | default('see the log of the task'))) | string | truncate(400) }}"
+
+- name: Report the Kubernetes updates
+  hosts: localhost
+  gather_facts: false
+  vars:
+    kubernetes_updates_target: "v{{ kubernetes_version }}"
+  tasks:
+    - name: Record whether this stage was allowed to run, and what happened on semaphore103
+      ansible.builtin.set_fact:
+        stage_was_allowed_to_run: "{{ hostvars['localhost'].orchestration_should_run | default(true) }}"
+        kubernetes_results: "{{ hostvars['semaphore103'].kubernetes_updates_results | default({}) }}"
+        kubernetes_halted: "{{ hostvars['semaphore103'].kubernetes_updates_halted | default(false) }}"
+        kubernetes_skip_reason: "{{ hostvars['semaphore103'].kubernetes_updates_skip_reason | default('') }}"
+        kubernetes_failure: "{{ hostvars['semaphore103'].kubernetes_updates_failure | default('') }}"
+        kubernetes_check_only: "{{ kubernetes_updates_check_only | default(false) | bool }}"
+
+    - name: Work out the status of this stage and the gate of the next ones
+      ansible.builtin.set_fact:
+        kubernetes_updates_stage_status: >-
+          {{ 'SKIPPED' if (not stage_was_allowed_to_run or kubernetes_skip_reason != '')
+             else ('PROBLEM' if kubernetes_halted else 'OK') }}
+        orchestration_should_run: "{{ stage_was_allowed_to_run and not kubernetes_halted }}"
+        kubernetes_updated_count: "{{ kubernetes_results.values() | selectattr('status', 'equalto', 'updated') | list | length }}"
+        kubernetes_pending_count: "{{ kubernetes_results.values() | selectattr('status', 'equalto', 'pending') | list | length }}"
+        kubernetes_current_version: "{{ (kubernetes_results.values() | selectattr('name', 'match', 'apiserver') | map(attribute='before') | list | first) | default('unknown') }}"
+
+    - name: Compute this stage's own duration
+      ansible.builtin.set_fact:
+        kubernetes_updates_duration_seconds: "{{ (now(fmt='%s') | int) - (hostvars['localhost'].kubernetes_updates_start_epoch | int) }}"
+      when: hostvars['localhost'].kubernetes_updates_start_epoch is defined
+
+    - name: Format this stage's duration for display
+      ansible.builtin.set_fact:
+        kubernetes_updates_duration_display: "{{ (kubernetes_updates_duration_seconds | int // 3600) }}h {{ ((kubernetes_updates_duration_seconds | int % 3600) // 60) }}m {{ (kubernetes_updates_duration_seconds | int % 60) }}s"
+      when: kubernetes_updates_duration_seconds is defined
+
+    - name: Capture this stage's report body
+      ansible.builtin.set_fact:
+        kubernetes_updates_report_body: |
+          <h2>Kubernetes update report</h2>
+          {% if not stage_was_allowed_to_run %}
+          <p class="alert-warning">
+            <strong>Skipped.</strong> An earlier stage in this orchestrated run reported a problem, so Kubernetes was not updated.
+          </p>
+          {% elif kubernetes_skip_reason != '' %}
+          <p class="alert-warning"><strong>Skipped.</strong> {{ kubernetes_skip_reason }}</p>
+          {% else %}
+          <p>
+            {% if kubernetes_updated_count | int > 0 %}
+            Kubernetes <strong>{{ kubernetes_current_version }} &rarr; {{ kubernetes_updates_target }}</strong>.
+            {% elif kubernetes_pending_count | int > 0 %}
+            Kubernetes target <strong>{{ kubernetes_updates_target }}</strong> (now {{ kubernetes_current_version }}): {{ kubernetes_pending_count }} component(s) to update{% if kubernetes_check_only %} (check only, nothing was changed){% endif %}.
+            {% else %}
+            Kubernetes <strong>{{ kubernetes_updates_target }}</strong>: nothing to update, the cluster already runs it.
+            {% endif %}
+          </p>
+          {% if kubernetes_halted %}
+          <p class="alert-danger"><strong>Stopped.</strong> {{ kubernetes_failure if kubernetes_failure != '' else 'A component did not answer, so nothing was changed.' }}</p>
+          {% endif %}
+          <table>
+            <tr><th>Component</th><th>Before</th><th>After</th><th>Status</th></tr>
+            {% for c in kubernetes_results.values() | sort(attribute='name') %}
+            <tr class="{{ 'status-problem' if c.status == 'unreachable' else ('status-info' if c.status == 'updated' else ('status-warning' if c.status == 'pending' else 'status-ok')) }}">
+              <td>{{ c.name }}</td>
+              <td>{{ c.before }}</td>
+              <td>{{ c.after }}</td>
+              <td>{{ c.status }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+          {% endif %}
+
+    # Skipped in an orchestrated run - the combined email covers it instead.
+    - name: Build and send the HTML report email
+      include_role:
+        name: send_report
+      when: not (hostvars['localhost'].is_orchestrated_run | default(false))
+      vars:
+        report_subject: "[kubernetes-updates] {{ kubernetes_updates_stage_status }}{% if kubernetes_updated_count | int > 0 %} - now on {{ kubernetes_updates_target }}{% endif %}"
+        report_body: "{{ kubernetes_updates_report_body }}"
+
+    # Standalone runs only: an orchestrated run must keep going so the combined report still gets sent, and full-updates.yml does its
+    # own final fail. Without this, ansible-playbook exits 0 even when the run stopped.
+    - name: Fail this run if it stopped on a problem
+      ansible.builtin.fail:
+        msg: "kubernetes-updates stopped on a problem - see the report email for details."
+      when:
+        - not (hostvars['localhost'].is_orchestrated_run | default(false))
+        - kubernetes_updates_stage_status == 'PROBLEM'
