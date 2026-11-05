@@ -61,6 +61,13 @@ postgres_instances:
     database: grafana
     user: grafana
     clients: "{{ nfs_clients }}"
+  - name: semaphore
+    image: "{{ postgres_image }}"
+    major: 18
+    port: 5436
+    database: semaphore
+    user: semaphore
+    clients: "{{ nfs_clients }}"
   # Immich needs the vector extensions of its own image, which is still on Postgres 14.
   - name: immich
     image: "{{ immich_postgres_image }}"
@@ -97,10 +104,14 @@ podman_units:
   - name: postgres_immich
     service_name: postgres-immich
     scope: user
+  - name: postgres_semaphore
+    service_name: postgres-semaphore
+    scope: user
 health_check_podman_user: deploy
 health_check_containers:
   - postgres_paperless
   - postgres_homeassistant
   - postgres_grafana
   - postgres_immich
+  - postgres_semaphore
   - mariadb_phpipam
