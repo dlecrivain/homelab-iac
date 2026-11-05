@@ -111,10 +111,6 @@ metadata:
     traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
   ingressClassName: traefik
-  tls:
-    - hosts:
-        - grafana.lecrivaindaniel.fr
-      secretName: grafana-tls
   rules:
     - host: grafana.k8s.lecrivaindaniel.fr
       http:
@@ -136,19 +132,3 @@ spec:
                 name: grafana
                 port:
                   number: 3000
----
-# The certificate of the name Grafana is reached under, which the wildcard of k8s.lecrivaindaniel.fr does not cover. It is issued
-# ahead of the move: the DNS-01 challenge needs a record in the zone, not the address of the service.
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: grafana
-  namespace: {{ .Values.namespace }}
-spec:
-  secretName: grafana-tls
-  issuerRef:
-    group: cert-manager.io
-    kind: ClusterIssuer
-    name: le-prod
-  dnsNames:
-    - grafana.lecrivaindaniel.fr

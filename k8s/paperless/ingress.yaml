@@ -8,10 +8,6 @@ metadata:
     traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
   ingressClassName: traefik
-  tls:
-    - hosts:
-        - paperless.lecrivaindaniel.fr
-      secretName: paperless-tls
   rules:
     - host: paperless.k8s.lecrivaindaniel.fr
       http:

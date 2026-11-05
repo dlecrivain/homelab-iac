@@ -84,11 +84,11 @@ state of the services, recent logs); it is not a shell. A node can be restarted 
 4. Traefik sends it to the Service of the application, Cilium picks a pod and carries the packets, through the tunnel when
    the pod is on another node.
 
-**A certificate is obtained** (`Certificate` `wildcard-k8s`):
+**A certificate is obtained** (`Certificate` `wildcard-k8s`, for `*.lecrivaindaniel.fr` and `*.k8s.lecrivaindaniel.fr`; no application has a certificate of its own):
 
 1. cert-manager asks Let's Encrypt, which wants a proof of control of the name.
-2. The OVH webhook adds a TXT record `_acme-challenge.k8s` in the zone, using the `ovh-credentials` Secret, and removes it
-   afterwards.
+2. The OVH webhook adds the TXT records `_acme-challenge` and `_acme-challenge.k8s` in the zone, using the `ovh-credentials`
+   Secret, and removes them afterwards.
 3. The certificate is stored in the Secret `wildcard-k8s-tls`, which Traefik uses by default. It lasts 90 days and is renewed
    before it ends.
 

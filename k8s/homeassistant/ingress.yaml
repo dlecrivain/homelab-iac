@@ -8,10 +8,6 @@ metadata:
     traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
   ingressClassName: traefik
-  tls:
-    - hosts:
-        - homeassistant.lecrivaindaniel.fr
-      secretName: homeassistant-tls
   rules:
     - host: homeassistant.k8s.lecrivaindaniel.fr
       http:

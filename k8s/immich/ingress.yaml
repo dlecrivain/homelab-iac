@@ -8,10 +8,6 @@ metadata:
     traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
   ingressClassName: traefik
-  tls:
-    - hosts:
-        - immich.lecrivaindaniel.fr
-      secretName: immich-tls
   rules:
     - host: immich.k8s.lecrivaindaniel.fr
       http:

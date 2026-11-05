@@ -8,10 +8,6 @@ metadata:
     traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
   ingressClassName: traefik
-  tls:
-    - hosts:
-        - ipam.lecrivaindaniel.fr
-      secretName: ipam-tls
   rules:
     - host: ipam.k8s.lecrivaindaniel.fr
       http:
