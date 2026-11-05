@@ -2,7 +2,7 @@
 # Each host copies what its own pcloud_backup_jobs, in its host_vars, list. The pCloud remote lives in root's rclone
 # configuration on the host, and root can read the files whoever owns them.
 - name: Run pCloud backup(s) via rclone
-  hosts: "{{ pcloud_backup_host | default('smb101') }}"
+  hosts: "{{ pcloud_backup_host | default('nfs101') }}"
   gather_facts: false
   become: true
   tasks:
