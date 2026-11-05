@@ -13,6 +13,9 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: blackbox-exporter
+      # It reads its configuration once, at its start: a change of the file replaces the pod.
+      annotations:
+        checksum/config: {{ .Files.Get "files/blackbox.yml" | sha256sum }}
     spec:
       enableServiceLinks: false
       containers:
