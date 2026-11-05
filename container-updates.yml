@@ -119,16 +119,6 @@
             name: proxmox_snapshot
           when: podman_units is defined
 
-        # Re-render first so a version bump already committed to git reaches the container before
-        # Step 3's pull: podman_update only pulls the tag already in the deployed Quadlet file.
-        - name: "Step 2.5 (AdGuard host only) - Re-render the AdGuard Home Quadlet first, same reason as above"
-          include_role:
-            name: adguard_configure
-          when:
-            - podman_units is defined
-            - not (snapshot_already_exists | default(false))
-            - inventory_hostname == (adguard_host | default('adguard102'))
-
         - name: Step 3 - Update Podman containers (normal tag pull)
           include_role:
             name: podman_update
@@ -222,15 +212,6 @@
       ansible.builtin.set_fact:
         container_updates_duration_display: "{{ (container_updates_duration_seconds | int // 3600) }}h {{ ((container_updates_duration_seconds | int % 3600) // 60) }}m {{ (container_updates_duration_seconds | int % 60) }}s"
 
-    # Step 2.5's re-render+restart happens before Step 3's pull, so podman_update's own
-    # before/after image-ID comparison can no longer see the change and misreports them unchanged.
-    - name: Determine which containers were updated via Step 2.5 rather than Step 3
-      ansible.builtin.set_fact:
-        step25_changed_containers: >-
-          {{
-            (['adguardhome'] if (hostvars[adguard_host | default('adguard102')].adguard_config_changed | default(false)) else [])
-          }}
-
     - name: Capture this stage's report body
       ansible.builtin.set_fact:
         container_updates_report_body: |
@@ -263,7 +244,7 @@
             {% if hostvars[h].podman_update_summary is defined and not (hostvars[h].host_update_skipped | default(false)) and not (hostvars[h].host_update_failure_reason is defined) %}
             {% for c in hostvars[h].podman_update_summary %}
             {% set running = hostvars[h].health_check_container_results | default([]) | selectattr('name','equalto',c.name) | map(attribute='status') | first | default('Up') %}
-            {% set really_updated = c.updated or (c.name in step25_changed_containers) %}
+            {% set really_updated = c.updated %}
             {% if running != 'Up' %}
             {% set row_class = 'status-problem' %}
             {% elif really_updated %}

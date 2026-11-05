@@ -133,9 +133,6 @@ proxmox_api_token_id: "automation"
 # Pinned image versions. check-image-updates.yml bumps these in place when a same-major-line
 # update is available; the container itself is left alone, so the next container-updates run
 # applies it like any other config change. Semaphore has its own bump playbook instead.
-# The host that runs AdGuard Home (configure-adguard.yml), rootless as its connecting user.
-adguard_host: adguard102
-adguard_version: "v0.107.80"
 # The database image of Immich on nfs101, pinned by digest: it carries the vector extensions the database depends on and
 # follows no release cycle of Immich's. The tags of Immich itself are in k8s/immich.
 immich_postgres_image: "ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23"
@@ -170,11 +167,8 @@ talos_nodes:
   - { name: talos-cp103, vmid: 124, role: controlplane, node: pve3, memory_mb: 3072, cores: 2, disk_gb: 30 }
   - { name: talos-wk103, vmid: 125, role: worker, node: pve3, memory_mb: 4096, cores: 2, disk_gb: 40 }
 
-# Docker Hub (docker_repo) and ghcr.io (ghcr_repo) repos check-image-updates.yml watches: the var to bump, and the host whose live
-# container tells it whether a bump has been applied yet. Semaphore has its own bump playbook.
-image_update_watch_list:
-  - name: adguard
-    docker_repo: adguard/adguardhome
-    version_var: adguard_version
-    container_name: adguardhome
-    host: "{{ adguard_host }}"
+# The Docker Hub (docker_repo) or ghcr.io (ghcr_repo) images that check-image-updates.yml watches on a VM. An entry has name,
+# docker_repo or ghcr_repo, version_var (the variable it bumps), container_name, and host (whose live container tells it whether a
+# bump has been applied yet). Empty since the containers of the VMs moved to the cluster, where Renovate follows the tags.
+# Semaphore has its own bump playbook.
+image_update_watch_list: []
