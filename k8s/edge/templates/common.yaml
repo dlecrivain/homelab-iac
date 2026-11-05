@@ -1,0 +1,33 @@
+# The headers that BunkerWeb added to every site, so that publishing through Traefik keeps them.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: security-headers
+  namespace: {{ .Values.namespace }}
+spec:
+  headers:
+    stsSeconds: 31536000
+    contentTypeNosniff: true
+    customFrameOptionsValue: SAMEORIGIN
+    referrerPolicy: no-referrer-when-downgrade
+---
+# The nodes of Proxmox serve HTTPS with certificates of the CA of their cluster, which is not one that browsers or Traefik know. Its
+# public certificate is in files/pve-root-ca.pem, and Traefik checks each node against it. The certificates of the nodes carry
+# their IP address, which is what Traefik connects to.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: proxmox-ca
+  namespace: {{ .Values.namespace }}
+data:
+  ca.crt: |
+{{ .Files.Get "files/pve-root-ca.pem" | indent 4 }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: proxmox
+  namespace: {{ .Values.namespace }}
+spec:
+  rootCAs:
+    - configMap: proxmox-ca

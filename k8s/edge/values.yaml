@@ -1,0 +1,12 @@
+# The web interfaces that run on VMs and are published by Traefik under their own names, with the wildcard certificate that
+# Traefik serves by default. Each one gets a Service without pods that points at the address of its VM, and a route. Adding a
+# site is adding an entry here. An entry has: name, host, address and port, and scheme: https for an upstream that serves HTTPS,
+# with transport: proxmox for one whose certificate comes from the CA of the Proxmox cluster.
+namespace: edge
+sites:
+  - {name: pve1, host: pve1.lecrivaindaniel.fr, address: 192.168.1.101, port: 8006, scheme: https, transport: proxmox}
+  - {name: pve2, host: pve2.lecrivaindaniel.fr, address: 192.168.1.102, port: 8006, scheme: https, transport: proxmox}
+  - {name: pve3, host: pve3.lecrivaindaniel.fr, address: 192.168.1.103, port: 8006, scheme: https, transport: proxmox}
+  - {name: semaphore, host: semaphore.lecrivaindaniel.fr, address: 192.168.1.119, port: 3000}
+  - {name: semaphore-bck, host: semaphore-bck.lecrivaindaniel.fr, address: 192.168.1.120, port: 3000}
+  - {name: adguard, host: adguard.lecrivaindaniel.fr, address: 192.168.1.114, port: 80}

@@ -38,6 +38,7 @@ which hold them with room to spare. Nothing is stopped on a schedule any more.
 | Traefik | Receives the HTTPS requests on 192.168.1.128 and sends each to the right service by name | `traefik`, 2 pods |
 | cert-manager, OVH webhook | Obtain and renew Let's Encrypt certificates, proving the name through a DNS record at OVH | `cert-manager` |
 | Argo CD | Compares `k8s/` of this repository with the cluster and corrects the difference | `argocd` |
+| `edge` | Routes of Traefik to the web interfaces of the VMs (Proxmox, Semaphore, AdGuard): a Service without pods points at each VM | `edge` |
 | metrics-server, kubelet-serving-cert-approver | Consumption of nodes and pods; approves the certificates of the kubelets so that logs and metrics can be fetched securely | `kube-system`, `kubelet-serving-cert-approver` |
 | Paperless-ngx | The document archive, moved here as a pilot: files on `nfs101`, database in its Postgres, Valkey for the queue | `paperless` |
 | Immich | The photo and video library: server, machine learning and Valkey as pods, photos on `nfs101` and database in its Postgres | `immich` |

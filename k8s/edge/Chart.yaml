@@ -1,0 +1,4 @@
+apiVersion: v2
+name: edge
+description: Routes of Traefik to the web interfaces that run on VMs
+version: 0.1.0
