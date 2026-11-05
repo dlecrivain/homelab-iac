@@ -25,6 +25,9 @@ providers:
   kubernetesIngress:
     publishedService:
       enabled: true
+    # The routes to the web interfaces of the VMs (k8s/edge) go to Services of type ExternalName, since Argo CD does not manage
+    # the EndpointSlices that a Service without pods would need.
+    allowExternalNameServices: true
 topologySpreadConstraints:
   - labelSelector:
       matchLabels:
