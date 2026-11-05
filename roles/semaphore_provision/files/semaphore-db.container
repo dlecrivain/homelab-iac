@@ -4,10 +4,11 @@ After=network-online.target
 Wants=network-online.target
 
 [Container]
-Image=docker.io/library/postgres:16
+Image=docker.io/library/postgres:18
 ContainerName=semaphore_db
 Network=semaphore-network.network
-Volume=semaphore_postgres.volume:/var/lib/postgresql/data:Z
+# From Postgres 18 the image keeps its cluster in /var/lib/postgresql/<major>/docker, so the volume is mounted one level up.
+Volume=semaphore_postgres18.volume:/var/lib/postgresql:Z
 EnvironmentFile=/etc/semaphore/db.env
 
 [Service]

@@ -63,7 +63,7 @@
     - semaphore_data.volume
     - semaphore_config.volume
     - semaphore_tmp.volume
-    - semaphore_postgres.volume
+    - semaphore_postgres18.volume
     - semaphore-db.container
     - semaphore.container
 
