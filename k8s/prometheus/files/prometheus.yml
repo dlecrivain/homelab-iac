@@ -95,3 +95,21 @@ scrape_configs:
         target_label: instance
       - target_label: __address__
         replacement: blackbox-exporter:9115
+
+  # The DNS of the LAN: the address that the DHCP of the Freebox gives to the devices.
+  - job_name: blackbox_dns
+    metrics_path: /probe
+    scrape_interval: 60s
+    params:
+      module: [dns_lan]
+    static_configs:
+      - targets: ["192.168.1.114:53"]
+        labels:
+          service: adguard-dns
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

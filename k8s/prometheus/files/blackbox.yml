@@ -1,4 +1,4 @@
-# The two ways blackbox-exporter checks an address. IPv4 only: the LAN has no IPv6 service, and a name that also has an
+# The ways blackbox-exporter checks an address. IPv4 only: the LAN has no IPv6 service, and a name that also has an
 # AAAA record must not be reported down because of it.
 modules:
   # A page that answers 2xx with a certificate that is valid for its name. Redirects are followed.
@@ -15,3 +15,15 @@ modules:
     tcp:
       preferred_ip_protocol: ip4
       ip_protocol_fallback: false
+  # A DNS server that answers the query for a name of the zone of the lab, which it has to ask its upstream for.
+  dns_lan:
+    prober: dns
+    timeout: 5s
+    dns:
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      transport_protocol: udp
+      query_name: lecrivaindaniel.fr
+      query_type: A
+      valid_rcodes:
+        - NOERROR
