@@ -1,0 +1,23 @@
+# The second Semaphore, which updates semaphore103 every week. It runs here and semaphore103 stays on a VM outside the cluster, because
+# the one that stops and starts the nodes of the cluster must not depend on it. Argo CD applies a change of its manifests by itself.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: semaphore-bck
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/dlecrivain/homelab-iac.git
+    targetRevision: main
+    path: k8s/semaphore-bck
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: semaphore-bck
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

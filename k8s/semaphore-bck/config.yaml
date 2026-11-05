@@ -1,0 +1,16 @@
+# The settings of Semaphore. The password of the database and the three keys that encrypt the sessions and the secrets stored in the
+# database are in the semaphore-bck-secrets Secret, made by hand because this repository is public, see the README. The database is the
+# instance semaphore-bck of the Postgres of nfs101, on its own disk.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: semaphore-bck
+  namespace: semaphore-bck
+data:
+  SEMAPHORE_DB_DIALECT: postgres
+  SEMAPHORE_DB_HOST: 192.168.1.130
+  SEMAPHORE_DB_PORT: "5436"
+  SEMAPHORE_DB_NAME: semaphore
+  SEMAPHORE_DB_USER: semaphore
+  TZ: Europe/Paris
+  SEMAPHORE_SCHEDULE_TIMEZONE: Europe/Paris
