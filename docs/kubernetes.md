@@ -41,6 +41,7 @@ which hold them with room to spare. Nothing is stopped on a schedule any more.
 | `edge` | Routes of Traefik to the web interfaces of the VMs (Proxmox, Semaphore): a Service without pods points at each VM | `edge` |
 | metrics-server, kubelet-serving-cert-approver | Consumption of nodes and pods; approves the certificates of the kubelets so that logs and metrics can be fetched securely | `kube-system`, `kubelet-serving-cert-approver` |
 | AdGuard Home | The DNS server and filter of the devices of the LAN, at 192.168.1.114 through a LoadBalancer Service of Cilium; its files are on `nfs101` | `adguard` |
+| Semaphore (`semaphore-bck`) | The second Semaphore, which updates `semaphore103` every week; its database is on `nfs101`, `semaphore103` stays on a VM outside the cluster | `semaphore-bck` |
 | Paperless-ngx | The document archive, moved here as a pilot: files on `nfs101`, database in its Postgres, Valkey for the queue | `paperless` |
 | Immich | The photo and video library: server, machine learning and Valkey as pods, photos on `nfs101` and database in its Postgres | `immich` |
 | phpIPAM | The address manager the playbooks call as an API, and its subnet scan; database in the MariaDB of `nfs101` | `phpipam` |

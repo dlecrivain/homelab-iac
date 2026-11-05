@@ -1,6 +1,6 @@
 # homelab-iac
 
-Ansible automation for a homelab built on Proxmox VE, Foreman/Katello and Podman, driven by two [SemaphoreUI](https://semaphoreui.com) instances. VMs are discovered from the Proxmox API, so there are no static host lists to maintain for them.
+Ansible automation for a homelab built on Proxmox VE, Foreman/Katello and Podman, driven by two [SemaphoreUI](https://semaphoreui.com) instances: `semaphore103` on a VM outside the Kubernetes cluster, and `semaphore-bck` in it. VMs are discovered from the Proxmox API, so there are no static host lists to maintain for them.
 
 ## Overview
 
@@ -24,14 +24,14 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 |---|---|
 | `katello-publish.yml` | Promotes the current latest version of `CV_Rocky_10` and `CV_Proxmox` to Production, publishes and promotes a new one to Test, then purges versions beyond `cv_retention_count`. Runs on its own schedule, early enough that the patch playbooks see the content it published. |
 | `vm-updates.yml` | Checks, patches and reboots every VM, except the two Semaphore hosts, which cannot safely reboot themselves mid-run. |
-| `container-updates.yml` | Updates the Podman/Quadlet containers of every host that defines `podman_units`. `semaphore104` is included but aligned to `semaphore103`'s exact image digests instead of pulling on its own, see [Mutual Semaphore updates](#mutual-semaphore-updates). |
+| `container-updates.yml` | Updates the Podman/Quadlet containers of every host that defines `podman_units`, except `semaphore103`, which `update-semaphore-peer.yml` covers, see [Updating the Semaphores](#updating-the-semaphores). |
 | `cleanup-snapshots.yml` | Removes leftover safety snapshots matching `snapshot_label` (default `ansible_patching`; pass `-e snapshot_label=ansible_container` for the container-update ones). |
 | `kubernetes-stop.yml`, `kubernetes-start.yml` | Shut down and start again the VMs of the Proxmox pool `kubernetes`, the Talos nodes of the test cluster, by hand, for a change that needs all the memory of the Proxmox nodes. They are not scheduled; with no such pool they do nothing. |
 | `talos-create-vm.yml`, `talos-place-vm.yml` | Create a node of the Talos test cluster on `pve1` from the Talos ISO and reserve its address in phpIPAM, then move it, installed, to its own Proxmox node. `talos_vm_name` names the node, see [Kubernetes test cluster](#kubernetes-test-cluster-talos). |
 | `phpipam-reserve-address.yml` | Reserves an address in phpIPAM under `reserve_name` (the next free one, or `reserve_ip` when it is given), or reports the one already reserved under that name. Used for the addresses a Kubernetes service needs, such as the load balancer of the ingress or of the DNS server. |
 | `pve-updates.yml` | Evacuates, patches and reboots each Proxmox node in turn, halts the whole run on the first failure, and rebalances the cluster once every node is done. |
-| `full-updates.yml` | Runs `container-updates.yml`, `vm-updates.yml`, `pve-updates.yml` and finally patches `semaphore104`. Each stage runs only if the previous one had no problem, otherwise later stages report `SKIPPED`. Sends one combined report. |
-| `update-semaphore-peer.yml` | OS-patches and container-updates one Semaphore instance, bumps its Semaphore image to the latest patch or minor release and waits for its web service to answer. `peer_host` is a required extra var (`semaphore103` or `semaphore104`), and the playbook is always run from the other instance. |
+| `full-updates.yml` | Runs `container-updates.yml`, `vm-updates.yml` and `pve-updates.yml`. Each stage runs only if the previous one had no problem, otherwise later stages report `SKIPPED`. Sends one combined report. |
+| `update-semaphore-peer.yml` | OS-patches and container-updates `semaphore103`, bumps its Semaphore image to the latest patch or minor release and waits for its web service to answer. `peer_host` is a required extra var and must be `semaphore103`; the playbook is run from `semaphore-bck`, every Wednesday. |
 | `check-image-updates.yml` | Daily check of Docker Hub for the images in `image_update_watch_list`, of GitHub releases for `node_exporter` and `smartctl_exporter`, and a scan of the remaining containers. Same-major bumps are written into `group_vars/all.yml` and pushed. The mail lists what is pending, what needs a decision and what is a new major. See [Container image versions](#container-image-versions). |
 
 ### Cluster operations
@@ -57,7 +57,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 |---|---|
 | `provision-vm.yml` | Clones the golden template, resolves a static IP through phpIPAM, reconfigures the clone, registers it with Katello, updates it, installs Podman and git, commits its `host_vars` file and rebalances. See [Provisioning a new fleet VM](#provisioning-a-new-fleet-vm). |
 | `decommission-vm.yml` | The reverse: final safety backup, Katello and phpIPAM cleanup, destruction of the VM, removal of its `host_vars` file. See [Decommissioning a fleet VM](#decommissioning-a-fleet-vm). |
-| `provision-semaphore-peer.yml` | Deploys Semaphore through Podman Quadlet onto a fresh peer VM, identically to the existing instance. |
+| `provision-semaphore-peer.yml` | Deploys Semaphore through Podman Quadlet onto a fresh VM, identically to `semaphore103`. It is how `semaphore103` would be rebuilt, from `semaphore-bck`. |
 
 ### Service configuration
 
@@ -104,7 +104,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 - `tasks/`: task files shared by several playbooks: `commit_and_push.yml` (every playbook that commits back to this repository) and `check_unit_for_update.yml` (the read-only scan in `check-image-updates.yml`).
 - `roles/`, by area:
   - **Patching**: `check_updates`, `apply_updates`, `reboot_and_wait`, `health_check`, `host_status`, `proxmox_snapshot`, `cleanup_snapshot`.
-  - **Containers**: `podman_update` (pull and restart a Quadlet unit), `podman_align_image` (force an exact image digest), `image_retention` (keep the two most recent images per repository), and one `*_configure` role per service that still runs on a VM (`paperless`, `homeassistant`, `grafana`), plus `paperless_sync` (the script that keeps Paperless in step with the cloud storage).
+  - **Containers**: `podman_update` (pull and restart a Quadlet unit), `image_retention` (keep the two most recent images per repository), and one `*_configure` role per service that still runs on a VM (`paperless`, `homeassistant`, `grafana`), plus `paperless_sync` (the script that keeps Paperless in step with the cloud storage).
   - **Proxmox**: `pve_placement` (where an evacuated VM goes), `pve_evacuate_host`, `pve_migrate_vm`, `pve_rebalance`, `pve_mesh`, `pve_corosync`, `pve_clone_vm`, `pve_destroy_vm`, `resolve_proxmox_api_host`.
   - **Backups**: `vzdump_backup`, `pcloud_backup_job`.
   - **Katello**: `katello_promote`, `katello_cv_retention`, `katello_register_host`, `katello_deregister_host`, `katello_repo_cleanup`.
@@ -165,24 +165,22 @@ Per-host work in both playbooks is wrapped in a `block`/`rescue`: an unhandled f
 
 **Reports.** Run alone, each playbook sends its own email, marked `SKIPPED (previous stage had a problem)` if it was skipped. Run through `full-updates.yml`, the individual emails are suppressed (`is_orchestrated_run`) and replaced by one combined email: a summary table (stage, status, duration) followed by each stage's report. Per-stage durations use `capture_start_time` with a stage-scoped fact name alongside the global one.
 
-`update-semaphore-peer.yml` imports `container-updates.yml` a second time, scoped to `peer_host`. Reusing that file's fact names would overwrite the fleet-wide values from the first import, so `full-updates.yml` copies them into `fleet_container_updates_*` right after the first import. It also pins an explicit `target_hosts` on its own import that excludes `semaphore104`, so that host is not processed twice.
+`update-semaphore-peer.yml` imports `container-updates.yml`, scoped to `peer_host`. It is not a stage of `full-updates.yml`, but it keeps reading and writing the same shared fact, so a run on its own behaves like the others.
 
-### Mutual Semaphore updates
+### Updating the Semaphores
 
-`semaphore103` and `semaphore104` are both excluded from `vm-updates.yml`: neither can safely patch and reboot itself while it may be running the automation. Each one patches the other through `update-semaphore-peer.yml`, from two independently scheduled templates:
+`semaphore103` stays on a VM outside the Kubernetes cluster and `semaphore-bck` runs in it, see [Semaphore of the cluster](#semaphore-of-the-cluster). The one that patches the Proxmox hosts, stops and starts the Talos nodes and starts the cluster again must not depend on the cluster, and a task that drains the node of its own pod would be killed with it. `semaphore-bck` therefore only runs templates that do not touch the nodes: "Update semaphore103" and "Test email".
 
-1. A template on `semaphore104` runs `update-semaphore-peer.yml -e peer_host=semaphore103` weekly. It patches `semaphore103`'s OS and Podman images, then waits for its Semaphore web service (`/api/ping`) to answer.
-2. `full-updates.yml` runs on `semaphore103` on its own schedule, timed to start after the first job is done, so it finds `semaphore103` already up to date. It runs the whole fleet and finishes with `import_playbook: update-semaphore-peer.yml` and `peer_host: semaphore104`, `image_reference_host: semaphore103`, gated by the same `orchestration_should_run` fact, so `semaphore104` is patched last and only if nothing upstream failed.
+1. `semaphore103` is excluded from `vm-updates.yml` and `container-updates.yml`: it cannot safely patch and reboot itself while it may be running the automation. A template on `semaphore-bck` runs `update-semaphore-peer.yml -e peer_host=semaphore103` every Wednesday at 16:00. It patches the OS and the Podman images of `semaphore103`, then waits for its web service (`/api/ping`) to answer.
+2. `semaphore-bck` is patched by no playbook: its image is in `k8s/semaphore-bck/semaphore.yaml` and follows Renovate and Argo CD like every application, and a Talos node has no operating system to patch.
 
-`peer_host` has no default and must name one of the two instances: the playbook's first task refuses to run otherwise, so a template created without arguments cannot patch the host that is running it. There is no direct hand-off between the instances, only two schedules timed so each prerequisite is done when it is needed.
+`peer_host` has no default and must be `semaphore103`: the first task of the playbook refuses to run otherwise, so a template created without arguments cannot patch the host that is running it.
 
-**Identical image versions.** `semaphore104` must run exactly what `semaphore103` runs, which a normal tag pull does not guarantee. `container-updates.yml` therefore treats it differently in Step 3: a leading play reads the digest each of `semaphore103`'s units (`semaphore`, `semaphore_db`) is actually running and saves it on `localhost`, and for `semaphore104` the `podman_align_image` role pulls and tags that exact digest instead of resolving a tag, restarting only if something changed. It fills the same `podman_update_summary` fact as `podman_update`, so `semaphore104` appears as a normal row in the report, or as an explicit "alignment skipped" row if `semaphore103` was not healthy enough to read from. The scan of `check-image-updates.yml` leaves both Semaphore hosts out so it cannot move `semaphore104`'s tags off the aligned digests.
+**Semaphore version bumps.** `update-semaphore-peer.yml` checks Docker Hub for the latest Semaphore release, keeps plain `vMAJOR.MINOR.PATCH` tags within the major line currently running on `semaphore103`, picks the highest one numerically, and applies it by updating the live `Image=` line and restarting `semaphore.service`. Patch and minor bumps are automatic, since semver treats minor releases as backward-compatible. A new major is a deliberate action: pass `-e semaphore_image_tag=vX.Y.Z` once.
 
-**Semaphore version bumps.** When run for `peer_host: semaphore103`, `update-semaphore-peer.yml` checks Docker Hub for the latest Semaphore release, keeps plain `vMAJOR.MINOR.PATCH` tags within the major line currently running, picks the highest one numerically, and applies it by updating the live `Image=` line and restarting `semaphore.service`. Patch and minor bumps are automatic, since semver treats minor releases as backward-compatible. A new major is a deliberate action: pass `-e semaphore_image_tag=vX.Y.Z` once. This only runs in the `semaphore103`-facing direction; `semaphore104` follows through the digest alignment.
+Whenever a bump happens, a further play compares the version recorded in `roles/semaphore_provision/files/semaphore.container` (read with `slurp` and a Jinja `regex_search` on the controller, because Semaphore's container ships a BusyBox `grep` without PCRE) with what `semaphore103` actually runs, and if they differ it updates the `Image=` line, commits and pushes to `origin/main`. Comparing against the repository's recorded value rather than "did a bump happen in this run" makes it self-healing after an interrupted run. It uses `playbook_dir`, the per-template checkout every other automated push here uses, and authenticates with `GITHUB_PUSH_TOKEN`, which appears briefly in the push command's arguments on that host, an accepted tradeoff for a single-tenant homelab.
 
-Whenever a bump happens, a further play compares the version recorded in `roles/semaphore_provision/files/semaphore.container` (read with `slurp` and a Jinja `regex_search` on the controller, because Semaphore's container ships a BusyBox `grep` without PCRE) with what the peer actually runs, and if they differ it updates the `Image=` line, commits and pushes to `origin/main`. Comparing against the repository's recorded value rather than "did a bump happen in this run" makes it self-healing after an interrupted run. It uses `playbook_dir`, the per-template checkout every other automated push here uses, and authenticates with `GITHUB_PUSH_TOKEN`, which appears briefly in the push command's arguments on that host, an accepted tradeoff for a single-tenant homelab.
-
-**Reporting.** `update-semaphore-peer.yml` tracks a stage status (`OK`, `SKIPPED`, `PROBLEM`) like the other playbooks. Through `full-updates.yml` it becomes the fourth row of the combined email. Run alone it sends its own email, and its leading play sets `is_orchestrated_run` so the nested `container-updates.yml` import does not send a second one.
+**Reporting.** `update-semaphore-peer.yml` tracks a stage status (`OK`, `SKIPPED`, `PROBLEM`) like the other playbooks and sends its own email. Its leading play sets `is_orchestrated_run` so the nested `container-updates.yml` import does not send a second one.
 
 ### Container image versions
 
@@ -227,16 +225,16 @@ The rebalance builds one plan that is complete: a VM is moved only if that narro
 
 A host can also list `pcloud_backup_mounts` (an NFS `src` and a mount `path`): each one is mounted read-only before the jobs run, so `rclone` reads it as an ordinary folder. A share that cannot be mounted stops the play, and a host that is down at boot does not hold up the one that mounts it (`nofail`).
 
-### Provisioning a new Semaphore peer
+### Provisioning a Semaphore on a VM
 
-`provision-semaphore-peer.yml`, run from `semaphore103` against the new VM, copies the seven Quadlet unit files (`semaphore-network.network`, four `.volume` files, `semaphore-db.container`, `semaphore.container`, identical on both instances since nothing in them is host-specific), generates fresh `SEMAPHORE_DB_PASS`, `POSTGRES_PASSWORD` (kept in sync) and `SEMAPHORE_ADMIN_PASSWORD` secrets, clones this repository into `/home/deploy/repos/homelab-iac` (bind-mounted into the container as `/repos`), then enables and starts both services.
+`provision-semaphore-peer.yml`, run from the other Semaphore against the new VM (it is how `semaphore103` would be rebuilt, from `semaphore-bck`), copies the seven Quadlet unit files (`semaphore-network.network`, four `.volume` files, `semaphore-db.container`, `semaphore.container`, identical whatever the host since nothing in them is host-specific), generates fresh `SEMAPHORE_DB_PASS`, `POSTGRES_PASSWORD` (kept in sync) and `SEMAPHORE_ADMIN_PASSWORD` secrets, clones this repository into `/home/deploy/repos/homelab-iac` (bind-mounted into the container as `/repos`), then enables and starts both services.
 
 It is safe to re-run: if `/etc/semaphore/app.env` already exists the secrets and env files are left alone, since regenerating them on an initialized Postgres volume would desync the stored password.
 
 Not handled by the playbook, and needing a manual checklist once the containers are up:
 
 - Creating the VM on the Proxmox side.
-- Recreating Semaphore's own data, which lives in each instance's Postgres and not in this repository: the SSH key in the Key Store, the Variable Group, the repository connection (pointing at `/repos/homelab-iac`), and at minimum the two templates this design needs, "Update semaphore103" (`update-semaphore-peer.yml -e peer_host=semaphore103`) on `semaphore104` and "Full updates" on `semaphore103`, timed to run after it.
+- Recreating Semaphore's own data, which lives in each instance's Postgres and not in this repository: the SSH key in the Key Store, the Variable Group, the repository connection (pointing at `/repos/homelab-iac`), and at minimum the two templates this design needs, "Full updates" and the templates that touch the nodes on `semaphore103`, and "Update semaphore103" (`update-semaphore-peer.yml -e peer_host=semaphore103`) on `semaphore-bck`.
 - Changing `SEMAPHORE_ADMIN_PASSWORD` from its generated value in Semaphore's UI on first login.
 
 ### Provisioning a new fleet VM
@@ -307,6 +305,16 @@ AdGuard Home, the DNS server and filter of the devices of the LAN, runs on the K
 - **Interface.** Behind Traefik at `adguard.lecrivaindaniel.fr`, like every application.
 - **Copies.** `smb101` packs `conf` every night into a dated archive kept 14 days (`config_archives`), and copies the archives to the cloud storage (`Backups/AdGuard`). The query log is not copied.
 - **Monitoring.** The probe `dns_lan` of blackbox-exporter asks `192.168.1.114` for the address of `lecrivaindaniel.fr` every minute, and `EndpointDown` mails after five minutes without an answer.
+
+### Semaphore of the cluster
+
+`semaphore-bck`, the second Semaphore, runs on the Kubernetes test cluster (`k8s/semaphore-bck`, see [Kubernetes workloads](#kubernetes-workloads-argo-cd)) and `semaphore103` stays on a VM outside it, see [Updating the Semaphores](#updating-the-semaphores). It is published at `semaphore-bck.lecrivaindaniel.fr`.
+
+- **Database.** The instance `semaphore-bck` of `postgres_instances` in `host_vars/nfs101.yml` (port 5436), like the other applications, with its nightly dump. It was restored from the Postgres 16 container of the VM that ran it before, with `pg_dump -Fc --no-owner --no-acl` and `pg_restore`.
+- **Secret.** `semaphore-bck-secrets` holds `SEMAPHORE_DB_PASS` (the password generated on `nfs101`, in `/var/lib/postgres/semaphore-bck.env`) and the three keys of Semaphore's `config.json`: `SEMAPHORE_COOKIE_HASH`, `SEMAPHORE_COOKIE_ENCRYPTION` and `SEMAPHORE_ACCESS_KEY_ENCRYPTION`. The last one encrypts the keys and the variables stored in the database, so it must never change and a copy has to be kept outside the cluster. The Secret is made by hand, once, since this repository is public.
+- **Pod.** Nothing in it is kept: the configuration comes from the environment and the checkouts of the repository are in an `emptyDir`. One replica, replaced as a whole on an update, never two at once, since two instances would both start the schedules.
+- **Templates.** The tasks of this instance run in a pod of the cluster, so it must never run a template that stops or drains a node, nor one that has to work while the cluster is down. Those are the templates of `semaphore103`. `semaphore-bck` has "Update semaphore103" and "Test email".
+- **From a terminal.** `semaphore-ctl` talks to it with `SEMAPHORE_URL=https://semaphore-bck.lecrivaindaniel.fr`, its own token file in `SEMAPHORE_TOKEN_FILE` and its own list of templates in `SEMAPHORE_ALLOW_FILE`.
 
 ### Paperless
 
