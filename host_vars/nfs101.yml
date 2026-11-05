@@ -16,27 +16,15 @@ nfs_clients:
   - 192.168.1.118
 nfs_shares:
   - name: immich
-    readers:
-      - 192.168.1.123 # smb101, which copies the library to the cloud storage
   - name: paperless
   - name: homeassistant
-    readers:
-      - 192.168.1.123 # smb101, which archives the configuration every night and copies it to the cloud storage
-    # The files of Home Assistant belong to root and its .storage folder is closed to the others: the export is read-only.
-    readers_root_squash: false
-  # The database of Prometheus (data), the state of Alertmanager and the copy of the nightly snapshot that smb101 sends to the cloud
-  # storage. They belong to nobody, the user of the images, and smb101 reads them as nobody too.
+  # The database of Prometheus (data), the state of Alertmanager and the copy of the nightly snapshot that is sent to the cloud
+  # storage. They belong to nobody, the user of the images.
   - name: prometheus
     owner: "65534"
     group: "65534"
-    readers:
-      - 192.168.1.123 # smb101, which sends the nightly snapshot to the cloud storage
-  # The configuration and the data of AdGuard Home. The configuration file is private to its owner, which is root in the pod, so smb101
-  # reads it without squashing root, to archive it every night.
+  # The configuration and the data of AdGuard Home.
   - name: adguard
-    readers:
-      - 192.168.1.123 # smb101, which archives the configuration and copies it to the cloud storage
-    readers_root_squash: false
 
 # The databases of the applications of the cluster, one container each on the local disk, reached by the nodes alone.
 postgres_instances:
