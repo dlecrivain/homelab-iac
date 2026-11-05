@@ -108,8 +108,10 @@
         commit_all_tracked: true
       when: image_update_bump_result.changed | default(false)
 
+# The hosts of the watch list have to be named here, since a play cannot read the variables of the inventory to choose its hosts:
+# localhost,<host of the entry>. The list is empty for now, so there is nothing to check on a VM.
 - name: Check whether each watched image's live container has caught up to its target version yet
-  hosts: "{{ (image_update_watch_list | map(attribute='host') | list + ['localhost']) | unique | join(',') }}"
+  hosts: localhost
   gather_facts: false
   tasks:
     - name: Capture the full list of targeted hosts (for the aggregation play below)
