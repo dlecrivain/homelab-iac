@@ -12,9 +12,9 @@ openscap_waived_rules:
   package_samba_removed: The host serves the SMB share the Aqara doorbell writes its clips to.
   service_avahi-daemon_disabled: Avahi announces the share to the doorbell devices, the only addresses mDNS is open to.
 
-# immich102 exports its photo and video library read-only to this host (immich_library_readers), which copies it.
+# nfs101 exports the library of Immich and the files of Home Assistant and Prometheus read-only to this host, which copies them.
 pcloud_backup_mounts:
-  - src: "192.168.1.117:/var/lib/immich/photos/library"
+  - src: "192.168.1.130:/srv/nfs/immich/library"
     path: /mnt/immich-library
   - src: "192.168.1.130:/srv/nfs/homeassistant"
     path: /mnt/homeassistant
