@@ -275,6 +275,39 @@ Kubernetes, the version it had and the one it has now (or that there was nothing
   look at the mail before letting the whole run do the others.
 - **Only `semaphore103`.** The Semaphore of the cluster must never run them, since its own pod would be drained with the node.
 
+**Rebalancing the pods.** A pod finds its node when it starts and never moves afterwards. After an update, a drained node or a
+restarted Proxmox host, most pods sit on the workers that stayed up and the last one is nearly empty. `kubernetes-rebalance.yml`,
+the last stage of `full-updates.yml`, starts the [Descheduler](https://github.com/kubernetes-sigs/descheduler) once to spread them
+again. This is the only moment pods are moved on purpose, a window that is planned and accepted: each pod it moves is stopped and
+started again, so an application with one replica is cut for a minute or two. Nothing runs between two Fridays.
+
+- **What moves.** `k8s/descheduler/policy.yaml` holds the rules: the plugin `LowNodeUtilization`, on the workers only, counts what
+  the pods request (not what they use), and evicts from a worker that is more than 15 points above the average toward one that is
+  more than 15 below, at most three pods per worker and only if another worker has room for them (`nodeFit`). The eviction goes
+  through the eviction API, so a PodDisruptionBudget is respected, and the default scheduler decides where the pod restarts.
+  Nothing is excluded by name, since this is the one window in which pods move: AdGuard (its address follows the pod, a few
+  seconds of DNS are lost), Home Assistant (its pod uses the network of its node, and prefers `talos-wk103`), Traefik and Argo CD
+  restart elsewhere like the others. The Descheduler itself leaves alone the pods of the system (a system-critical priority:
+  Cilium, CoreDNS, the metrics server) and the DaemonSets, and its own namespace is left out so that its Job cannot evict the pod
+  it runs in.
+- **How it is started.** The CronJob `descheduler` is suspended for good, its schedule never fires. The stage creates a Job from it
+  (`kubectl create job --from=cronjob/descheduler`), waits for the end, waits until every pod is running and ready again, measures
+  the workers once more and reports. A stage that finds the workers balanced moves nothing and says so. The Descheduler is the
+  only thing that evicts: the account of the stage, `rebalancer`, can read the nodes and the pods and create Jobs in the namespace
+  `descheduler`, nothing else.
+- **Where and with what.** On `semaphore103`, like the stages above, with the `kubectl` of the official image
+  (`registry.k8s.io/kubectl`, the version of the cluster) run by podman and a configuration that is only on that VM, in
+  `/etc/kubernetes-rebalancer/kubeconfig` (owner root, mode 0600), never in the repository. It is made once, from a machine that
+  holds the admin configuration, out of the Secret `rebalancer-token` of the namespace `descheduler`, which Kubernetes fills with
+  the token of the account (key `token`) and the certificate of the cluster (key `ca.crt`): `kubectl config set-cluster`,
+  `set-credentials --token` and `set-context`, with `--embed-certs` and `--server https://192.168.1.124:6443`, write the file,
+  which is then copied to the VM. Without it the stage is skipped and says so.
+- **By hand.** `-e kubernetes_rebalance_check_only=true` only measures. The rules are changed in `policy.yaml` and take effect at
+  the next run.
+- **Limits.** The Descheduler's `--dry-run` computes the usage of every node as 0 and so decides nothing, which makes it useless
+  for a rehearsal; a real run is the test. It only balances memory and CPU requests, so a pod that asks for little but uses much
+  is not seen. The metrics server is not used.
+
 ## 8. Backups and recovery
 
 - Back up the folder of section 2. Without `secrets.yaml` the cluster cannot be administered.

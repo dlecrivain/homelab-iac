@@ -16,14 +16,16 @@
 - import_playbook: pve-updates.yml
 - import_playbook: talos-updates.yml
 - import_playbook: kubernetes-updates.yml
+# Last, so that the pods which the stages above moved (drained nodes, restarted hosts) are spread over the workers again.
+- import_playbook: kubernetes-rebalance.yml
 
 - name: Send the combined full-updates report
   hosts: localhost
   gather_facts: false
   tasks:
-    - name: Determine overall status across all 5 stages
+    - name: Determine overall status across all 6 stages
       ansible.builtin.set_fact:
-        full_run_any_problem: "{{ 'PROBLEM' in [hostvars['localhost'].container_updates_stage_status, hostvars['localhost'].vm_updates_stage_status, hostvars['localhost'].pve_updates_stage_status, hostvars['localhost'].talos_updates_stage_status, hostvars['localhost'].kubernetes_updates_stage_status] }}"
+        full_run_any_problem: "{{ 'PROBLEM' in [hostvars['localhost'].container_updates_stage_status, hostvars['localhost'].vm_updates_stage_status, hostvars['localhost'].pve_updates_stage_status, hostvars['localhost'].talos_updates_stage_status, hostvars['localhost'].kubernetes_updates_stage_status, hostvars['localhost'].kubernetes_rebalance_stage_status] }}"
 
     - name: Build and send the combined HTML report email
       include_role:
@@ -43,7 +45,8 @@
               {'name': 'vm-updates', 'status': hostvars['localhost'].vm_updates_stage_status, 'duration': hostvars['localhost'].vm_updates_duration_display},
               {'name': 'pve-updates', 'status': hostvars['localhost'].pve_updates_stage_status, 'duration': hostvars['localhost'].pve_updates_duration_display},
               {'name': 'talos-updates', 'status': hostvars['localhost'].talos_updates_stage_status, 'duration': hostvars['localhost'].talos_updates_duration_display},
-              {'name': 'kubernetes-updates', 'status': hostvars['localhost'].kubernetes_updates_stage_status, 'duration': hostvars['localhost'].kubernetes_updates_duration_display}
+              {'name': 'kubernetes-updates', 'status': hostvars['localhost'].kubernetes_updates_stage_status, 'duration': hostvars['localhost'].kubernetes_updates_duration_display},
+              {'name': 'kubernetes-rebalance', 'status': hostvars['localhost'].kubernetes_rebalance_stage_status, 'duration': hostvars['localhost'].kubernetes_rebalance_duration_display}
             ] %}
             {% if stage.status == 'PROBLEM' %}
             {% set row_class = 'status-problem' %}
@@ -64,6 +67,7 @@
           {{ hostvars['localhost'].pve_updates_report_body }}
           {{ hostvars['localhost'].talos_updates_report_body }}
           {{ hostvars['localhost'].kubernetes_updates_report_body }}
+          {{ hostvars['localhost'].kubernetes_rebalance_report_body }}
 
     # Without this, ansible-playbook exits 0 even on a real problem: the per-host rescue blocks
     # that keep the orchestration going also swallow the failure from Semaphore's task status.
