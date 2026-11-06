@@ -1,0 +1,24 @@
+# Moves pods from the workers that carry the most to the one that carries the least. It runs only when full-updates.yml asks for it
+# (kubernetes-rebalance.yml creates a Job from the suspended CronJob): Kubernetes never moves a pod that is running, so after the
+# nodes have been stopped one after the other for a patch of their host, the pods stay where they landed.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: descheduler
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/dlecrivain/homelab-iac.git
+    targetRevision: main
+    path: k8s/descheduler
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: descheduler
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

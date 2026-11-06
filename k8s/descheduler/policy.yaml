@@ -1,0 +1,49 @@
+# What the Descheduler does when it runs. The workers are compared with each other, on what their pods request in memory and CPU:
+# one that is more than 15 points above the average of the three is relieved, one that is more than 15 points below receives. A pod
+# is evicted only if another worker has room for it (nodeFit), and at most three per node in one run.
+#
+# AdGuard is never evicted (its pod holds the address of the DNS of the whole house, a move cuts it) nor Home Assistant (its pod
+# uses the network of the node, a move changes its address for the devices). The pods of the system, of Argo CD, of cert-manager, of
+# Traefik and of the Descheduler itself stay where they are. The scratch space of a pod (emptyDir) is lost when it moves, which is
+# all it holds here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: descheduler-policy
+  namespace: descheduler
+data:
+  policy.yaml: |
+    apiVersion: "descheduler/v1alpha2"
+    kind: "DeschedulerPolicy"
+    nodeSelector: "!node-role.kubernetes.io/control-plane"
+    maxNoOfPodsToEvictPerNode: 3
+    profiles:
+      - name: rebalance
+        pluginConfig:
+          - name: "DefaultEvictor"
+            args:
+              evictLocalStoragePods: true
+              nodeFit: true
+          - name: "LowNodeUtilization"
+            args:
+              useDeviationThresholds: true
+              thresholds:
+                cpu: 15
+                memory: 15
+              targetThresholds:
+                cpu: 15
+                memory: 15
+              evictableNamespaces:
+                exclude:
+                  - kube-system
+                  - argocd
+                  - cert-manager
+                  - traefik
+                  - descheduler
+                  - kubelet-serving-cert-approver
+                  - adguard
+                  - homeassistant
+        plugins:
+          balance:
+            enabled:
+              - "LowNodeUtilization"

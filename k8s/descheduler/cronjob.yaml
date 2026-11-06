@@ -1,0 +1,46 @@
+# Suspended for good: the schedule never fires. kubernetes-rebalance.yml creates a Job from it
+# (kubectl create job --from=cronjob/descheduler), once a week at the end of full-updates.yml, which is the window in which the owner
+# accepts that pods move.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: descheduler
+  namespace: descheduler
+spec:
+  suspend: true
+  schedule: "0 0 1 1 *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 604800
+      template:
+        spec:
+          serviceAccountName: descheduler
+          restartPolicy: Never
+          containers:
+            - name: descheduler
+              image: registry.k8s.io/descheduler/descheduler:v0.37.0
+              command: ["/bin/descheduler"]
+              args:
+                - --policy-config-file=/policy/policy.yaml
+                - --v=3
+              volumeMounts:
+                - name: policy
+                  mountPath: /policy
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: policy
+              configMap:
+                name: descheduler-policy

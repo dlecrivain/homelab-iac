@@ -1,0 +1,118 @@
+# What the Descheduler needs to read the cluster and evict pods.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: descheduler
+  namespace: descheduler
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: descheduler
+rules:
+  - apiGroups: ["events.k8s.io"]
+    resources: ["events"]
+    verbs: ["create", "update"]
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces", "persistentvolumeclaims"]
+    verbs: ["get", "watch", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "watch", "list", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/eviction"]
+    verbs: ["create"]
+  - apiGroups: ["scheduling.k8s.io"]
+    resources: ["priorityclasses"]
+    verbs: ["get", "watch", "list"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: descheduler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: descheduler
+subjects:
+  - kind: ServiceAccount
+    name: descheduler
+    namespace: descheduler
+---
+# The account that full-updates.yml uses, from semaphore103, to start the Descheduler and to look at the cluster before and after.
+# It can read the nodes, the pods and the workloads, and in its own namespace create the Job, read it and read its log. It cannot
+# change anything else, and it is not the administrator of the cluster.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rebalancer
+  namespace: descheduler
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rebalancer-read
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: rebalancer-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rebalancer-read
+subjects:
+  - kind: ServiceAccount
+    name: rebalancer
+    namespace: descheduler
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rebalancer
+  namespace: descheduler
+rules:
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get", "list"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rebalancer
+  namespace: descheduler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rebalancer
+subjects:
+  - kind: ServiceAccount
+    name: rebalancer
+    namespace: descheduler
+---
+# The token of the account. Kubernetes fills it in: this manifest holds no secret. It is read once to make the kubeconfig that is put
+# on semaphore103, see the README.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rebalancer-token
+  namespace: descheduler
+  annotations:
+    kubernetes.io/service-account.name: rebalancer
+type: kubernetes.io/service-account-token
