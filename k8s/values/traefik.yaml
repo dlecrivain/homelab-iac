@@ -2,6 +2,12 @@
 # different workers, and what arrives on port 80 goes to HTTPS.
 deployment:
   replicas: 2
+# What a replica uses is about 100 MiB. Without a request the scheduler counts 200 MiB and the Descheduler nothing, which spoils the
+# balance of the workers: every pod of the cluster states what it needs.
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
 service:
   annotations:
     lbipam.cilium.io/ips: 192.168.1.128
