@@ -4,7 +4,8 @@
 # cluster (semaphore-bck) with -e peer_host=semaphore103, never from semaphore103 itself, since Semaphore and its database are
 # stopped while it runs.
 #
-# The VM is snapshotted first (snapshot before_postgres_upgrade, left in place for the owner to delete) and the volume of the
+# The VM is snapshotted first (snapshot before_postgres_upgrade, deleted at the end once the restore is checked, since a snapshot
+# stops the live migration of a VM that has local disks) and the volume of the
 # previous version is not touched. When a step fails after the switch, the previous Quadlet is put back and the previous
 # version starts again on its own volume. Nothing is done when the running server is already on the new major version.
 - name: Refuse to run without an explicit peer
@@ -258,6 +259,16 @@
           become: false
           delegate_to: localhost
 
+        # A snapshot stops the live migration of a VM with local disks, so it does not stay once the restore is checked. The way back is
+        # the volume of the previous version, the dump and the previous Quadlet.
+        - name: Delete the snapshot of the VM
+          ansible.builtin.include_role:
+            name: cleanup_snapshot
+            apply:
+              become: false
+          vars:
+            snapshot_label: before_postgres_upgrade
+
         - name: Report
           ansible.builtin.debug:
             msg:
@@ -265,8 +276,8 @@
                 Postgres {{ semaphore_db_before.results[0].stdout }} -> {{ semaphore_db_after.results[0].stdout }},
                 {{ semaphore_db_after.results[1].stdout }} rows, same as before.
               - >-
-                Kept as the way back: the previous volume, the dump and the previous Quadlet in {{ semaphore_db_dump_dir }},
-                and the snapshot before_postgres_upgrade. Delete them once the new version is trusted.
+                Kept as the way back: the previous volume, the dump and the previous Quadlet in {{ semaphore_db_dump_dir }}. Delete them
+                once the new version is trusted.
 
       # Whatever failed, Semaphore must not stay down: the Quadlet in place at this point names a database that holds the data.
       rescue:
