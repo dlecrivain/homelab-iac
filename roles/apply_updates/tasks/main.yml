@@ -1,4 +1,14 @@
 ---
+# dnf downloads the metadata of a repository again only when its own copy has expired, and the update option update_cache of the
+# module does nothing when it is given a name. A host whose repositories are not refreshed at the same moment can then hold a BaseOS
+# newer than its AppStream, and refuses an update whose packages need each other across the two (glibc and glibc-devel, for one).
+# Expiring all of it first makes dnf compute the update from one consistent copy.
+- name: Expire the cached repository metadata (dnf/yum)
+  ansible.builtin.command: dnf clean expire-cache
+  changed_when: false
+  become: true
+  when: ansible_facts['pkg_mgr'] in ['dnf', 'yum']
+
 - name: Apply updates (dnf/yum)
   ansible.builtin.dnf:
     name: "*"
