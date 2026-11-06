@@ -2,6 +2,17 @@
 - name: Install the NFS server
   ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/nfs_utils.yml"
 
+# The copies to the cloud storage read the shares where they are, on this host. A process that opens a file on which a client holds a
+# delegation gets "Resource temporarily unavailable" while the server takes the delegation back, which stops tar and rclone. With
+# leases off the server grants no delegation, at the cost of a little more traffic.
+- name: Do not grant NFSv4 delegations
+  ansible.posix.sysctl:
+    name: fs.leases-enable
+    value: "0"
+    sysctl_file: /etc/sysctl.d/99-nfs.conf
+    reload: true
+  become: true
+
 # The volume is created small, then grown by lvm_grow, which adds a virtual disk to the VM when the volume group has too
 # little room and grows the file system with it.
 - name: Create the volume of the files
