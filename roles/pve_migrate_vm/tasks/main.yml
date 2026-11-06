@@ -40,6 +40,16 @@
   vars:
     ansible_python_interpreter: "{{ migrate_python_interpreter | default(proxmox_python_interpreter) }}"
 
+# Any other snapshot stops a live migration that moves local disks ("online storage migration not possible if non-replicated snapshot
+# exists"), and it would do so in the middle of the evacuation of a host, when other VMs have already moved: better to say which one it is.
+- name: Stop when a snapshot of another kind is left
+  ansible.builtin.assert:
+    that: (snapshot_recheck.stdout | regex_findall('-> ([^ ]+)') | reject('equalto', 'current') | list | length) == 0
+    fail_msg: >-
+      VM {{ migrate_vmid }} has a snapshot that stops its migration:
+      {{ snapshot_recheck.stdout | regex_findall('-> ([^ ]+)') | reject('equalto', 'current') | join(', ') }}.
+      Delete it with qm delsnapshot {{ migrate_vmid }} <name> on its node, then run again.
+
 # Each node pair has its own point-to-point /31, so look this pair's link up in pve_mesh_links
 # rather than assuming one shared subnet. An unlisted pair yields an empty string and the
 # migration falls back to the management network.
