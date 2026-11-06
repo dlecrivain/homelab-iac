@@ -5,6 +5,13 @@ groupName: acme.lecrivaindaniel.fr
 certManager:
   namespace: cert-manager
   serviceAccountName: cert-manager
+# About 20 MiB in use. Without a request the scheduler counts 200 MiB and the Descheduler nothing: every pod of the cluster states
+# what it needs.
+pod:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
 issuers:
   - name: le-staging
     create: true

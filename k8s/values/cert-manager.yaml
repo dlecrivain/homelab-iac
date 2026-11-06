@@ -1,3 +1,19 @@
 # The CRDs come with the chart, so that the certificates below are understood once it is installed.
 crds:
   enabled: true
+# What each part uses is 10 to 40 MiB. Without a request the scheduler counts 200 MiB and the Descheduler nothing, which spoils the
+# balance of the workers: every pod of the cluster states what it needs.
+resources:
+  requests:
+    cpu: 10m
+    memory: 48Mi
+webhook:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+cainjector:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
