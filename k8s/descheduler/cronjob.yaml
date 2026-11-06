@@ -18,6 +18,9 @@ spec:
         spec:
           serviceAccountName: descheduler
           restartPolicy: Never
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
           containers:
             - name: descheduler
               image: registry.k8s.io/descheduler/descheduler:v0.37.0
