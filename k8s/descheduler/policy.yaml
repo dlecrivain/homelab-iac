@@ -1,6 +1,10 @@
 # What the Descheduler does when it runs. The workers are compared with each other, on what their pods request in memory and CPU:
-# one that is more than 15 points above the average of the three is relieved, one that is more than 15 points below receives. A pod
-# is evicted only if another worker has room for it (nodeFit), and at most three per node in one run.
+# one that is more than 10 points above the average of the three is relieved, one that is more than 10 points below receives. A pod
+# is evicted only if another worker has room for it (nodeFit), and at most ten per node in one run.
+#
+# The load of a worker is what its pods request. A pod that requests nothing (Argo CD, cert-manager and Traefik run without requests)
+# weighs nothing, and the Descheduler evicts those first: they must not use up the number of evictions per node, or the pods that
+# weigh something are never reached. Moving them is harmless and they end up on the emptiest worker, where they are left alone.
 #
 # Nothing is protected by name, since the pods only move in the window of full-updates.yml: AdGuard, Home Assistant, Traefik and Argo CD
 # restart elsewhere like the others. What the Descheduler protects by itself stays so: the pods of the system (Cilium, CoreDNS, the
@@ -16,7 +20,7 @@ data:
     apiVersion: "descheduler/v1alpha2"
     kind: "DeschedulerPolicy"
     nodeSelector: "!node-role.kubernetes.io/control-plane"
-    maxNoOfPodsToEvictPerNode: 3
+    maxNoOfPodsToEvictPerNode: 10
     profiles:
       - name: rebalance
         pluginConfig:
@@ -28,11 +32,11 @@ data:
             args:
               useDeviationThresholds: true
               thresholds:
-                cpu: 15
-                memory: 15
+                cpu: 10
+                memory: 10
               targetThresholds:
-                cpu: 15
-                memory: 15
+                cpu: 10
+                memory: 10
               evictableNamespaces:
                 exclude:
                   - descheduler
