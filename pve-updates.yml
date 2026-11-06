@@ -84,10 +84,14 @@
             pve_host_failure_reason: "{{ ansible_failed_result.msg | default('Unknown error') }}"
 
         # A failure after Step 3b would otherwise leave those VMs off, Katello included.
+        # The errors are ignored in the tasks of the role too (apply), or the first VM that does not come back would end the whole
+        # playbook here, and neither the other VMs would be started nor the report be sent.
         - name: Start back up any VM shut down for this maintenance window
           include_role:
             name: pve_evacuate_host
             tasks_from: resume_after_maintenance
+            apply:
+              ignore_errors: true
           ignore_errors: true
 
         - name: Stop the entire run - no further hosts will be processed
