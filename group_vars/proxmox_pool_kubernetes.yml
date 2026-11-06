@@ -7,3 +7,5 @@ pve_rebalance_pinned: true
 
 # When their host is patched they are stopped and started again with it, instead of being migrated.
 pve_shutdown_for_maintenance: true
+# A node gives its pods about 20 seconds to stop before it shuts down, and the host waits this long for it.
+pve_shutdown_timeout: 180
