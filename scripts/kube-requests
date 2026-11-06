@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""What the pods of each worker ask for, from `kubectl get nodes,pods -A -o json` on the standard input.
+
+    kube-requests worker1 worker2 ... < nodes-and-pods.json
+
+It prints one JSON object with, for every worker named: whether it is ready and open to new pods, the number of pods that run on it,
+the memory and the CPU they request (the DaemonSets included, since they take room too), and those as a percentage of what the node
+can allocate. This is what the scheduler and the Descheduler count, not what the pods really use.
+"""
+import json
+import sys
+
+_UNITS = {"Ki": 2**10, "Mi": 2**20, "Gi": 2**30, "Ti": 2**40, "k": 1e3, "K": 1e3, "M": 1e6, "G": 1e9}
+
+
+def memory(value):
+    for unit, factor in _UNITS.items():
+        if value.endswith(unit):
+            return float(value[: -len(unit)]) * factor
+    return float(value)
+
+
+def cpu(value):
+    return float(value[:-1]) / 1000 if value.endswith("m") else float(value)
+
+
+def ready(node):
+    conditions = {c["type"]: c["status"] for c in node["status"].get("conditions", [])}
+    return conditions.get("Ready") == "True" and not node["spec"].get("unschedulable", False)
+
+
+def main():
+    workers = sys.argv[1:]
+    items = json.load(sys.stdin)["items"]
+    nodes = {i["metadata"]["name"]: i for i in items if i["kind"] == "Node"}
+    pods = [i for i in items if i["kind"] == "Pod"]
+    result = {w: {"ready": w in nodes and ready(nodes[w]), "pods": 0, "memory_mib": 0.0, "cpu_m": 0.0} for w in workers}
+    for pod in pods:
+        node = pod["spec"].get("nodeName")
+        if node not in result or pod["status"].get("phase") != "Running":
+            continue
+        requests = [c.get("resources", {}).get("requests", {}) for c in pod["spec"]["containers"]]
+        result[node]["pods"] += 1
+        result[node]["memory_mib"] += sum(memory(r.get("memory", "0")) for r in requests) / 2**20
+        result[node]["cpu_m"] += sum(cpu(r.get("cpu", "0")) for r in requests) * 1000
+    for name, row in result.items():
+        row["memory_mib"] = round(row["memory_mib"])
+        row["cpu_m"] = round(row["cpu_m"])
+        free = nodes[name]["status"]["allocatable"] if name in nodes else {}
+        row["memory_pct"] = round(100 * row["memory_mib"] * 2**20 / memory(free["memory"])) if free.get("memory") else 0
+        row["cpu_pct"] = round(100 * row["cpu_m"] / 1000 / cpu(free["cpu"])) if free.get("cpu") else 0
+    json.dump(result, sys.stdout)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,244 @@
+---
+# Spreads the pods over the three workers again, by starting the Descheduler once. Pods find their node when they start and never
+# move afterwards, so after an update (a node that was drained, a Proxmox host that was restarted) most of them sit on the workers
+# that were up, and the third one is nearly empty. The Descheduler evicts, one by one and through the eviction API, the pods of the
+# workers that are fuller than the average, and the scheduler puts them back where there is room. Each of those pods is stopped
+# and started again, so an application with one replica is cut for a minute or two: this is why it is only done at the end of
+# full-updates.yml, the window in which pods are known to move, and never otherwise. The rules (what is moved, how many pods per
+# node) are in k8s/descheduler/policy.yaml, where nothing is protected by name: this is the window in which pods move.
+#
+# It runs on semaphore103, outside the cluster, with the kubectl of the official image and the configuration of the "rebalancer"
+# account (kubernetes_rebalancer_config), a file that is only on that VM. That account reads the nodes and the pods and creates a
+# Job from the suspended CronJob of the Descheduler; it cannot delete anything itself. Without the file the stage is skipped, and the
+# report says so. The load of a worker is what its pods request (scripts/kube-requests), which is what the Descheduler counts.
+#
+#   -e kubernetes_rebalance_check_only=true      measure the workers and report, move nothing
+- name: Rebalance the pods over the workers
+  hosts: semaphore103
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Capture the run start time
+      include_role:
+        name: capture_start_time
+
+    - name: Capture this stage's own start time
+      include_role:
+        name: capture_start_time
+      vars:
+        capture_start_time_fact_name: kubernetes_rebalance_start_epoch
+
+    - name: Start with nothing done and nothing wrong
+      ansible.builtin.set_fact:
+        kubernetes_rebalance_before: {}
+        kubernetes_rebalance_after: {}
+        kubernetes_rebalance_evicted: []
+        kubernetes_rebalance_halted: false
+        kubernetes_rebalance_failure: ''
+        kubernetes_rebalance_skip_reason: ''
+
+    - name: Look at the workers and move the pods (skipped if an earlier stage of an orchestrated run had a problem)
+      when: hostvars['localhost'].orchestration_should_run | default(true)
+      block:
+        - name: Look for the configuration of the rebalancer account
+          ansible.builtin.stat:
+            path: "{{ kubernetes_rebalancer_config }}"
+          register: kubernetes_rebalance_config
+
+        - name: Skip the stage when kubectl has no configuration
+          ansible.builtin.set_fact:
+            kubernetes_rebalance_skip_reason: "{{ kubernetes_rebalancer_config }} is not on {{ inventory_hostname }}, so kubectl cannot reach the cluster."
+          when: not kubernetes_rebalance_config.stat.exists
+
+        - name: Look at the workers and move the pods
+          when: kubernetes_rebalance_skip_reason == ''
+          block:
+            - name: Pull the image of kubectl
+              ansible.builtin.command: "podman pull {{ kubectl_image }}"
+              register: kubernetes_rebalance_pull
+              retries: 3
+              delay: 10
+              until: kubernetes_rebalance_pull.rc == 0
+              changed_when: false
+
+            # The pods that an update has just moved are still coming back: what is measured then is not where they will stay.
+            - name: Wait until the cluster is quiet
+              ansible.builtin.include_tasks: tasks/kubernetes_wait_pods_ready.yml
+              vars:
+                kubernetes_wait_tries: 30
+
+            - name: Measure the workers
+              ansible.builtin.include_tasks: tasks/kubernetes_measure_workers.yml
+
+            - name: Keep what the workers request before
+              ansible.builtin.set_fact:
+                kubernetes_rebalance_before: "{{ kubernetes_workers_measure }}"
+
+            # Moving pods needs somewhere to move them to.
+            - name: Stop when a worker cannot take pods
+              ansible.builtin.set_fact:
+                kubernetes_rebalance_halted: true
+                kubernetes_rebalance_failure: "{{ kubernetes_workers_measure | dict2items | rejectattr('value.ready') | map(attribute='key') | join(', ') }} is not ready or does not take new pods, so nothing was moved."
+              when: kubernetes_workers_measure.values() | rejectattr('ready') | list | length > 0
+
+            - name: Move the pods
+              when:
+                - not kubernetes_rebalance_halted
+                - not (kubernetes_rebalance_check_only | default(false) | bool)
+              block:
+                - name: Name the Job
+                  ansible.builtin.set_fact:
+                    kubernetes_rebalance_job: "descheduler-{{ now(fmt='%Y%m%d-%H%M%S') }}"
+
+                - name: Start the Descheduler
+                  ansible.builtin.command: "{{ kubectl_cmd }} -n descheduler create job {{ kubernetes_rebalance_job }} --from=cronjob/descheduler"
+                  changed_when: true
+
+                # Succeeded and failed counts of the Job: "1/" when it worked, "/1" when it did not.
+                - name: Wait until the Descheduler has finished
+                  ansible.builtin.command: "{{ kubectl_cmd }} -n descheduler get job {{ kubernetes_rebalance_job }} -o jsonpath='{.status.succeeded}/{.status.failed}'"
+                  register: kubernetes_rebalance_state
+                  changed_when: false
+                  retries: 60
+                  delay: 10
+                  until: kubernetes_rebalance_state.stdout is match('^1/|.*/[1-9]')
+
+                - name: Read what the Descheduler did
+                  ansible.builtin.command: "{{ kubectl_cmd }} -n descheduler logs job/{{ kubernetes_rebalance_job }}"
+                  register: kubernetes_rebalance_log
+                  changed_when: false
+
+                - name: Fail when the Descheduler did not finish
+                  ansible.builtin.fail:
+                    msg: "The Descheduler failed, see the log of the Job {{ kubernetes_rebalance_job }} in the namespace descheduler: {{ kubernetes_rebalance_log.stdout_lines | select('search', '^E[0-9]') | list | last | default('no error line') | truncate(300) }}"
+                  when: not (kubernetes_rebalance_state.stdout is match('^1/'))
+
+                - name: Keep the pods that were moved
+                  ansible.builtin.set_fact:
+                    kubernetes_rebalance_evicted: "{{ kubernetes_rebalance_log.stdout | regex_findall('\"Evicted pod\" pod=\"([^\"]+)\"') }}"
+
+                # The eviction returns at once; the pod is stopped and its replacement is created and scheduled afterwards.
+                - name: Give the evicted pods time to stop
+                  ansible.builtin.wait_for:
+                    timeout: 30
+                  when: kubernetes_rebalance_evicted | length > 0
+
+                - name: Wait until the pods are back
+                  ansible.builtin.include_tasks: tasks/kubernetes_wait_pods_ready.yml
+
+                - name: Measure the workers again
+                  ansible.builtin.include_tasks: tasks/kubernetes_measure_workers.yml
+
+                - name: Keep what the workers request after
+                  ansible.builtin.set_fact:
+                    kubernetes_rebalance_after: "{{ kubernetes_workers_measure }}"
+          rescue:
+            - name: Record the failure
+              ansible.builtin.set_fact:
+                kubernetes_rebalance_halted: true
+                kubernetes_rebalance_failure: "{{ ((ansible_failed_result.stderr | default('') | trim) or (ansible_failed_result.msg | default('see the log of the task'))) | string | truncate(400) }}"
+
+- name: Report the rebalance of the pods
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Record whether this stage was allowed to run, and what happened on semaphore103
+      ansible.builtin.set_fact:
+        stage_was_allowed_to_run: "{{ hostvars['localhost'].orchestration_should_run | default(true) }}"
+        rebalance_before: "{{ hostvars['semaphore103'].kubernetes_rebalance_before | default({}) }}"
+        rebalance_after: "{{ hostvars['semaphore103'].kubernetes_rebalance_after | default({}) }}"
+        rebalance_evicted: "{{ hostvars['semaphore103'].kubernetes_rebalance_evicted | default([]) }}"
+        rebalance_halted: "{{ hostvars['semaphore103'].kubernetes_rebalance_halted | default(false) }}"
+        rebalance_failure: "{{ hostvars['semaphore103'].kubernetes_rebalance_failure | default('') }}"
+        rebalance_skip_reason: "{{ hostvars['semaphore103'].kubernetes_rebalance_skip_reason | default('') }}"
+        rebalance_check_only: "{{ kubernetes_rebalance_check_only | default(false) | bool }}"
+
+    - name: Work out the status of this stage
+      ansible.builtin.set_fact:
+        kubernetes_rebalance_stage_status: >-
+          {{ 'SKIPPED' if (not stage_was_allowed_to_run or rebalance_skip_reason != '')
+             else ('PROBLEM' if rebalance_halted else 'OK') }}
+        orchestration_should_run: "{{ stage_was_allowed_to_run and not rebalance_halted }}"
+
+    - name: Compute this stage's own duration
+      ansible.builtin.set_fact:
+        kubernetes_rebalance_duration_seconds: "{{ (now(fmt='%s') | int) - (hostvars['localhost'].kubernetes_rebalance_start_epoch | int) }}"
+      when: hostvars['localhost'].kubernetes_rebalance_start_epoch is defined
+
+    - name: Format this stage's duration for display
+      ansible.builtin.set_fact:
+        kubernetes_rebalance_duration_display: "{{ (kubernetes_rebalance_duration_seconds | int // 3600) }}h {{ ((kubernetes_rebalance_duration_seconds | int % 3600) // 60) }}m {{ (kubernetes_rebalance_duration_seconds | int % 60) }}s"
+      when: kubernetes_rebalance_duration_seconds is defined
+
+    - name: Capture this stage's report body
+      ansible.builtin.set_fact:
+        kubernetes_rebalance_report_body: |
+          <h2>Pod rebalance report</h2>
+          {% if not stage_was_allowed_to_run %}
+          <p class="alert-warning">
+            <strong>Skipped.</strong> An earlier stage in this orchestrated run reported a problem, so the pods were not moved.
+          </p>
+          {% elif rebalance_skip_reason != '' %}
+          <p class="alert-warning"><strong>Skipped.</strong> {{ rebalance_skip_reason | e }}</p>
+          {% else %}
+          {% if rebalance_before | length > 0 %}
+          <p>
+            {% if rebalance_check_only %}
+            Check only, no pod was moved. What the pods of each worker request:
+            {% elif rebalance_evicted | length > 0 %}
+            <strong>{{ rebalance_evicted | length }} pod(s) moved</strong> by the Descheduler. What the pods of each worker request, before and after:
+            {% elif rebalance_halted %}
+            No pod was moved. What the pods of each worker request:
+            {% else %}
+            No pod needed to move: the workers are balanced as far as the rules of the Descheduler go. What the pods of each worker request:
+            {% endif %}
+          </p>
+          {% endif %}
+          {% if rebalance_halted %}
+          <p class="alert-danger"><strong>Stopped.</strong> {{ rebalance_failure | e }}</p>
+          {% endif %}
+          {% if rebalance_before | length > 0 %}
+          <table>
+            <tr><th>Worker</th><th>Pods before</th><th>Pods after</th><th>Memory before</th><th>Memory after</th><th>CPU before</th><th>CPU after</th></tr>
+            {% for w in rebalance_before.keys() | sort %}
+            {% set b = rebalance_before[w] %}
+            {% set a = rebalance_after[w] | default(b) %}
+            <tr class="{{ 'status-problem' if not b.ready else 'status-ok' }}">
+              <td>{{ w }}</td>
+              <td>{{ b.pods }}</td>
+              <td>{{ a.pods }}</td>
+              <td>{{ b.memory_mib }} MiB ({{ b.memory_pct }}%)</td>
+              <td>{{ a.memory_mib }} MiB ({{ a.memory_pct }}%)</td>
+              <td>{{ b.cpu_m }}m ({{ b.cpu_pct }}%)</td>
+              <td>{{ a.cpu_m }}m ({{ a.cpu_pct }}%)</td>
+            </tr>
+            {% endfor %}
+          </table>
+          {% endif %}
+          {% if rebalance_evicted | length > 0 %}
+          <p>Pods moved:</p>
+          <ul>
+            {% for p in rebalance_evicted %}
+            <li>{{ p }}</li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+          {% endif %}
+
+    # Skipped in an orchestrated run - the combined email covers it instead.
+    - name: Build and send the HTML report email
+      include_role:
+        name: send_report
+      when: not (hostvars['localhost'].is_orchestrated_run | default(false))
+      vars:
+        report_subject: "[kubernetes-rebalance] {{ kubernetes_rebalance_stage_status }}{% if rebalance_evicted | length > 0 %} - {{ rebalance_evicted | length }} pod(s) moved{% endif %}"
+        report_body: "{{ kubernetes_rebalance_report_body }}"
+
+    # Standalone runs only: an orchestrated run must keep going so the combined report still gets sent, and full-updates.yml does its
+    # own final fail. Without this, ansible-playbook exits 0 even when the run stopped.
+    - name: Fail this run if it stopped on a problem
+      ansible.builtin.fail:
+        msg: "kubernetes-rebalance stopped on a problem - see the report email for details."
+      when:
+        - not (hostvars['localhost'].is_orchestrated_run | default(false))
+        - kubernetes_rebalance_stage_status == 'PROBLEM'

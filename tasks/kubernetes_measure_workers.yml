@@ -1,0 +1,22 @@
+---
+# Reads the nodes and the pods of the cluster and leaves in kubernetes_workers_measure, for each worker, whether it is ready and open
+# to new pods, how many pods run on it, and the memory and the CPU they request, in absolute value and as a percentage of what the
+# node can allocate (scripts/kube-requests). The requests are what the scheduler and the Descheduler count. Runs from semaphore103.
+- name: Read the nodes and the pods
+  ansible.builtin.command: "{{ kubectl_cmd }} get nodes,pods -A -o json"
+  register: kubernetes_workers_read
+  changed_when: false
+
+# The script is in this repository, so it runs where the playbook runs, with the answer of kubectl on its standard input.
+- name: Add up what the pods of each worker request
+  ansible.builtin.command: "python3 {{ playbook_dir }}/scripts/kube-requests {{ talos_nodes | selectattr('role', 'equalto', 'worker') | map(attribute='name') | join(' ') }}"
+  args:
+    stdin: "{{ kubernetes_workers_read.stdout }}"
+  delegate_to: localhost
+  become: false
+  register: kubernetes_workers_sum
+  changed_when: false
+
+- name: Keep the figures
+  ansible.builtin.set_fact:
+    kubernetes_workers_measure: "{{ kubernetes_workers_sum.stdout | from_json }}"

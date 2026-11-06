@@ -182,6 +182,16 @@ talosctl_cmd: >-
   podman run --rm --security-opt label=disable -v {{ talosctl_config }}:/talosconfig:ro {{ talosctl_image }}
   --talosconfig /talosconfig --endpoints {{ talos_control_plane_ips | join(',') }}
 
+# How the playbooks look at the Kubernetes workloads and start the Descheduler (kubernetes-rebalance.yml): the kubectl of the official
+# image, run by podman on semaphore103, with the configuration of the "rebalancer" account of the cluster. That account can read the
+# nodes and the pods and create a Job from the suspended CronJob of the Descheduler, nothing more. The file is only on that VM, owned
+# by root, and never in this repository; it points to the first control plane.
+kubectl_image: "registry.k8s.io/kubectl:v{{ kubernetes_version }}"
+kubernetes_rebalancer_config: /etc/kubernetes-rebalancer/kubeconfig
+kubectl_cmd: >-
+  podman run --rm --user 0:0 --security-opt label=disable -v {{ kubernetes_rebalancer_config }}:/kubeconfig:ro {{ kubectl_image }}
+  --kubeconfig /kubeconfig
+
 # The Docker Hub (docker_repo) or ghcr.io (ghcr_repo) images that check-image-updates.yml watches on a VM. An entry has name,
 # docker_repo or ghcr_repo, version_var (the variable it bumps), container_name, and host (whose live container tells it whether a
 # bump has been applied yet). Empty since the containers of the VMs moved to the cluster, where Renovate follows the tags.

@@ -1,0 +1,24 @@
+---
+# Waits until no pod of the cluster is Pending and every running pod has all its containers ready, which is how it is known that the
+# pods that were moved have come back. kubernetes_wait_tries is the number of looks, ten seconds apart (60 by default). A pod that
+# has finished (Completed, or Failed from an old Job) does not count. Runs from semaphore103.
+- name: Wait until every pod is running and ready
+  block:
+    - name: Look at the pods until they are all running and ready
+      ansible.builtin.command: >-
+        {{ kubectl_cmd }} get pods -A --no-headers
+        -o custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name,PHASE:.status.phase,READY:.status.containerStatuses[*].ready
+      register: kubernetes_pods
+      changed_when: false
+      retries: "{{ kubernetes_wait_tries | default(60) }}"
+      delay: 10
+      until: >-
+        kubernetes_pods.rc == 0 and
+        (kubernetes_pods.stdout_lines | select('search', ' (Pending|Running) ') | reject('search', ' Running +(true,)*true$') | list | length) == 0
+  rescue:
+    - name: Say which pods are not ready
+      ansible.builtin.fail:
+        msg: >-
+          {{ 'These pods are still not running and ready: ' ~ (kubernetes_pods.stdout_lines | default([]) | select('search', ' (Pending|Running) ')
+          | reject('search', ' Running +(true,)*true$') | map('regex_replace', ' +', ' ') | join('; '))
+          if (kubernetes_pods.rc | default(1)) == 0 else (kubernetes_pods.stderr | default('kubectl did not answer')) }}
