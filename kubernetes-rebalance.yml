@@ -115,7 +115,7 @@
 
                 - name: Keep the pods that were moved
                   ansible.builtin.set_fact:
-                    kubernetes_rebalance_evicted: "{{ kubernetes_rebalance_log.stdout | regex_findall('\"Evicted pod\" pod=\"([^\"]+)\"') }}"
+                    kubernetes_rebalance_evicted: "{{ kubernetes_rebalance_log.stdout | regex_findall('\"Evicted pod\" pod=\"([^\"]+)\"[^\n]*? node=\"([^\"]+)\"') }}"
 
                 # The eviction returns at once; the pod is stopped and its replacement is created and scheduled afterwards.
                 - name: Give the evicted pods time to stop
@@ -160,6 +160,13 @@
              else ('PROBLEM' if rebalance_halted else 'OK') }}
         orchestration_should_run: "{{ stage_was_allowed_to_run and not rebalance_halted }}"
 
+    # How far apart the fullest and the emptiest worker are, in points of the memory they can allocate: the figure that says whether
+    # the pods are better spread than before.
+    - name: Work out how far apart the workers are
+      ansible.builtin.set_fact:
+        rebalance_spread_before: "{{ ((rebalance_before.values() | map(attribute='memory_pct') | max) - (rebalance_before.values() | map(attribute='memory_pct') | min)) if rebalance_before else 0 }}"
+        rebalance_spread_after: "{{ ((rebalance_after.values() | map(attribute='memory_pct') | max) - (rebalance_after.values() | map(attribute='memory_pct') | min)) if rebalance_after else 0 }}"
+
     - name: Compute this stage's own duration
       ansible.builtin.set_fact:
         kubernetes_rebalance_duration_seconds: "{{ (now(fmt='%s') | int) - (hostvars['localhost'].kubernetes_rebalance_start_epoch | int) }}"
@@ -184,15 +191,21 @@
           {% if rebalance_before | length > 0 %}
           <p>
             {% if rebalance_check_only %}
-            Check only, no pod was moved. What the pods of each worker request:
-            {% elif rebalance_evicted | length > 0 %}
-            <strong>{{ rebalance_evicted | length }} pod(s) moved</strong> by the Descheduler. What the pods of each worker request, before and after:
+            Check only, no pod was moved. The workers are {{ rebalance_spread_before }} points of memory apart (the fullest minus the emptiest, on what the pods request).
+            {% elif rebalance_evicted | length > 0 and rebalance_after | length > 0 %}
+            <strong>{{ rebalance_evicted | length }} pod(s) moved</strong> by the Descheduler. The fullest and the emptiest worker were
+            <strong>{{ rebalance_spread_before }}</strong> points of memory apart, on what the pods request, and are now <strong>{{ rebalance_spread_after }}</strong>.
             {% elif rebalance_halted %}
-            No pod was moved. What the pods of each worker request:
+            No pod was moved. The workers are {{ rebalance_spread_before }} points of memory apart (the fullest minus the emptiest, on what the pods request).
             {% else %}
-            No pod needed to move: the workers are balanced as far as the rules of the Descheduler go. What the pods of each worker request:
+            No pod needed to move: the workers are {{ rebalance_spread_before }} points of memory apart, which is within what the rules of the Descheduler accept.
             {% endif %}
           </p>
+          {% if rebalance_evicted | length > 0 and rebalance_after | length > 0 and rebalance_spread_after | int >= rebalance_spread_before | int - 2 %}
+          <p class="alert-warning">
+            <strong>The balance did not improve.</strong> The pods that moved request little or no memory, so they weigh nothing in the figures below.
+          </p>
+          {% endif %}
           {% endif %}
           {% if rebalance_halted %}
           <p class="alert-danger"><strong>Stopped.</strong> {{ rebalance_failure | e }}</p>
@@ -219,7 +232,7 @@
           <p>Pods moved:</p>
           <ul>
             {% for p in rebalance_evicted %}
-            <li>{{ p }}</li>
+            <li>{{ p[0] }} (left {{ p[1] }})</li>
             {% endfor %}
           </ul>
           {% endif %}
