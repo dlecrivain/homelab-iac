@@ -106,6 +106,17 @@
             remote_src: true
             mode: '0600'
 
+        # A task that is running on semaphore103 dies with its Semaphore, so the ones that are wait for their end first.
+        - name: Wait until no task is running on this Semaphore
+          ansible.builtin.command: "{{ semaphore_db_psql }}"
+          args:
+            stdin: select count(*) from task where status in ('waiting', 'starting', 'running', 'stopping');
+          register: semaphore_db_active_tasks
+          until: semaphore_db_active_tasks.stdout | trim == '0'
+          retries: 30
+          delay: 20
+          changed_when: false
+
         # Nothing writes to the database once Semaphore is stopped, so the dump and the count of rows describe the same data.
         - name: Stop Semaphore
           ansible.builtin.systemd:
