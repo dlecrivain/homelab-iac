@@ -6,8 +6,34 @@ configs:
     server.insecure: true
 dex:
   enabled: false
+# What each part uses is 10 to 50 MiB, and 230 MiB for the application controller. Without a request the scheduler counts 200 MiB and
+# the Descheduler nothing, which spoils the balance of the workers: every pod of the cluster states what it needs.
+controller:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+repoServer:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+applicationSet:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 48Mi
+redis:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
 notifications:
   enabled: true
+  resources:
+    requests:
+      cpu: 10m
+      memory: 48Mi
   argocdUrl: https://argocd.k8s.lecrivaindaniel.fr
   # The login of the mailbox is in the Secret argocd-notifications-secret (email-username and email-password), made by
   # hand since this repository is public. The recipient is the annotation notifications.argoproj.io/subscribe.<trigger>.email
@@ -68,6 +94,10 @@ notifications:
         send: [app-health-degraded]
         when: app.status.health.status == 'Degraded'
 server:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
   service:
     type: NodePort
     nodePortHttp: 30081
