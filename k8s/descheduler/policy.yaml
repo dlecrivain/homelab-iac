@@ -2,10 +2,10 @@
 # one that is more than 15 points above the average of the three is relieved, one that is more than 15 points below receives. A pod
 # is evicted only if another worker has room for it (nodeFit), and at most three per node in one run.
 #
-# AdGuard is never evicted (its pod holds the address of the DNS of the whole house, a move cuts it) nor Home Assistant (its pod
-# uses the network of the node, a move changes its address for the devices). The pods of the system, of Argo CD, of cert-manager, of
-# Traefik and of the Descheduler itself stay where they are. The scratch space of a pod (emptyDir) is lost when it moves, which is
-# all it holds here.
+# Nothing is protected by name, since the pods only move in the window of full-updates.yml: AdGuard, Home Assistant, Traefik and Argo CD
+# restart elsewhere like the others. What the Descheduler protects by itself stays so: the pods of the system (Cilium, CoreDNS, the
+# metrics server, which have a system-critical priority) and the DaemonSets. Its own namespace is left out, or its Job could evict
+# the pod it runs in. The scratch space of a pod (emptyDir) is lost when it moves, which is all it holds here.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -35,14 +35,7 @@ data:
                 memory: 15
               evictableNamespaces:
                 exclude:
-                  - kube-system
-                  - argocd
-                  - cert-manager
-                  - traefik
                   - descheduler
-                  - kubelet-serving-cert-approver
-                  - adguard
-                  - homeassistant
         plugins:
           balance:
             enabled:
