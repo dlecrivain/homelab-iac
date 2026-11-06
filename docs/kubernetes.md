@@ -304,6 +304,10 @@ started again, so an application with one replica is cut for a minute or two. No
   which is then copied to the VM. Without it the stage is skipped and says so.
 - **By hand.** `-e kubernetes_rebalance_check_only=true` only measures. The rules are changed in `policy.yaml` and take effect at
   the next run.
+- **Every pod states its requests.** The Descheduler counts a pod that requests nothing as zero and evicts it first, while the
+  scheduler counts it as 100m and 200 MiB when it chooses a node: the two then disagree on where the room is, and the evicted
+  pods come back to the workers they left. A new component therefore gets `resources.requests` in its values, close to what it
+  uses (`kubectl top pods -A`); the DaemonSets and the pods of the system are left out, since they are not moved.
 - **Limits.** The Descheduler's `--dry-run` computes the usage of every node as 0 and so decides nothing, which makes it useless
   for a rehearsal; a real run is the test. It only balances memory and CPU requests, so a pod that asks for little but uses much
   is not seen. The metrics server is not used.
