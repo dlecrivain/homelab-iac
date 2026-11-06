@@ -5,3 +5,13 @@
   loop_control:
     loop_var: vm
     label: "{{ vm.name }}"
+
+# The next host is patched only when the cluster is whole again: stopping a control plane of another host while one of this host
+# has not rejoined etcd would lose the quorum.
+- name: Wait for the Talos cluster to be healthy again
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/talos_cluster_healthy.yml"
+  vars:
+    talos_health_wait: 15m
+  when: >-
+    pve_vms_shutdown_for_maintenance | default([]) | map(attribute='name')
+    | select('in', talos_nodes | map(attribute='name')) | list | length > 0

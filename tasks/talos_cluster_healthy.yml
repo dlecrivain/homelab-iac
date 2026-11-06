@@ -1,0 +1,20 @@
+---
+# Waits until the whole Talos cluster is healthy: every control plane and worker answers, etcd has its members and the Kubernetes nodes
+# are ready. talos_health_wait is how long to wait (10m by default). It asks through the talosctl of semaphore103, and is skipped
+# on a run where that VM has no client configuration, which the Talos update stages report.
+- name: Look for the client configuration of talosctl
+  ansible.builtin.stat:
+    path: "{{ talosctl_config }}"
+  delegate_to: semaphore103
+  become: true
+  register: talos_health_config
+
+- name: Wait until the Talos cluster is healthy
+  ansible.builtin.command: >-
+    {{ talosctl_cmd }} -n {{ talos_control_plane_ips | first }} health --server=false
+    --control-plane-nodes {{ talos_control_plane_ips | join(',') }} --worker-nodes {{ talos_worker_ips | join(',') }}
+    --wait-timeout {{ talos_health_wait | default('10m') }}
+  delegate_to: semaphore103
+  become: true
+  changed_when: false
+  when: talos_health_config.stat.exists

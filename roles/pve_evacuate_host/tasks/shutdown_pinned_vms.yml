@@ -2,6 +2,15 @@
 # Run right before the host reboots, after apply_updates: a VM stopped here may be the repository the host installs from
 # (lpkat101 is Katello), so it has to stay up until the updates are installed. It starts again with the host, and
 # resume_after_maintenance.yml waits for it to answer.
+# A node of the cluster is stopped only if the cluster is whole, otherwise the control plane of this host could be the second one down.
+- name: Check that the Talos cluster is healthy before a node of it is stopped
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/talos_cluster_healthy.yml"
+  vars:
+    talos_health_wait: 5m
+  when: >-
+    pve_vms_shutdown_for_maintenance | default([]) | map(attribute='name')
+    | select('in', talos_nodes | map(attribute='name')) | list | length > 0
+
 - name: Shut down each node-pinned VM for the host's reboot
   ansible.builtin.include_tasks: shutdown_for_maintenance.yml
   loop: "{{ pve_vms_shutdown_for_maintenance | default([]) }}"
