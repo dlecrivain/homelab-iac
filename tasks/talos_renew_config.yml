@@ -1,0 +1,90 @@
+---
+# Keeps the client configuration of talosctl (talosctl_config) from expiring. Reads the date its certificate ends and, when that is
+# less than talosctl_config_renew_days away, asks the cluster for a new one that lasts talosctl_config_ttl, tries it, and puts it in
+# place of the old one, which stays next to it. Nothing changes otherwise. The date and what was done are left in
+# talos_updates_config_expires, talos_updates_config_renewed and talos_updates_config_before, for the report. A renewal that fails
+# stops the stage (talos_updates_config_problem says why) while the old certificate still works. Runs on semaphore103, as root.
+# Only the certificate is read from the file: its key is never printed.
+- name: Read when the client certificate ends, and whether that is soon
+  ansible.builtin.shell: |
+    set -o pipefail
+    sed -n 's/^ *crt: //p' {{ talosctl_config }} | base64 -d | openssl x509 -noout -enddate -checkend {{ talosctl_config_renew_days | int * 86400 }}
+  args:
+    executable: /bin/bash
+  register: talos_updates_config_read
+  changed_when: false
+  failed_when: talos_updates_config_read.rc not in [0, 1]
+
+- name: Keep the date
+  ansible.builtin.set_fact:
+    talos_updates_config_expires: "{{ talos_updates_config_read.stdout_lines | first | regex_replace('^notAfter=', '') }}"
+    talos_updates_config_before: "{{ talos_updates_config_read.stdout_lines | first | regex_replace('^notAfter=', '') }}"
+    talos_updates_config_renewed: false
+
+- name: Renew the client certificate
+  when:
+    - talos_updates_config_read.rc == 1
+    - not (talos_updates_check_only | default(false) | bool)
+  block:
+    - name: Make a place for the new configuration
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: talosconfig-
+      register: talos_updates_config_dir
+
+    - name: Ask the cluster for a new client configuration
+      ansible.builtin.command: >-
+        {{ talosctl_cmd }} -n {{ talos_control_plane_ips | first }}
+        config new /new/talosconfig --roles os:admin --crt-ttl {{ talosctl_config_ttl }}
+      vars:
+        talosctl_podman_args: "-v {{ talos_updates_config_dir.path }}:/new"
+      changed_when: false
+
+    - name: Check that the new configuration is accepted by the cluster
+      ansible.builtin.command: >-
+        {{ talosctl_cmd }} --talosconfig /new/talosconfig -n {{ talos_control_plane_ips | first }} version
+      vars:
+        talosctl_podman_args: "-v {{ talos_updates_config_dir.path }}:/new:ro"
+      changed_when: false
+
+    - name: Put it in place of the old one, which is kept next to it
+      ansible.builtin.copy:
+        src: "{{ talos_updates_config_dir.path }}/talosconfig"
+        dest: "{{ talosctl_config }}"
+        remote_src: true
+        backup: true
+        mode: "0600"
+
+    - name: Check that the configuration in place works
+      ansible.builtin.command: "{{ talosctl_cmd }} -n {{ talos_control_plane_ips | first }} version"
+      changed_when: false
+
+    - name: Read the date the new certificate ends
+      ansible.builtin.shell: |
+        set -o pipefail
+        sed -n 's/^ *crt: //p' {{ talosctl_config }} | base64 -d | openssl x509 -noout -enddate
+      args:
+        executable: /bin/bash
+      register: talos_updates_config_new
+      changed_when: false
+
+    - name: Keep what was done
+      ansible.builtin.set_fact:
+        talos_updates_config_expires: "{{ talos_updates_config_new.stdout_lines | first | regex_replace('^notAfter=', '') }}"
+        talos_updates_config_renewed: true
+
+  rescue:
+    - name: Record why the renewal failed
+      ansible.builtin.set_fact:
+        talos_updates_config_problem: >-
+          The client certificate of talosctl ends on {{ talos_updates_config_before }} and could not be renewed:
+          {{ (((ansible_failed_result.stderr | default('') | trim).splitlines() | first)
+          or (ansible_failed_result.msg | default('see the log of the task'))) | string | truncate(300) }}
+        talos_updates_halted: true
+
+  always:
+    - name: Remove the place of the new configuration
+      ansible.builtin.file:
+        path: "{{ talos_updates_config_dir.path }}"
+        state: absent
+      when: talos_updates_config_dir is defined and talos_updates_config_dir.path is defined

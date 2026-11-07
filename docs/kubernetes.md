@@ -263,6 +263,14 @@ Kubernetes, the version it had and the one it has now (or that there was nothing
   never in the repository. It is made once, from a machine that holds the admin configuration, and lasts five years:
   `talosctl config new semaphore.talosconfig --roles os:admin --crt-ttl 43800h`, then copied to the VM. Without that file both
   stages are skipped and say so in the report.
+- **It renews itself.** Every run of `talos-updates.yml` reads the date the certificate of that file ends (the report gives it).
+  When less than `talosctl_config_renew_days` (365) are left, it asks the cluster for a new one that lasts `talosctl_config_ttl`
+  (five years), tries it, puts it in place and keeps the old file beside it (`talosconfig.<pid>.<date>~`, root only). The Friday
+  runs therefore keep it valid for good. If the renewal fails, the stage stops before it touches a node and says why, while the
+  old certificate still works for months. The same command renews the file of a workstation by hand, with its own admin
+  configuration: `talosctl config new new.talosconfig --roles os:admin --crt-ttl 43800h -e <control plane> -n <control plane>`.
+  What does not renew itself: the certificate authority of Talos, which lasts ten years (it ends in October 2036), and the
+  client certificate of an admin `kubeconfig` made by `talosctl kubeconfig`, which lasts one year.
 - **What they do.** `talos-updates.yml` reads the version of each node and updates the ones that differ, the control planes first
   and one node at a time, with `talosctl upgrade`: the node cordons itself, drains its pods, reboots into the new image and
   uncordons itself. The health of the cluster is checked before each node and after it, and at the first problem nothing more is

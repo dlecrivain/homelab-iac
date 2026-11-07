@@ -34,6 +34,7 @@
         talos_updates_results: {}
         talos_updates_halted: false
         talos_updates_skip_reason: ''
+        talos_updates_config_problem: ''
 
     - name: Read and update the nodes (skipped if an earlier stage of an orchestrated run had a problem)
       when: hostvars['localhost'].orchestration_should_run | default(true)
@@ -58,6 +59,9 @@
               delay: 10
               until: talos_updates_pull.rc == 0
               changed_when: false
+
+            - name: Renew the client certificate of talosctl when it ends soon
+              ansible.builtin.include_tasks: tasks/talos_renew_config.yml
 
             - name: Read the version that each node runs
               ansible.builtin.command: "{{ talosctl_cmd }} -n {{ item.ip }} version"
@@ -116,12 +120,16 @@
         talos_results: "{{ hostvars['semaphore103'].talos_updates_results | default({}) }}"
         talos_halted: "{{ hostvars['semaphore103'].talos_updates_halted | default(false) }}"
         talos_skip_reason: "{{ hostvars['semaphore103'].talos_updates_skip_reason | default('') }}"
+        talos_config_problem: "{{ hostvars['semaphore103'].talos_updates_config_problem | default('') }}"
+        talos_config_expires: "{{ hostvars['semaphore103'].talos_updates_config_expires | default('') }}"
+        talos_config_before: "{{ hostvars['semaphore103'].talos_updates_config_before | default('') }}"
+        talos_config_renewed: "{{ hostvars['semaphore103'].talos_updates_config_renewed | default(false) }}"
 
     - name: Work out the status of this stage and the gate of the next ones
       ansible.builtin.set_fact:
         talos_updates_stage_status: >-
           {{ 'SKIPPED' if (not stage_was_allowed_to_run or talos_skip_reason != '')
-             else ('PROBLEM' if (talos_halted or (talos_results.values() | selectattr('status', 'in', ['failed', 'unreachable']) | list | length > 0))
+             else ('PROBLEM' if (talos_halted or talos_config_problem != '' or (talos_results.values() | selectattr('status', 'in', ['failed', 'unreachable']) | list | length > 0))
              else 'OK') }}
         orchestration_should_run: "{{ stage_was_allowed_to_run and not talos_halted }}"
         talos_updated_count: "{{ talos_results.values() | selectattr('status', 'equalto', 'updated') | list | length }}"
@@ -158,8 +166,15 @@
             Talos <strong>{{ talos_version }}</strong>: nothing to update, every node that was looked at already runs it.
             {% endif %}
           </p>
-          {% if talos_halted %}
+          {% if talos_config_problem != '' %}
+          <p class="alert-danger"><strong>Stopped.</strong> {{ talos_config_problem | e }} Nothing was touched.</p>
+          {% elif talos_halted %}
           <p class="alert-danger"><strong>Stopped.</strong> Nothing was touched after the first problem.</p>
+          {% endif %}
+          {% if talos_config_renewed | bool %}
+          <p class="alert-info">The client certificate of talosctl on semaphore103 was renewed: it ended on {{ talos_config_before }}, the new one ends on {{ talos_config_expires }}.</p>
+          {% elif talos_config_expires != '' %}
+          <p>The client certificate of talosctl on semaphore103 ends on {{ talos_config_expires }}; it is renewed on the first run in the {{ talosctl_config_renew_days }} days before that.</p>
           {% endif %}
           <table>
             <tr><th>Node</th><th>Role</th><th>Before</th><th>After</th><th>Status</th></tr>

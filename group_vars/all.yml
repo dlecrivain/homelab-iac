@@ -178,9 +178,14 @@ talosctl_image: "ghcr.io/siderolabs/talosctl:{{ talos_version }}"
 talosctl_config: /etc/talos/talosconfig
 talos_control_plane_ips: "{{ talos_nodes | selectattr('role', 'equalto', 'controlplane') | map(attribute='ip') | list }}"
 talos_worker_ips: "{{ talos_nodes | selectattr('role', 'equalto', 'worker') | map(attribute='ip') | list }}"
+# talosctl_podman_args is for a task that needs one more volume, which it sets for itself.
 talosctl_cmd: >-
-  podman run --rm --security-opt label=disable -v {{ talosctl_config }}:/talosconfig:ro {{ talosctl_image }}
+  podman run --rm --security-opt label=disable {{ talosctl_podman_args | default('') }} -v {{ talosctl_config }}:/talosconfig:ro {{ talosctl_image }}
   --talosconfig /talosconfig --endpoints {{ talos_control_plane_ips | join(',') }}
+# The certificate of that client configuration lasts talosctl_config_ttl. talos-updates.yml makes a new one, by itself, when less than
+# talosctl_config_renew_days days are left, so it never expires as long as the Friday runs take place.
+talosctl_config_ttl: 43800h
+talosctl_config_renew_days: 365
 
 # How the playbooks look at the Kubernetes workloads and start the Descheduler (kubernetes-rebalance.yml): the kubectl of the official
 # image, run by podman on semaphore103, with the configuration of the "rebalancer" account of the cluster. That account can read the
