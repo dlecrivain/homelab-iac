@@ -295,6 +295,35 @@ the mail says so. DaemonSets, static pods and the pods of the control planes are
 other control planes. A run that has to go ahead anyway takes `-e kubernetes_capacity_check=false`. The check only looks at the
 requests, so the way to keep room is the rule below: a pod requests about what it uses, no more.
 
+**Certificates.** Most of them renew themselves, and two things check that they did: the alert `CertificateExpiresSoon` of
+Prometheus for the Let's Encrypt certificate, and `certificate-expiry.yml` for the rest.
+
+| Certificate | Lasts | Renewed by |
+|---|---|---|
+| `*.lecrivaindaniel.fr` (Let's Encrypt), the certificates of cert-manager and of its OVH webhook | 90 days, 1 year | cert-manager, long before the end |
+| Talos API, etcd, Kubernetes API server, kubelets | 1 year | Talos, when the node restarts (the kubelet has to restart once a year: any update or reboot does it) |
+| Proxmox, the certificate of each host | 2 years | Proxmox |
+| `talosconfig` of `semaphore103` | 5 years | `talos-updates.yml`, in the last year |
+| `talosconfig` and admin `kubeconfig` of a workstation | 5 years, 1 year | `scripts/renew-client-credentials` |
+| Authorities: Cilium (unused, 2029), Proxmox (2035), Talos and Kubernetes (2036), Katello (2038) | years | by hand, see below |
+
+- **`certificate-expiry.yml`** (template *Certificate expiry*, Wednesday at 07:00, on `semaphore103`) reads the date that ends each
+  server certificate (the three Proxmox hosts, Katello, the Kubernetes API and the kubelets of every node), the authorities of
+  Proxmox, Talos and Kubernetes, and the client certificate of `talosctl` on `semaphore103`. It mails, and fails, only when one ends
+  within its warning period (14 days for Proxmox, 30 for the other servers, which renew themselves well before; 90 for the
+  authorities and the client certificate), is already over, or cannot be read. The table of every certificate is in the log. The
+  Let's Encrypt certificate is left to Prometheus. A node that is stopped for its maintenance cannot be read and is reported too.
+- **`scripts/renew-client-credentials`** renews the `talosconfig` and the admin `kubeconfig` of a workstation, when they end within 90
+  days (`--days`): it asks the cluster for new certificates with `talosctl config new` and `talosctl kubeconfig`, tries them, and
+  keeps the old files as `FILE.previous`. Only the certificate and its key change, not the names or the endpoints. `--check` only
+  reports, and `--daily` does nothing if it ran in the last 24 hours, so that a shell can start it. The simplest way is to add to the
+  file that sets `TALOSCONFIG` and `KUBECONFIG` (`~/.config/talos/maquette/env.sh`, read by `~/.bashrc`):
+  `( ~/Documents/automatic_updates/scripts/renew-client-credentials --daily --quiet >> ~/.cache/renew-client-credentials.log 2>&1 & )`.
+  A systemd user timer with `OnCalendar=weekly` and `Persistent=true` does the same.
+- **An authority** is not renewed by anything, on purpose: replacing it means every client and every node must trust the new one before
+  the old one goes. Talos has `talosctl rotate-ca` for its own, Proxmox `pvecm updatecerts --force` after a new root authority. The
+  playbook warns 90 days before, which leaves time to read the documentation of the day.
+
 **Rebalancing the pods.** A pod finds its node when it starts and never moves afterwards. After an update, a drained node or a
 restarted Proxmox host, most pods sit on the workers that stayed up and the last one is nearly empty. `kubernetes-rebalance.yml`,
 the last stage of `full-updates.yml`, starts the [Descheduler](https://github.com/kubernetes-sigs/descheduler) once to spread them

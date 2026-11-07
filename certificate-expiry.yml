@@ -1,0 +1,137 @@
+---
+# Reads when the certificates that nothing else watches end, and mails when one ends within its warning period. Most of them renew
+# themselves (Talos, Proxmox, cert-manager) and this is the check that they did: a server certificate that is still not renewed at
+# 30 days (14 for Proxmox) means the renewal does not happen. The authorities and the client configurations of talosctl and
+# kubectl are renewed by hand or by talos-updates.yml, and are warned about at 90 days. The Let's Encrypt certificate is watched by
+# the alert CertificateExpiresSoon of Prometheus, which is not repeated here.
+#
+# It runs on semaphore103, which reaches the nodes and holds the configurations of talosctl and of the account of the rebalance,
+# whose authorities are read from them. The Proxmox authority is read on pve1, which holds it for the whole cluster.
+# Every address and file is read, the table of the results is in the log, and the mail goes only when one is near its end, can no
+# longer be read or is already over, in which case the run fails too.
+- name: Check when the certificates end
+  hosts: semaphore103
+  gather_facts: false
+  become: true
+  vars:
+    certificate_watch_warn_server_days: 30
+    certificate_watch_warn_authority_days: 90
+  tasks:
+    # pem is a command that prints the certificate, which openssl then reads. A node that is stopped for its maintenance does not
+    # answer, and it is reported like any certificate that cannot be read.
+    - name: List the certificates to look at
+      ansible.builtin.set_fact:
+        certificate_watch_items: >-
+          {%- set out = [] -%}
+          {%- for h in ['pve1', 'pve2', 'pve3'] -%}
+          {%- set _ = out.append({'name': 'Proxmox ' ~ h, 'what': 'server', 'warn_days': 14,
+              'pem': 'echo | timeout 15 openssl s_client -connect ' ~ hostvars[h].ansible_host ~ ':8006 2>/dev/null'}) -%}
+          {%- endfor -%}
+          {%- set _ = out.append({'name': 'Katello (lpkat101)', 'what': 'server', 'warn_days': certificate_watch_warn_server_days,
+              'pem': 'echo | timeout 15 openssl s_client -connect ' ~ hostvars['lpkat101'].ansible_host ~ ':443 2>/dev/null'}) -%}
+          {%- for n in talos_nodes -%}
+          {%- if n.role == 'controlplane' -%}
+          {%- set _ = out.append({'name': 'Kubernetes API ' ~ n.name, 'what': 'server', 'warn_days': certificate_watch_warn_server_days,
+              'pem': 'echo | timeout 15 openssl s_client -connect ' ~ n.ip ~ ':6443 2>/dev/null'}) -%}
+          {%- endif -%}
+          {%- set _ = out.append({'name': 'kubelet ' ~ n.name, 'what': 'server', 'warn_days': certificate_watch_warn_server_days,
+              'pem': 'echo | timeout 15 openssl s_client -connect ' ~ n.ip ~ ':10250 2>/dev/null'}) -%}
+          {%- endfor -%}
+          {%- set _ = out.append({'name': 'Talos authority', 'what': 'authority', 'warn_days': certificate_watch_warn_authority_days,
+              'pem': "sed -n 's/^ *ca: //p' " ~ talosctl_config ~ ' | base64 -d'}) -%}
+          {%- set _ = out.append({'name': 'Kubernetes authority', 'what': 'authority', 'warn_days': certificate_watch_warn_authority_days,
+              'pem': "sed -n 's/^ *certificate-authority-data: //p' " ~ kubernetes_rebalancer_config ~ ' | base64 -d'}) -%}
+          {%- set _ = out.append({'name': 'talosctl client (semaphore103)', 'what': 'client', 'warn_days': certificate_watch_warn_authority_days,
+              'pem': "sed -n 's/^ *crt: //p' " ~ talosctl_config ~ ' | base64 -d'}) -%}
+          {{ out }}
+
+    - name: Read when each of them ends
+      ansible.builtin.shell: |
+        set -o pipefail
+        end=$({{ item.pem }} | openssl x509 -noout -enddate | cut -d= -f2)
+        [ -n "$end" ] && echo "$end" && date -u -d "$end" +%s
+      args:
+        executable: /bin/bash
+      environment:
+        LC_ALL: C
+      register: certificate_watch_read
+      changed_when: false
+      failed_when: false
+      loop: "{{ certificate_watch_items }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # The authority of Proxmox is on pve1, for the whole cluster.
+    - name: Read when the authority of Proxmox ends
+      ansible.builtin.shell: |
+        set -o pipefail
+        end=$(cat /etc/pve/pve-root-ca.pem | openssl x509 -noout -enddate | cut -d= -f2)
+        [ -n "$end" ] && echo "$end" && date -u -d "$end" +%s
+      args:
+        executable: /bin/bash
+      environment:
+        LC_ALL: C
+      delegate_to: pve1
+      register: certificate_watch_read_pve
+      changed_when: false
+      failed_when: false
+
+    # One row per certificate, the ones that end first at the top. days is none when the certificate could not be read.
+    - name: Work out the days that are left, and what to say about them
+      ansible.builtin.set_fact:
+        certificate_watch_rows: >-
+          {%- set out = [] -%}
+          {%- set proxmox = {'item': {'name': 'Proxmox authority', 'what': 'authority', 'warn_days': certificate_watch_warn_authority_days},
+              'stdout_lines': certificate_watch_read_pve.stdout_lines | default([])} -%}
+          {%- for r in certificate_watch_read.results + [proxmox] -%}
+          {%- set lines = r.stdout_lines | default([]) -%}
+          {%- set days = ((lines[1] | int - (now(fmt='%s') | int)) // 86400) if lines | length == 2 else none -%}
+          {%- set status = 'PROBLEM' if (days is none or days < 0) else ('WARNING' if days < (r.item.warn_days | int) else 'OK') -%}
+          {%- set _ = out.append({'name': r.item.name, 'what': r.item.what, 'ends': (lines[0] if lines | length == 2 else 'could not be read'),
+              'days': days, 'order': (days if days is not none else -1000000), 'warn_days': r.item.warn_days, 'status': status}) -%}
+          {%- endfor -%}
+          {{ out | sort(attribute='order') }}
+        certificate_watch_attention: []
+
+    - name: Keep the ones that need attention
+      ansible.builtin.set_fact:
+        certificate_watch_attention: "{{ certificate_watch_rows | rejectattr('status', 'equalto', 'OK') | list }}"
+
+    - name: Show what each certificate has left
+      ansible.builtin.debug:
+        msg: "{{ r.status }}: {{ r.name }} ends {{ r.ends }}{% if r.days is not none %} ({{ r.days }} days, warned under {{ r.warn_days }}){% endif %}"
+      loop: "{{ certificate_watch_rows }}"
+      loop_control:
+        loop_var: r
+        label: "{{ r.name }}"
+
+    - name: Mail the ones that need attention
+      ansible.builtin.include_role:
+        name: send_report
+      vars:
+        report_subject: >-
+          [certificate-expiry] {{ certificate_watch_attention | length }} certificate(s) to look at:
+          {{ certificate_watch_attention | map(attribute='name') | join(', ') | truncate(120) }}
+        report_body: |
+          <h2>Certificates that need attention</h2>
+          <p>{{ certificate_watch_attention | length }} of {{ certificate_watch_rows | length }} certificates end soon, are over, or could not be read.
+          A server certificate renews itself well before this: if one is listed, the renewal does not happen. An authority or a client
+          configuration is renewed by hand (<code>docs/kubernetes.md</code>, "Certificates").</p>
+          <table>
+            <tr><th>Certificate</th><th>Kind</th><th>Ends</th><th>Days left</th><th>Status</th></tr>
+            {% for r in certificate_watch_rows %}
+            <tr class="{{ 'status-problem' if r.status == 'PROBLEM' else ('status-warning' if r.status == 'WARNING' else 'status-ok') }}">
+              <td>{{ r.name }}</td>
+              <td>{{ r.what }}</td>
+              <td>{{ r.ends }}</td>
+              <td>{{ r.days if r.days is not none else '-' }}</td>
+              <td>{{ r.status }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+      when: certificate_watch_attention | length > 0
+
+    - name: Fail the run when a certificate needs attention
+      ansible.builtin.fail:
+        msg: "{{ certificate_watch_attention | map(attribute='name') | join(', ') }}: see the table in the log"
+      when: certificate_watch_attention | length > 0
