@@ -11,6 +11,12 @@
   include_role:
     name: pve_placement
 
+# Checked before any VM is moved, like the placement: the Talos nodes of this host are stopped, and their pods go to the other workers.
+- name: Check that the other workers can take the pods of the Talos nodes that will be stopped
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/kubernetes_capacity_gate.yml"
+  vars:
+    kubernetes_capacity_leaving: "{{ vm_shutdowns | map(attribute='name') | select('in', talos_nodes | map(attribute='name')) | list }}"
+
 - name: Migrate each VM in sequence, verifying health immediately after each one
   ansible.builtin.include_tasks: migrate_and_verify.yml
   loop: "{{ vm_placements }}"

@@ -192,6 +192,12 @@ kubectl_cmd: >-
   podman run --rm --user 0:0 --security-opt label=disable -v {{ kubernetes_rebalancer_config }}:/kubeconfig:ro {{ kubectl_image }}
   --kubeconfig /kubeconfig
 
+# Before a Talos node is stopped (the host of its VM is patched, or its image is updated), the pods it runs must find room on the
+# workers that stay (tasks/kubernetes_capacity_gate.yml), by what they request. That share of the memory and of the CPU of each of
+# those workers is kept free in the check, since the scheduler does not pack as tightly. kubernetes_capacity_check false skips it.
+kubernetes_capacity_check: true
+kubernetes_capacity_margin_pct: 5
+
 # The Docker Hub (docker_repo) or ghcr.io (ghcr_repo) images that check-image-updates.yml watches on a VM. An entry has name,
 # docker_repo or ghcr_repo, version_var (the variable it bumps), container_name, and host (whose live container tells it whether a
 # bump has been applied yet). Empty since the containers of the VMs moved to the cluster, where Renovate follows the tags.

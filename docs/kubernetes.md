@@ -275,6 +275,17 @@ Kubernetes, the version it had and the one it has now (or that there was nothing
   look at the mail before letting the whole run do the others.
 - **Only `semaphore103`.** The Semaphore of the cluster must never run them, since its own pod would be drained with the node.
 
+**Room for a node that stops.** The three workers have 4 GiB each, and the pods request about 6 GiB in all, so the cluster holds
+with two workers but with little to spare. Whenever a worker stops, its pods start on the others, and a pod that finds no room
+stays Pending until the node is back, as Paperless did when a Proxmox host was shut down by hand. So before anything is touched,
+`pve-updates.yml` (before it moves the first VM of a host whose Talos nodes will be stopped) and `talos-updates.yml` (before each
+node) try to place the pods of those nodes on the workers that stay (`tasks/kubernetes_capacity_gate.yml`,
+`scripts/kube-capacity`): the largest pod first, by what the pods request, keeping 5 % of the memory and of the CPU of each worker
+free (`kubernetes_capacity_margin_pct`). If one pod finds no room, the run stops with that pod named and nothing has been moved, and
+the mail says so. DaemonSets, static pods and the pods of the control planes are not counted: they follow their node or stay on the
+other control planes. A run that has to go ahead anyway takes `-e kubernetes_capacity_check=false`. The check only looks at the
+requests, so the way to keep room is the rule below: a pod requests about what it uses, no more.
+
 **Rebalancing the pods.** A pod finds its node when it starts and never moves afterwards. After an update, a drained node or a
 restarted Proxmox host, most pods sit on the workers that stayed up and the last one is nearly empty. `kubernetes-rebalance.yml`,
 the last stage of `full-updates.yml`, starts the [Descheduler](https://github.com/kubernetes-sigs/descheduler) once to spread them

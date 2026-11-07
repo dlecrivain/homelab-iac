@@ -16,6 +16,12 @@
       ansible.builtin.command: "{{ talos_updates_health }} --wait-timeout 5m"
       changed_when: false
 
+    # The node drains its pods, which have to find room on the other workers for the minutes it is down.
+    - name: Check that the other workers can take the pods of the node
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/kubernetes_capacity_gate.yml"
+      vars:
+        kubernetes_capacity_leaving: ["{{ node.name }}"]
+
     - name: Remember when this node was started
       ansible.builtin.set_fact:
         talos_updates_node_start: "{{ now(fmt='%s') | int }}"

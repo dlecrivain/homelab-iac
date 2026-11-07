@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""Whether the other workers can take the pods of the nodes that are about to stop, from `kubectl get nodes,pods -A -o json` on the standard input.
+
+    kube-capacity [--margin PERCENT] leaving-node1 leaving-node2 ... < nodes-and-pods.json
+
+It prints one JSON object. The pods to place are those of the workers that leave or are not ready (DaemonSets and static pods follow
+their node and are not counted, nor are the pods of a control plane, which stay on the control planes that remain). They are put one
+after the other, the largest first, on the ready workers that stay, in the room left by what the pods there request. This is what
+the scheduler counts, not what the pods really use. PERCENT of the allocatable memory and CPU of each worker is kept free, since the
+scheduler does not pack as tightly as this does. A pod that no node holds yet is not counted: it is not something this stop causes.
+"""
+import argparse
+import json
+import sys
+
+_UNITS = {"Ki": 2**10, "Mi": 2**20, "Gi": 2**30, "Ti": 2**40, "k": 1e3, "K": 1e3, "M": 1e6, "G": 1e9}
+
+
+def memory(value):
+    for unit, factor in _UNITS.items():
+        if value.endswith(unit):
+            return float(value[: -len(unit)]) * factor
+    return float(value)
+
+
+def cpu(value):
+    return float(value[:-1]) / 1000 if value.endswith("m") else float(value)
+
+
+def ready(node):
+    conditions = {c["type"]: c["status"] for c in node["status"].get("conditions", [])}
+    return conditions.get("Ready") == "True" and not node["spec"].get("unschedulable", False)
+
+
+def control_plane(node):
+    return "node-role.kubernetes.io/control-plane" in node["metadata"].get("labels", {})
+
+
+def requested(pod):
+    """What the scheduler reserves for a pod: its containers together, or the largest init container if that is more."""
+    spec = pod["spec"]
+    result = []
+    for key, convert in (("memory", memory), ("cpu", cpu)):
+        run = sum(convert(c.get("resources", {}).get("requests", {}).get(key, "0")) for c in spec["containers"])
+        init = max([convert(c.get("resources", {}).get("requests", {}).get(key, "0")) for c in spec.get("initContainers", [])] or [0])
+        result.append(max(run, init))
+    return result
+
+
+def follows_its_node(pod):
+    return any(o["kind"] in ("DaemonSet", "Node") for o in pod["metadata"].get("ownerReferences", []))
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--margin", type=float, default=5)
+    parser.add_argument("leaving", nargs="*")
+    args = parser.parse_args()
+    items = json.load(sys.stdin)["items"]
+    nodes = {i["metadata"]["name"]: i for i in items if i["kind"] == "Node"}
+    pods = [i for i in items if i["kind"] == "Pod" and i["status"].get("phase") not in ("Succeeded", "Failed")]
+
+    # A worker that leaves, or that is not ready, gives its pods back; it takes none.
+    staying = {n: x for n, x in nodes.items() if not control_plane(x) and n not in args.leaving and ready(x)}
+    free = {}
+    for name, node in staying.items():
+        allocatable = node["status"]["allocatable"]
+        keep = args.margin / 100
+        free[name] = [memory(allocatable["memory"]) * (1 - keep), cpu(allocatable["cpu"]) * (1 - keep)]
+    to_place = []
+    for pod in pods:
+        where = pod["spec"].get("nodeName")
+        mem, cores = requested(pod)
+        if where in staying:
+            free[where][0] -= mem
+            free[where][1] -= cores
+        elif follows_its_node(pod):
+            continue
+        elif where in nodes and not control_plane(nodes[where]):
+            to_place.append((mem, cores, "%s/%s" % (pod["metadata"]["namespace"], pod["metadata"]["name"]), where))
+
+    room = sum(max(f[0], 0) for f in free.values())
+    unplaced = []
+    for mem, cores, name, where in sorted(to_place, reverse=True):
+        target = next((n for n in sorted(free, key=lambda n: -free[n][0]) if free[n][0] >= mem and free[n][1] >= cores), None)
+        if target is None:
+            unplaced.append({"pod": name, "from": where, "memory_mib": round(mem / 2**20), "cpu_m": round(cores * 1000)})
+        else:
+            free[target][0] -= mem
+            free[target][1] -= cores
+    json.dump(
+        {
+            "fits": not unplaced,
+            "pods": len(to_place),
+            "needed_mib": round(sum(p[0] for p in to_place) / 2**20),
+            "room_mib": round(room / 2**20),
+            "unplaced": unplaced,
+            "workers_staying": sorted(staying),
+        },
+        sys.stdout,
+    )
+
+
+if __name__ == "__main__":
+    main()

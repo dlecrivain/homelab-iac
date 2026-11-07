@@ -1,0 +1,57 @@
+---
+# Stops, before anything is touched, when the other workers could not take the pods of the nodes that are about to stop. The nodes are
+# in kubernetes_capacity_leaving (names). A pod that finds no room stays Pending until the node is back, so this is checked first
+# (scripts/kube-capacity), by what the pods request, which is what the scheduler counts. It asks the cluster through the kubectl of
+# semaphore103, like the rebalance, and is left out when the account of the rebalance has no configuration on that VM, or when
+# kubernetes_capacity_check is false (-e kubernetes_capacity_check=false on a run that has to go ahead anyway).
+- name: Look for the configuration of kubectl
+  ansible.builtin.stat:
+    path: "{{ kubernetes_rebalancer_config }}"
+  delegate_to: semaphore103
+  become: true
+  register: kubernetes_capacity_config
+
+- name: Check that the workers that stay can take the pods of the nodes that stop
+  when:
+    - kubernetes_capacity_check | bool
+    - kubernetes_capacity_leaving | length > 0
+    - kubernetes_capacity_config.stat.exists
+  block:
+    - name: Read the nodes and the pods
+      ansible.builtin.command: "{{ kubectl_cmd }} get nodes,pods -A -o json"
+      delegate_to: semaphore103
+      become: true
+      register: kubernetes_capacity_read
+      changed_when: false
+
+    - name: Try to place the pods of the nodes that stop on the other workers
+      ansible.builtin.command: >-
+        python3 {{ playbook_dir }}/scripts/kube-capacity --margin {{ kubernetes_capacity_margin_pct }}
+        {{ kubernetes_capacity_leaving | join(' ') }}
+      args:
+        stdin: "{{ kubernetes_capacity_read.stdout }}"
+      delegate_to: localhost
+      become: false
+      register: kubernetes_capacity_sum
+      changed_when: false
+
+    - name: Keep the answer
+      ansible.builtin.set_fact:
+        kubernetes_capacity: "{{ kubernetes_capacity_sum.stdout | from_json }}"
+
+    - name: Show how much room the other workers have
+      ansible.builtin.debug:
+        msg: >-
+          {{ kubernetes_capacity_leaving | join(', ') }} stop(s): {{ kubernetes_capacity.pods }} pod(s) to move, requesting
+          {{ kubernetes_capacity.needed_mib }} MiB, for {{ kubernetes_capacity.room_mib }} MiB of room on
+          {{ kubernetes_capacity.workers_staying | join(', ') }}.
+
+    - name: Stop when some pods would find no room
+      ansible.builtin.fail:
+        msg: >-
+          Stopping {{ kubernetes_capacity_leaving | join(' and ') }} would leave {{ kubernetes_capacity.unplaced | length }} pod(s) without room
+          ({{ kubernetes_capacity.unplaced | map(attribute='pod') | join(', ') | truncate(200, true) }}):
+          the {{ kubernetes_capacity.pods }} pods to move request {{ kubernetes_capacity.needed_mib }} MiB and the workers that stay have
+          {{ kubernetes_capacity.room_mib }} MiB of room. Nothing was touched. Lower the requests, start a worker that is stopped, or add
+          memory, then run again.
+      when: not kubernetes_capacity.fits
