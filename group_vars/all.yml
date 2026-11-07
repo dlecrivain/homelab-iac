@@ -166,11 +166,11 @@ talos_iso_volume: "Stockage_SSD:iso/talos-{{ talos_version }}-qemu-guest-agent.i
 # its pods; a node that is down is stopped with its host, not migrated.
 talos_nodes:
   - { name: talos-cp101, ip: 192.168.1.124, vmid: 120, role: controlplane, node: pve1, memory_mb: 3072, cores: 2, disk_gb: 30 }
-  - { name: talos-wk101, ip: 192.168.1.125, vmid: 121, role: worker, node: pve1, memory_mb: 4096, cores: 2, disk_gb: 40 }
+  - { name: talos-wk101, ip: 192.168.1.125, vmid: 121, role: worker, node: pve1, memory_mb: 5120, cores: 2, disk_gb: 40 }
   - { name: talos-cp102, ip: 192.168.1.127, vmid: 122, role: controlplane, node: pve2, memory_mb: 3072, cores: 2, disk_gb: 30 }
-  - { name: talos-wk102, ip: 192.168.1.126, vmid: 123, role: worker, node: pve2, memory_mb: 4096, cores: 2, disk_gb: 40 }
+  - { name: talos-wk102, ip: 192.168.1.126, vmid: 123, role: worker, node: pve2, memory_mb: 5120, cores: 2, disk_gb: 40 }
   - { name: talos-cp103, ip: 192.168.1.113, vmid: 124, role: controlplane, node: pve3, memory_mb: 3072, cores: 2, disk_gb: 30 }
-  - { name: talos-wk103, ip: 192.168.1.118, vmid: 125, role: worker, node: pve3, memory_mb: 4096, cores: 2, disk_gb: 40 }
+  - { name: talos-wk103, ip: 192.168.1.118, vmid: 125, role: worker, node: pve3, memory_mb: 5120, cores: 2, disk_gb: 40 }
 
 # How the playbooks reach the cluster: the talosctl of the official image, run by podman on semaphore103, which is outside the cluster,
 # with a client configuration that is only on that VM (talosctl_config, owned by root, never in this repository).

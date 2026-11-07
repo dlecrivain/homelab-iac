@@ -275,9 +275,10 @@ Kubernetes, the version it had and the one it has now (or that there was nothing
   look at the mail before letting the whole run do the others.
 - **Only `semaphore103`.** The Semaphore of the cluster must never run them, since its own pod would be drained with the node.
 
-**Room for a node that stops.** The three workers have 4 GiB each, and the pods request about 6 GiB in all, so the cluster holds
-with two workers but with little to spare. Whenever a worker stops, its pods start on the others, and a pod that finds no room
-stays Pending until the node is back, as Paperless did when a Proxmox host was shut down by hand. So before anything is touched,
+**Room for a node that stops.** The three workers have 5 GiB each (4.3 GiB for the pods), and the pods request about 6 GiB in all,
+so the cluster holds with two workers, at about 70 % of what they can take. Whenever a worker stops, its pods start on the others,
+and a pod that finds no room stays Pending until the node is back, as Paperless did when the workers had 4 GiB and a Proxmox host
+was shut down by hand. So before anything is touched,
 `pve-updates.yml` (before it moves the first VM of a host whose Talos nodes will be stopped) and `talos-updates.yml` (before each
 node) try to place the pods of those nodes on the workers that stay (`tasks/kubernetes_capacity_gate.yml`,
 `scripts/kube-capacity`): the largest pod first, by what the pods request, keeping 5 % of the memory and of the CPU of each worker

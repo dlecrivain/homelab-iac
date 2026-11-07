@@ -22,7 +22,7 @@ spec:
       # Kubernetes would give the pod variables named after its Services, among them PAPERLESS_PORT=tcp://<address>:8000 for
       # the Service called paperless, which Paperless reads as the port to listen on and refuses to start with.
       enableServiceLinks: false
-      # A worker has 3.4 GiB for everything on it, and the recognition of a large scan is what takes the most memory here, so
+      # A worker has 4.3 GiB for everything on it, and the recognition of a large scan is what takes the most memory here, so
       # Paperless goes by preference to the worker that carries the least. It can still start on the other one if that one is down.
       affinity:
         nodeAffinity:
