@@ -32,7 +32,7 @@ spec:
                       - talos-wk102
       containers:
         - name: adguardhome
-          image: docker.io/adguard/adguardhome:v0.107.79
+          image: docker.io/adguard/adguardhome:v0.107.80
           ports:
             - name: dns-udp
               containerPort: 53
