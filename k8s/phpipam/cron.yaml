@@ -20,7 +20,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: cron
-          image: docker.io/phpipam/phpipam-cron:v1.8.3
+          image: docker.io/phpipam/phpipam-cron:v1.9.0
           envFrom:
             - configMapRef:
                 name: phpipam
