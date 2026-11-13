@@ -21,7 +21,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: web
-          image: docker.io/phpipam/phpipam-www:v1.8.3
+          image: docker.io/phpipam/phpipam-www:v1.9.0
           ports:
             - name: http
               containerPort: 80
