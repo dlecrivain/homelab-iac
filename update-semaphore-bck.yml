@@ -1,0 +1,85 @@
+---
+# Bumps the image of the Semaphore of the cluster (semaphore-bck) in git, and Argo CD deploys it: the application synchronises itself
+# as soon as k8s/semaphore-bck/semaphore.yaml changes, and the pod is replaced (Recreate), so a task that was running on it stops.
+# Like update-semaphore-peer.yml does for semaphore103, it asks Docker Hub for the latest release of the major line that runs now.
+# A new major is a deliberate action: pass -e semaphore_image_tag=vX.Y.Z once. Renovate does not follow this image.
+#
+# It runs on semaphore103, outside the cluster, so that it does not depend on the pod that it replaces, and it mails only when the
+# version changes: the mail is what says, on the day of an incident, that Semaphore was updated.
+- name: Bump the image of semaphore-bck
+  hosts: localhost
+  gather_facts: false
+  vars:
+    semaphore_bck_manifest: "{{ playbook_dir }}/k8s/semaphore-bck/semaphore.yaml"
+  tasks:
+    - name: Read the manifest of semaphore-bck
+      ansible.builtin.slurp:
+        src: "{{ semaphore_bck_manifest }}"
+      register: semaphore_bck_content
+
+    - name: Find the version that it runs
+      ansible.builtin.set_fact:
+        semaphore_bck_current: "{{ (semaphore_bck_content.content | b64decode) | regex_findall('semaphoreui/semaphore:(v[0-9.]+)') | first }}"
+
+    - name: Determine the target tag when none is passed
+      when: semaphore_image_tag is not defined
+      block:
+        - name: Query the tags of Semaphore on Docker Hub
+          ansible.builtin.uri:
+            url: "https://hub.docker.com/v2/repositories/semaphoreui/semaphore/tags?page_size=100"
+            return_content: true
+          register: semaphore_bck_tags
+          retries: 3
+          delay: 10
+          until: semaphore_bck_tags.status | default(0) == 200
+
+        - name: Keep the plain vMAJOR.MINOR.PATCH tags of the major line that runs now
+          ansible.builtin.set_fact:
+            semaphore_bck_candidates: >-
+              {{
+                semaphore_bck_tags.json.results | map(attribute='name')
+                | select('match', '^v' ~ (semaphore_bck_current | regex_findall('[0-9]+') | first) ~ '[.][0-9]+[.][0-9]+$')
+                | list
+              }}
+
+        - name: Stop when Docker Hub gave no tag of that line
+          ansible.builtin.fail:
+            msg: "Docker Hub returned no vMAJOR.MINOR.PATCH tag of the line of {{ semaphore_bck_current }}"
+          when: semaphore_bck_candidates | length == 0
+
+        # Ranked by their numbers, since v2.9.0 is lower than v2.10.0 and not higher as text.
+        - name: Pick the highest of them
+          ansible.builtin.set_fact:
+            semaphore_image_tag: >-
+              {{
+                (semaphore_bck_candidates | map('regex_findall', '[0-9]+') | map('map', 'int') | map('list') | list
+                 | zip(semaphore_bck_candidates) | map('list') | list | sort)[-1][1]
+              }}
+
+    - name: Change the tag, commit and push
+      when: semaphore_image_tag != semaphore_bck_current
+      block:
+        - name: Replace the tag in the manifest
+          ansible.builtin.replace:
+            path: "{{ semaphore_bck_manifest }}"
+            regexp: '(image: docker\.io/semaphoreui/semaphore:)v[0-9.]+'
+            replace: '\g<1>{{ semaphore_image_tag }}'
+
+        - name: Commit and push the new tag
+          ansible.builtin.include_tasks: tasks/commit_and_push.yml
+          vars:
+            commit_message: "Update docker.io/semaphoreui/semaphore Docker tag from {{ semaphore_bck_current }} to {{ semaphore_image_tag }}"
+            commit_all_tracked: true
+
+        - name: Mail the new version
+          ansible.builtin.include_role:
+            name: send_report
+          vars:
+            report_subject: "[semaphore-bck] {{ semaphore_bck_current }} -> {{ semaphore_image_tag }}"
+            report_body: |
+              <h2>The Semaphore of the cluster is updated</h2>
+              <p><code>k8s/semaphore-bck/semaphore.yaml</code> now runs <strong>{{ semaphore_image_tag }}</strong> instead of
+              {{ semaphore_bck_current }}. Argo CD replaces the pod within a few minutes, and mails when it is in place: a task that was
+              running on semaphore-bck stops, and the first start of the new version migrates its database.</p>
+              <p>To go back, revert the commit "Update docker.io/semaphoreui/semaphore Docker tag from {{ semaphore_bck_current }} to
+              {{ semaphore_image_tag }}" in the repository.</p>
