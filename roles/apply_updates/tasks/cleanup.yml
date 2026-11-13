@@ -1,0 +1,39 @@
+---
+# Frees the space that updates leave on a Proxmox host, whose root filesystem is small: the packages that apt downloaded, and the
+# kernels older than the one that runs and the one before it, which stays so that the host can boot it again. Proxmox keeps every kernel
+# it ever installed, about 1 GB each. pve-updates.yml runs it first on each host, before it downloads anything, so that the update finds
+# the room: the kernel that the previous update installed is still the one that runs, and the one before it stays, so that three
+# kernels at most are kept. A failure here only leaves the space where it was, so it is shown in the log ("...ignoring") and never
+# stops the run.
+- name: Delete the packages that apt downloaded
+  ansible.builtin.apt:
+    clean: true
+  ignore_errors: true  # noqa ignore-errors
+  become: true
+  when: ansible_facts['pkg_mgr'] == 'apt'
+
+# The versions are sorted as versions (7.0.14-9 before 7.0.14-10). A kernel newer than the running one is kept, and so are the
+# running one and the one just below it.
+- name: List the kernels older than the one that runs and the one before it
+  ansible.builtin.shell: |
+    set -o pipefail
+    running=$(uname -r | sed 's/-pve$//')
+    dpkg-query -W -f='${Package}\n' 'proxmox-kernel-*-pve-signed' \
+      | sed -E 's/^proxmox-kernel-(.*)-pve-signed$/\1/' | sort -V \
+      | awk -v r="$running" '{v[NR]=$0; if ($0 == r) i=NR} END {for (n = 1; n < i - 1; n++) print v[n]}'
+  args:
+    executable: /bin/bash
+  register: apply_updates_old_kernels
+  changed_when: false
+  ignore_errors: true  # noqa ignore-errors
+  when: ansible_facts['pkg_mgr'] == 'apt'
+
+- name: Purge them
+  ansible.builtin.apt:
+    name: "{{ apply_updates_old_kernels.stdout_lines | map('regex_replace', '^(.*)$', 'proxmox-kernel-\\1-pve-signed') | list }}"
+    state: absent
+    purge: true
+  ignore_errors: true  # noqa ignore-errors
+  become: true
+  when:
+    - apply_updates_old_kernels.stdout_lines | default([]) | length > 0

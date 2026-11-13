@@ -37,6 +37,12 @@
           register: pveversion_before
           changed_when: false
 
+        # Before anything is downloaded: the root filesystem of a host is small, and Proxmox keeps every kernel it ever installed.
+        - name: Step 0 - Free the space left by the earlier updates (downloaded packages, old kernels)
+          include_role:
+            name: apply_updates
+            tasks_from: cleanup
+
         - name: Step 1 - Check for available updates
           include_role:
             name: check_updates
