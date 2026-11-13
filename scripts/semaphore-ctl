@@ -14,6 +14,7 @@
 #   semaphore-ctl delete-schedule <schedule-id> [--dry-run]
 #   semaphore-ctl delete-template <template-id> [--dry-run]
 #   semaphore-ctl rename-template <template-id> <name> [--dry-run]
+#   semaphore-ctl allow-args <template-id> [on|off] [--dry-run]
 #   semaphore-ctl rename-schedule <schedule-id> <name> [--dry-run]
 #   semaphore-ctl environments
 #   semaphore-ctl delete-env-secret <environment-id> <name> [--dry-run]
@@ -277,6 +278,23 @@ print(json.dumps(t))
   api PUT "/api/project/$SEMAPHORE_PROJECT/templates/$id" "$body" > /dev/null
   echo "template $id renamed to: $name"
 }
+# Lets a task of the template carry command-line arguments such as -e variables. Without it Semaphore drops them, and run --args refuses.
+cmd_allow_args() {
+  local id=${1:?template id required} mode=${2:-on} dry=0
+  [ "${3:-}" = "--dry-run" ] && dry=1
+  [[ $id =~ ^[0-9]+$ ]] || die "template id must be a number"
+  case "$mode" in on|off) ;; *) die "the mode is on or off" ;; esac
+  local body
+  body=$(MODE="$mode" CURRENT="$(api GET "/api/project/$SEMAPHORE_PROJECT/templates/$id")" python3 -c '
+import json, os
+t = json.loads(os.environ["CURRENT"])
+t["allow_override_args_in_task"] = os.environ["MODE"] == "on"
+print(json.dumps(t))
+')
+  if [ $dry -eq 1 ]; then echo "$body" | python3 -m json.tool; return 0; fi
+  api PUT "/api/project/$SEMAPHORE_PROJECT/templates/$id" "$body" > /dev/null
+  echo "template $id: arguments in a task $mode"
+}
 cmd_rename_schedule() {
   local id=${1:?schedule id required} name=${2:?new name required} dry=0
   [ "${3:-}" = "--dry-run" ] && dry=1
@@ -363,8 +381,9 @@ case "${1:-}" in
   delete-schedule) shift; cmd_delete_schedule "$@" ;;
   delete-template) shift; cmd_delete_template "$@" ;;
   rename-template) shift; cmd_rename_template "$@" ;;
+  allow-args) shift; cmd_allow_args "$@" ;;
   rename-schedule) shift; cmd_rename_schedule "$@" ;;
   environments) shift; cmd_environments "$@" ;;
   delete-env-secret) shift; cmd_delete_env_secret "$@" ;;
-  *) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac
