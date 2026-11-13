@@ -22,7 +22,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: server
-          image: ghcr.io/immich-app/immich-server:v3.3.6
+          image: ghcr.io/immich-app/immich-server:v3.4.1
           ports:
             - name: http
               containerPort: 2283
