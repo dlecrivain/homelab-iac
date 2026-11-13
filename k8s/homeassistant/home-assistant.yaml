@@ -36,7 +36,7 @@ spec:
                       - talos-wk103
       containers:
         - name: homeassistant
-          image: docker.io/homeassistant/home-assistant:2026.10.4
+          image: docker.io/homeassistant/home-assistant:2026.11.1
           env:
             - name: TZ
               value: Europe/Paris
