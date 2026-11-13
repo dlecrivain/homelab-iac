@@ -198,8 +198,9 @@ talosctl upgrade -n <node> --image factory.talos.dev/metal-installer/<schematic 
 **Updating what runs on the cluster.** Renovate reads `renovate.json` and bumps the versions of the images in `k8s/` and of the
 charts and tags of the Applications, between 03:00 and 04:00, three days after a release, and merges them by itself, major
 versions included. Argo CD, which polls git, deploys the merge: nobody clicks anything, and the mails below say what changed.
-Three things stay out. Cilium (synchronised by hand after its difference has been read) and Talos and Kubernetes (applied to the
-nodes by `full-updates.yml`) stay pull requests that are merged by hand, until the first update of the nodes has been watched. The
+Three things stay out. Cilium (synchronised by hand after its difference has been read), Kubernetes and the minor and major versions of Talos
+(applied to the nodes by `full-updates.yml`) stay pull requests that are merged by hand. A patch version of Talos is merged by
+itself and the next run of `full-updates.yml` applies it, one node at a time. The
 Semaphore of the cluster is bumped by `update-semaphore-bck.yml`. A new major version of Postgres is not proposed, since it is a dump
 and a restore. Before Paperless or Immich is replaced, a hook of Argo CD dumps its database
 (`k8s/paperless/presync-dump.yaml`, `k8s/immich/presync-dump.yaml`), and a failed dump stops the deployment; the other databases

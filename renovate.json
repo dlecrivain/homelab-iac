@@ -61,7 +61,7 @@
       ]
     },
     {
-      "description": "Talos Linux and Kubernetes carry every node of the cluster: their updates stay pull requests that are merged by hand until the first update of the nodes by full-updates.yml has been watched, and the next run of full-updates.yml applies the merged version",
+      "description": "Talos Linux and Kubernetes carry every node of the cluster: their updates are pull requests that are merged by hand, and the next run of full-updates.yml applies the merged version. The patch versions of Talos are the exception, below",
       "matchDepNames": [
         "siderolabs/talos",
         "kubernetes/kubernetes"
@@ -71,6 +71,16 @@
         "dependencies",
         "platform"
       ]
+    },
+    {
+      "description": "A patch version of Talos is merged by itself: full-updates.yml applies it one node at a time, checking the cluster before and after each. Kubernetes is not in this rule, since upgrade-k8s has not been used for an update yet",
+      "matchDepNames": [
+        "siderolabs/talos"
+      ],
+      "matchUpdateTypes": [
+        "patch"
+      ],
+      "automerge": true
     },
     {
       "description": "The dump job has the Postgres major version of the server of nfs101, which is changed by a dump and a restore and not by a bump of a tag",
