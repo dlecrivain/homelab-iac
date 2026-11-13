@@ -153,6 +153,11 @@ postgres_image: "docker.io/library/postgres:18@sha256:3a4264520e121176619f54ff86
 # Pinned by digest, and a major version needs a dump and restore.
 mariadb_image: "docker.io/library/mariadb:12.3.2@sha256:a02fe89cb597d4375812b2eac90cf9d0775d4686daa7f7cc750ebbcad7525bbc"
 
+# The audit logs of a host that runs rootless containers (tasks/audit_container_runtime.yml): the oldest are deleted after this
+# many days, and earlier when the volume of /var/log/audit is fuller than this percentage. auditd itself never deletes one.
+audit_retention_days: 180
+audit_volume_max_percent: 70
+
 # The host that shares the files of the Aqara doorbell over SMB (configure-smb.yml), see the README.
 smb_host: nfs101
 

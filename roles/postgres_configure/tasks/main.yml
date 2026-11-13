@@ -10,6 +10,9 @@
     creates: "/var/lib/systemd/linger/{{ ansible_user }}"
   become: true
 
+- name: Keep the audit log of the container runtime from filling its volume
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/audit_container_runtime.yml"
+
 - name: Create the directories of the databases and of their dumps
   ansible.builtin.file:
     path: "{{ item }}"

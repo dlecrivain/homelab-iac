@@ -1,0 +1,74 @@
+---
+# Keeps the audit log of a host that runs rootless containers from filling its volume. The containers belong to an ordinary
+# user, so the CIS audit rules that cover every user (delete, perm_mod, export and access) record what podman, conmon and the
+# user's systemd do for each health check: a few hundred events every 30 seconds for each container, which is about 1 GB of
+# log a day for the six databases of nfs101. auditd keeps every rotated log (keep_logs, which the profile wants) and halts the
+# host when the volume is full, so two things are set here:
+#   - the container runtime is left out of those four rules, which stay as they are for everything else;
+#   - the daily purge of the template, which only knew an age, also keeps the volume under a size.
+
+# The audit configuration is immutable: the file is loaded at the next boot. augenrules reads the files in alphabetical
+# order and a never rule only works before the rules it overrides, hence the number: it sorts before every rule of the profile.
+- name: Leave the container runtime out of the audit rules that record file changes
+  ansible.builtin.copy:
+    dest: /etc/audit/rules.d/02-container-runtime.rules
+    content: |
+      {% for exe in audit_runtime_executables %}
+      -a never,exit -F arch=b64 -S {{ audit_runtime_syscalls | join(',') }} -F exe={{ exe }}
+      {% endfor %}
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+  vars:
+    # The system calls of the four rules (the delete, perm_mod, export and access keys of the profile), and the programs that
+    # make them: the runtime, its monitor, and the systemd of the user that owns the containers, with the program that it starts.
+    audit_runtime_syscalls:
+      - unlink
+      - unlinkat
+      - rename
+      - renameat
+      - renameat2
+      - chmod
+      - fchmod
+      - fchmodat
+      - fchmodat2
+      - chown
+      - fchown
+      - lchown
+      - fchownat
+      - setxattr
+      - lsetxattr
+      - fsetxattr
+      - removexattr
+      - lremovexattr
+      - fremovexattr
+      - mount
+      - open
+      - openat
+      - creat
+      - truncate
+      - ftruncate
+    audit_runtime_executables:
+      - /usr/bin/podman
+      - /usr/bin/conmon
+      - /usr/lib/systemd/systemd
+      - /usr/lib/systemd/systemd-executor
+
+# The script of the template deletes by age only, which a volume of 10 GB cannot hold at 1 GB a day. The oldest logs now go
+# first, until the volume is under audit_volume_max_percent: the history is what fits, and at most audit_retention_days.
+- name: Trim the audit logs by age and by the size of their volume
+  ansible.builtin.copy:
+    dest: /etc/cron.daily/audit-log-retention
+    content: |
+      #!/bin/sh
+      find /var/log/audit -name 'audit.log.*' -mtime +{{ audit_retention_days }} -delete
+      while [ "$(df --output=pcent /var/log/audit | tail -n 1 | tr -dc 0-9)" -gt {{ audit_volume_max_percent }} ]; do
+        oldest=$(ls -1tr /var/log/audit/audit.log.* 2>/dev/null | head -n 1)
+        [ -n "$oldest" ] || break
+        rm -f -- "$oldest"
+      done
+    owner: root
+    group: root
+    mode: '0700'
+  become: true
