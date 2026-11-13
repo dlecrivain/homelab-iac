@@ -44,6 +44,11 @@
         - name: Evacuate, patch and reboot the host (only if updates are available)
           when: has_updates | default(false) | bool
           block:
+            - name: Step 1b - Download the updates, so that a package that cannot be fetched stops the run before any VM is moved
+              include_role:
+                name: apply_updates
+                tasks_from: download
+
             - name: Step 2 - Evacuate all VMs from this host (snapshots cleaned automatically before each move)
               include_role:
                 name: pve_evacuate_host

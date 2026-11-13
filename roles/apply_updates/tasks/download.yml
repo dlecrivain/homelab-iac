@@ -1,0 +1,24 @@
+---
+# Fetches the packages of an update without installing them, and stops when one cannot be fetched. pve-updates.yml runs it before it
+# evacuates a host: a repository that lists a package it can no longer serve then stops the run while every VM is still where it was,
+# instead of after they were moved. The installation that follows finds the packages in the cache of apt. Only apt is done, since only
+# a Proxmox host moves VMs away before it is patched.
+# The apt module has no option to download without installing.
+- name: Download the updates without installing them (apt)  # noqa command-instead-of-module
+  ansible.builtin.command: apt-get --yes --download-only -o DPkg::Lock::Timeout=60 dist-upgrade
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  register: apply_updates_download
+  changed_when: false
+  failed_when: false
+  become: true
+  when: ansible_facts['pkg_mgr'] == 'apt'
+
+# The message goes to the report of the run, so it carries the lines of apt that say what could not be fetched.
+- name: Stop when a package could not be downloaded
+  ansible.builtin.fail:
+    msg: >-
+      The updates could not be downloaded, so no VM was moved and nothing was installed:
+      {{ (apply_updates_download.stderr_lines + apply_updates_download.stdout_lines) | select('match', '^E:') | list | join(' ') | truncate(600) }}
+  when:
+    - apply_updates_download.rc | default(0) != 0
