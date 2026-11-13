@@ -90,6 +90,7 @@ The repository covers the maintenance cycle of a three-node Proxmox cluster and 
 |---|---|
 | `cv-retention.yml` | Purges content view versions beyond `cv_retention_count` on its own. `katello-publish.yml` does the same right after publishing. |
 | `katello-repo-cleanup.yml` | Disables every enabled repository that Katello does not manage, fleet-wide. Both provisioning playbooks already do this for new hosts. |
+| `katello-repo-policy.yml` | Applies `katello_repo_policies` to the Katello repositories (download policy and architectures) and synchronizes them. `-e katello_repo_policy_check_only=true` only shows what each one has now. See [Katello download policy](#katello-download-policy). |
 | `katello-repo-sync.yml` | Synchronizes one Katello repository immediately (`-e katello_sync_repo` and `katello_sync_product`, default `EPEL 10` in `Rocky Linux 10`). |
 | `test-email.yml` | Sends one test email to check the SMTP credentials. |
 
@@ -172,6 +173,10 @@ Per-host work in both playbooks is wrapped in a `block`/`rescue`: an unhandled f
 **Reports.** Run alone, each playbook sends its own email, marked `SKIPPED (previous stage had a problem)` if it was skipped. Run through `full-updates.yml`, the individual emails are suppressed (`is_orchestrated_run`) and replaced by one combined email: a summary table (stage, status, duration) followed by each stage's report. Per-stage durations use `capture_start_time` with a stage-scoped fact name alongside the global one.
 
 `update-semaphore-peer.yml` imports `container-updates.yml`, scoped to `peer_host`. It is not a stage of `full-updates.yml`, but it keeps reading and writing the same shared fact, so a run on its own behaves like the others.
+
+### Katello download policy
+
+A repository that Katello serves on demand holds only the list of its packages and fetches a file from the upstream mirror when a host first asks for it. A mirror that deletes the superseded version of a package then leaves a content view, published before the update, that lists a file nobody can serve: the host gets a 404. Debian's security archive does this within days, and a content view reaches Production a week after it is published, so the repository `Debian 13 Security` is kept `immediate` (each package is downloaded when the repository is synchronized) and `amd64` only, which is about 30 GB instead of the 170 GB of every architecture. `katello_repo_policies` in `group_vars/all.yml` lists these settings and `katello-repo-policy.yml` applies them. The other repositories stay on demand: `Debian 13 OS` alone would take 120 GB, and a Debian point release is the only time that its packages are replaced, and the step above is what stops a run when it happens. To see which repositories are on demand: `select name, download_policy from katello_root_repositories` in the `foreman` database of `lpkat101`.
 
 ### Updating the Semaphores
 

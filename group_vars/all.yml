@@ -25,6 +25,12 @@ cv_retention_count: 10
 katello_content_views:
   - CV_Rocky_10
   - CV_Proxmox
+# How Katello stores the packages of the repositories that katello-repo-policy.yml sets. The security archive of Debian deletes a package
+# as soon as a newer one replaces it, and a content view is promoted to Production a week after it was published, so the packages of
+# that repository are downloaded when it is synchronized (immediate) instead of when a host asks for them (on_demand, the other
+# repositories). Only amd64 is kept: the packages of the other architectures are not used and make the repository six times larger.
+katello_repo_policies:
+  - { product: "Debian 13", name: "Debian 13 Security", download_policy: immediate, deb_architectures: amd64 }
 pve_safety_threshold: 0.80
 pve_rebalance_margin: 0.05
 # VMs that must not share a Proxmox node, so one failing node cannot take both. Each entry is a

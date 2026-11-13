@@ -1,0 +1,105 @@
+---
+# Applies katello_repo_policies (group_vars/all.yml) to the Katello repositories, then synchronizes them, which downloads what the new
+# policy asks to keep. -e katello_repo_policy_check_only=true only shows the policy and the architectures that each one has now.
+#
+# A repository that Katello serves on demand holds only the list of its packages, and fetches a file from the upstream mirror when a
+# host first asks for it. A mirror that deletes the superseded version of a package, as the security archive of Debian does within days,
+# then leaves a content view that was published before the update listing a file that nobody can serve any more, and the host that
+# installs from that content view gets a 404. The policy "immediate" downloads each package when the repository is synchronized.
+#
+# The password of hammer is on its command line, so a task that runs it has no_log, and the tasks that report a failure do not loop over
+# the results, which would print the command of each of them.
+- name: Apply the download policy of the Katello repositories
+  hosts: "{{ lpkat_host | default('lpkat101') }}"
+  gather_facts: false
+  tasks:
+    - name: Read the policy that each repository has now
+      ansible.builtin.command: >-
+        hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
+        repository info
+        --name "{{ item.name }}"
+        --product "{{ item.product }}"
+        --organization "{{ katello_organization }}"
+      loop: "{{ katello_repo_policies }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: katello_repo_policy_info
+      changed_when: false
+      failed_when: false
+      become: true
+      no_log: true
+
+    - name: Stop when a repository cannot be read
+      ansible.builtin.fail:
+        msg: >-
+          {% for r in katello_repo_policy_info.results if r.rc != 0 %}
+          hammer repository info failed for {{ r.item.product }} / {{ r.item.name }} (rc={{ r.rc }}):
+          {{ (r.stderr | default('')) | replace(katello_hammer_password or 'never-matches', '***REDACTED***') }}
+          {% endfor %}
+      when: katello_repo_policy_info.results | selectattr('rc', 'ne', 0) | list | length > 0
+
+    - name: Show what they have now
+      ansible.builtin.debug:
+        msg: "{{ r.item.name }}: {{ r.stdout_lines | select('search', '(?i)download|architectures') | map('trim') | list }}"
+      loop: "{{ katello_repo_policy_info.results }}"
+      loop_control:
+        loop_var: r
+        label: "{{ r.item.name }}"
+
+    - name: Apply and synchronize
+      when: not (katello_repo_policy_check_only | default(false) | bool)
+      block:
+        - name: Set the download policy and the architectures
+          ansible.builtin.command: >-
+            hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
+            repository update
+            --name "{{ item.name }}"
+            --product "{{ item.product }}"
+            --organization "{{ katello_organization }}"
+            --download-policy {{ item.download_policy }}
+            {% if item.deb_architectures is defined %}--deb-architectures {{ item.deb_architectures }}{% endif %}
+          loop: "{{ katello_repo_policies }}"
+          loop_control:
+            label: "{{ item.name }}"
+          register: katello_repo_policy_update
+          changed_when: true
+          failed_when: false
+          become: true
+          no_log: true
+
+        - name: Stop when a repository could not be updated
+          ansible.builtin.fail:
+            msg: >-
+              {% for r in katello_repo_policy_update.results if r.rc != 0 %}
+              hammer repository update failed for {{ r.item.product }} / {{ r.item.name }} (rc={{ r.rc }}):
+              {{ (r.stderr | default('')) | replace(katello_hammer_password or 'never-matches', '***REDACTED***') }}
+              {% endfor %}
+          when: katello_repo_policy_update.results | selectattr('rc', 'ne', 0) | list | length > 0
+
+        # --skip-metadata-check makes Katello synchronize even though the list of packages upstream has not changed, which is what
+        # fetches the files that were only listed until now.
+        - name: Synchronize them, which downloads every package
+          ansible.builtin.command: >-
+            hammer -u {{ katello_hammer_username }} -p {{ katello_hammer_password }}
+            repository synchronize
+            --name "{{ item.name }}"
+            --product "{{ item.product }}"
+            --organization "{{ katello_organization }}"
+            --skip-metadata-check true
+          loop: "{{ katello_repo_policies }}"
+          loop_control:
+            label: "{{ item.name }}"
+          register: katello_repo_policy_sync
+          changed_when: true
+          failed_when: false
+          become: true
+          no_log: true
+
+        - name: Stop when a repository could not be synchronized
+          ansible.builtin.fail:
+            msg: >-
+              {% for r in katello_repo_policy_sync.results if r.rc != 0 %}
+              hammer repository synchronize failed for {{ r.item.product }} / {{ r.item.name }} (rc={{ r.rc }}):
+              {{ (r.stderr | default('')) | replace(katello_hammer_password or 'never-matches', '***REDACTED***') }}
+              {% endfor %}
+          when: katello_repo_policy_sync.results | selectattr('rc', 'ne', 0) | list | length > 0
