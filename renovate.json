@@ -27,7 +27,8 @@
     ]
   },
   "minimumReleaseAge": "3 days",
-  "prConcurrentLimit": 4,
+  "automerge": true,
+  "prConcurrentLimit": 10,
   "labels": [
     "dependencies"
   ],
@@ -49,33 +50,6 @@
       "commitMessageExtra": "(same tag, rebuilt)"
     },
     {
-      "description": "Paperless-ngx, its Valkey and the Postgres 17 client of its dump: minor and patch versions and digests are merged by themselves, and Argo CD deploys them after a dump of the database",
-      "matchPackageNames": [
-        "/paperless-ngx\\/paperless-ngx$/",
-        "/valkey\\/valkey$/",
-        "/postgres$/"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch",
-        "digest",
-        "pin"
-      ],
-      "automerge": true
-    },
-    {
-      "description": "Minor and patch versions of the charts and of the approver of kubelet certificates are merged by themselves",
-      "matchDatasources": [
-        "helm",
-        "git-tags"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
-      "automerge": true
-    },
-    {
       "description": "Cilium carries the network of every pod and is synchronised by hand: its updates are pull requests that are merged by hand",
       "matchDepNames": [
         "cilium"
@@ -87,7 +61,7 @@
       ]
     },
     {
-      "description": "Talos Linux and Kubernetes carry every node of the cluster: their updates are pull requests that are merged by hand, and the next run of full-updates.yml applies the merged version",
+      "description": "Talos Linux and Kubernetes carry every node of the cluster: their updates stay pull requests that are merged by hand until the first update of the nodes by full-updates.yml has been watched, and the next run of full-updates.yml applies the merged version",
       "matchDepNames": [
         "siderolabs/talos",
         "kubernetes/kubernetes"
@@ -99,19 +73,19 @@
       ]
     },
     {
-      "description": "A new major version is a pull request that is merged by hand",
-      "matchUpdateTypes": [
-        "major"
-      ],
-      "automerge": false
-    },
-    {
       "description": "The dump job has the Postgres major version of the server of nfs101, which is changed by a dump and a restore and not by a bump of a tag",
       "matchPackageNames": [
         "/postgres$/"
       ],
       "matchUpdateTypes": [
         "major"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "The Semaphore of the cluster is bumped by update-semaphore-bck.yml, which commits the new tag of the latest release of its major line, and Argo CD deploys it",
+      "matchPackageNames": [
+        "/semaphoreui\\/semaphore$/"
       ],
       "enabled": false
     }

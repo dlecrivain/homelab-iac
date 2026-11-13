@@ -195,13 +195,17 @@ talosctl upgrade -n <node> --image factory.talos.dev/metal-installer/<schematic 
 - `talos-updates.yml` does this for all the nodes, see **Updates from Semaphore** below. `talos_version` and the schematic are in
   `group_vars/all.yml`.
 
-**Updating what runs on the cluster.** Renovate reads `renovate.json` and proposes the new versions of the images in `k8s/` and
-of the charts and tags of the Applications, between 03:00 and 04:00, three days after a release. Minor and patch versions of
-Paperless-ngx and its Valkey, and of the charts, are merged by themselves, and Argo CD, which polls git, deploys
-the merge. Cilium and the major versions stay as pull requests. Before Paperless is replaced, a hook of Argo CD dumps its
-database (`k8s/paperless/presync-dump.yaml`, kept two weeks in `/srv/nfs/paperless/backups`), and a failed dump stops the
-deployment. To go back, revert the merge in git; if the new version migrated the database, restore the dump taken before it
-(`pg_restore` into the Postgres of `nfs101`). The Podman services keep `check-image-updates.yml`.
+**Updating what runs on the cluster.** Renovate reads `renovate.json` and bumps the versions of the images in `k8s/` and of the
+charts and tags of the Applications, between 03:00 and 04:00, three days after a release, and merges them by itself, major
+versions included. Argo CD, which polls git, deploys the merge: nobody clicks anything, and the mails below say what changed.
+Three things stay out. Cilium (synchronised by hand after its difference has been read) and Talos and Kubernetes (applied to the
+nodes by `full-updates.yml`) stay pull requests that are merged by hand, until the first update of the nodes has been watched. The
+Semaphore of the cluster is bumped by `update-semaphore-bck.yml`. A new major version of Postgres is not proposed, since it is a dump
+and a restore. Before Paperless or Immich is replaced, a hook of Argo CD dumps its database
+(`k8s/paperless/presync-dump.yaml`, `k8s/immich/presync-dump.yaml`), and a failed dump stops the deployment; the other databases
+are dumped every night on `nfs101`, at 03:30 (phpIPAM at 03:40). To go back, revert the merge in git; if the new version migrated
+the database, restore the dump taken before it (`pg_restore` into the Postgres of `nfs101`). The Podman services keep
+`check-image-updates.yml`.
 
 **Mail about updates.** Two mails come for a version that is merged by itself. GitHub sends the first when Renovate opens the
 pull request, which is the moment the new version is known (the repository has to be watched for pull requests in the
