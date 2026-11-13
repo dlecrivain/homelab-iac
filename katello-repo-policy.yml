@@ -40,7 +40,7 @@
 
     - name: Show what they have now
       ansible.builtin.debug:
-        msg: "{{ r.item.name }}: {{ r.stdout_lines | select('search', '(?i)download|architectures') | map('trim') | list }}"
+        msg: "{{ r.item.name }}: {{ r.stdout_lines | reject('search', '(?i)pass|secret|token') | map('trim') | list }}"
       loop: "{{ katello_repo_policy_info.results }}"
       loop_control:
         loop_var: r
