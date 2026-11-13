@@ -53,6 +53,17 @@
         size_gb: "{{ nfs_data_size_gb }}"
     lvm_grow_backup: false
 
+# The images of the rootless containers of this host (configure-postgres.yml, configure-mariadb.yml) are in the home of the connecting
+# user, on a volume of 2 GiB in the template. A new image is pulled before the old one is removed, so a database that moves to a new
+# version does not fit in it. Unlike the data, this room is kept by vzdump, since the units of the containers are in the same home.
+- name: Give the home of the containers' user room for their images
+  ansible.builtin.include_role:
+    name: lvm_grow
+  vars:
+    lvm_grow_targets:
+      - lv: lv_home
+        size_gb: "{{ nfs_home_size_gb }}"
+
 - name: Create the directories of the shares
   ansible.builtin.file:
     path: "{{ nfs_root }}/{{ item.name }}"

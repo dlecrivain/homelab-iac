@@ -9,6 +9,10 @@ nfs_vg: vg_system
 nfs_data_lv: lv_nfs
 nfs_data_size_gb: 400
 
+# The size of /home, where the images of the rootless containers are kept (about 1.6 GiB today, and two versions of an image
+# while it is replaced). The template makes it 2 GiB.
+nfs_home_size_gb: 4
+
 # The nodes of the cluster, which mount the shares and write to them. Their root is not squashed: the volumes of a pod are
 # set up by root on the node, and the addresses are the only thing that decides who may mount.
 nfs_clients: []
