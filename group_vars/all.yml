@@ -161,7 +161,7 @@ smb_host: nfs101
 # The version of Talos Linux that talos-updates.yml brings every node to, and the version of Kubernetes that kubernetes-updates.yml brings
 # the cluster to. Renovate proposes the new ones as pull requests, and the next run of full-updates.yml applies the merged one. The
 # images of the Image Factory are of the schematic of the nodes (the extension qemu-guest-agent), so an update keeps what is installed.
-talos_version: v1.14.5
+talos_version: v1.14.6
 talos_schematic_id: ce4c980550dd2ab1b17bbf2b08801c7eb59418eafe8f279833297925d67c7515
 talos_installer_image: "factory.talos.dev/metal-installer/{{ talos_schematic_id }}:{{ talos_version }}"
 kubernetes_version: "1.37.2"
