@@ -85,6 +85,14 @@ cmd_run() {
   done
   [[ $id =~ ^[0-9]+$ ]] || die "template id must be a number"
   allowed_ids | grep -qxE "$id|\*" || die "template $id is not in $ALLOW_FILE - refusing to start it"
+  # Semaphore drops the arguments of a task without saying so when its template does not allow them, and the playbook then runs
+  # without the -e of a check-only run or of a restriction to some nodes.
+  if [ -n "$args" ]; then
+    api GET "/api/project/$SEMAPHORE_PROJECT/templates/$id" | python3 -c '
+import json, sys
+sys.exit(0 if json.load(sys.stdin).get("allow_override_args_in_task") else 1)
+' || die "template $id does not allow arguments in a task (allow_override_args_in_task), so --args would be ignored: refusing to start it"
+  fi
   local body
   # A template's survey variables travel as the task's extra variables: a JSON object inside a string.
   body=$(ID="$id" ARGS="$args" WHY="$why" python3 -c '
